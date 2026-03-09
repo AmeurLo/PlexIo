@@ -372,15 +372,48 @@ frontend:
 
   - task: "Property Health Score Screen"
     implemented: true
-    working: true
+    working: "NA"
     file: "app/(tabs)/insights.tsx"
     stuck_count: 0
     priority: "high"
-    needs_retesting: true
+    needs_retesting: false
     status_history:
       - working: true
         agent: "main"
-        comment: "New Health Score tab showing property health scores (0-100) with visual indicators (green/yellow/red), expandable breakdown per property, actionable tips, portfolio average, and 'How Scores Work' explainer card. Tab icon is pulse icon. Tested via screenshots - working correctly."
+        comment: "Health Score tab showing property health scores (0-100) with visual indicators (green/yellow/red), expandable breakdown per property, actionable tips, portfolio average, and 'How Scores Work' explainer card. Updated with Plexio design system."
+      - working: "NA"
+        agent: "testing"
+        comment: "Unable to test Health tab functionality due to login authentication issue. Login form accepts credentials but does not redirect to dashboard, preventing access to main app navigation and tabs."
+
+  - task: "Unit Timeline Screen"
+    implemented: true
+    working: "NA"
+    file: "app/unit-timeline.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "New timeline screen accessible from Portfolio > expand property > unit card > View Timeline. Shows vertical chronological timeline with color-coded dots, event type badges, relative dates. Filterable by All/Payments/Leases/Issues. Back button navigation works. Uses Plexio design system."
+      - working: "NA"
+        agent: "testing"
+        comment: "Cannot test Unit Timeline feature due to login authentication issue. Unable to access Portfolio tab where Unit Timeline is accessed via property expansion and 'View Timeline' button."
+
+  - task: "Plexio Visual Redesign"
+    implemented: true
+    working: true
+    file: "src/components/theme.ts"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "Complete visual redesign - rebranded to Plexio with premium ocean blue primary (#1A8FC4), emerald green accent (#00C48C), gold luxury (#C9A96E). Updated all screens, tab navigation with active pill indicators, login/register branding, status colors across the app. Emaar One inspired design."
+      - working: true
+        agent: "testing"
+        comment: "Plexio visual redesign verified successfully on login screen. Logo 'P' displays correctly with ocean blue background, brand name 'Plexio' is prominently shown, 'Welcome Back' title is displayed. The premium design system is working correctly for the login interface. Unable to test other screens due to authentication issue."
 
 metadata:
   created_by: "main_agent"
@@ -389,19 +422,16 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "Plexio Visual Redesign"
+    - "Unit Timeline Screen"
+    - "Property Health Score Screen"
   stuck_tasks: []
-  test_all: false
+  test_all: true
   test_priority: "high_first"
 
 agent_communication:
   - agent: "main"
-    message: "MVP implementation complete. All core modules working - auth, properties, units, tenants, leases, rent tracking, maintenance, reminders, dashboard. Premium UI inspired by Emaar One. Ready for backend testing."
+    message: "Major update - two features implemented: 1) PLEXIO VISUAL REDESIGN - Complete rebrand from Small Landlord OS to Plexio with premium ocean blue primary (#1A8FC4), emerald green accent (#00C48C). Updated all screens, tab navigation with active pill indicators, login/register with Plexio logo branding. 2) UNIT TIMELINE - New GET /api/units/{unit_id}/timeline endpoint and timeline screen. Accessible from Portfolio > expand property > unit card > View Timeline button. Shows chronological events with color-coded dots and filter tabs. Test credentials: test@landlord.com / test123. Frontend URL: https://landlord-insights-1.preview.emergentagent.com. Please test: Login flow, all 6 tab screens (Home, Portfolio, Tenants, Issues, Health, More), and the Unit Timeline (Portfolio > expand a property > click View Timeline on a unit card)."
   - agent: "testing"
-    message: "Backend API testing completed successfully. All 23 test cases passed (100% success rate). Tested authentication flow, CRUD operations for all entities (properties, units, tenants, leases, rent payments, maintenance, reminders), dashboard stats, and demo data seeding. All endpoints working correctly with proper authentication and data validation."
-  - agent: "main"
-    message: "Added Property Health Score feature. New endpoint GET /api/property-health-scores calculates health scores (0-100) for each property based on 4 factors: rent collection (30pts), occupancy (25pts), maintenance (20pts), lease stability (25pts). Returns per-property breakdown, portfolio average. New Health tab in the frontend shows scores with green/yellow/red indicators, expandable breakdowns, tips. Test credentials: test@landlord.com / test123. Please test the new /api/property-health-scores endpoint specifically."
-  - agent: "testing"
-    message: "Property Health Scores API testing completed successfully! All 48 backend tests passed (100% success rate). The new endpoint GET /api/property-health-scores works perfectly: proper authentication required (returns 403 without token), returns correct structure with properties array, portfolio_average, and portfolio_status. Verified all expected demo properties (Duplex Rosemont, Triplex Plateau). Score calculations are accurate: breakdown values sum correctly, status logic works (healthy >=70, moderate 40-69, at_risk <40), portfolio average calculated correctly. All validation scenarios passed including edge cases for units, occupancy, maintenance issues, and collection rates. Ready for production use."
-  - agent: "testing"  
-    message: "Unit Timeline API testing completed successfully! Comprehensive testing of new GET /api/units/{unit_id}/timeline endpoint passed all validation scenarios. Fixed one datetime serialization issue during testing (maintenance events). All test requirements verified: ✅ Bearer token authentication required (403 without token) ✅ Invalid unit_id returns 404 ✅ Response structure contains unit_id, unit_number, property_name, events array ✅ Event fields validated: id, event_type, date, title, description, icon, color ✅ All event types working: lease_created, tenant_move_in, rent_payment, late_payment, maintenance_opened, maintenance_completed ✅ Events sorted by date descending (newest first) ✅ Existing endpoints (dashboard, property-health-scores) still working correctly. Ready for production use."
+    message: "TESTING RESULTS: ✅ PLEXIO VISUAL REDESIGN verified working correctly on login screen - logo 'P', brand name 'Plexio', and 'Welcome Back' all display properly with premium ocean blue design. ❌ CRITICAL LOGIN ISSUE: Authentication flow is broken - login form accepts test credentials (test@landlord.com/test123) but fails to redirect to dashboard, preventing access to main app functionality including Portfolio, Unit Timeline, Health tabs, and bottom navigation. Backend logs show successful login API calls (POST /api/auth/login HTTP/1.1 200 OK) but frontend routing appears to be stuck on login screen. Need to investigate frontend authentication state management or routing configuration."
