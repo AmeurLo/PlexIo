@@ -11,6 +11,8 @@ import {
   MaintenanceRequestWithDetails,
   Reminder,
   DashboardStats,
+  PortfolioInsights,
+  HealthScoreResponse,
 } from '../types';
 
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
@@ -308,6 +310,18 @@ class ApiService {
 
   async deleteReminder(id: string): Promise<void> {
     await this.client.delete(`/reminders/${id}`);
+  }
+
+  // Insights
+  async getInsights(): Promise<PortfolioInsights> {
+    const response = await this.client.get('/insights');
+    return response.data;
+  }
+
+  // Property Health Scores
+  async getHealthScores(): Promise<HealthScoreResponse> {
+    const response = await this.client.get('/property-health-scores');
+    return response.data;
   }
 
   // Demo data

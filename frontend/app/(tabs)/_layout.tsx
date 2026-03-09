@@ -46,9 +46,18 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="maintenance"
         options={{
-          title: 'Maintenance',
+          title: 'Issues',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="construct" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="insights"
+        options={{
+          title: 'Health',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="pulse" size={size} color={color} />
           ),
         }}
       />

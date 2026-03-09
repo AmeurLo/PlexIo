@@ -12,9 +12,9 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 # Configuration
-BASE_URL = "https://renttrack-pro-2.preview.emergentagent.com/api"
-TEST_USER_EMAIL = "test.landlord@example.com"
-TEST_USER_PASSWORD = "TestPassword123!"
+BASE_URL = "https://landlord-insights-1.preview.emergentagent.com/api"
+TEST_USER_EMAIL = "test@landlord.com"
+TEST_USER_PASSWORD = "test123"
 TEST_USER_NAME = "Test Landlord"
 
 class BackendTester:
@@ -632,6 +632,188 @@ class BackendTester:
         else:
             self.log_result("Create Reminder", False, f"Status: {response.status_code if success else 'Request failed'}")
 
+    def test_property_health_scores(self):
+        """Test Property Health Scores API endpoint"""
+        print("\n=== Property Health Scores ===")
+        
+        # Test without authentication first
+        success, response = self.make_request('GET', '/property-health-scores', require_auth=False)
+        if success and response.status_code in [401, 403]:
+            self.log_result("Health Scores - No Auth", True, "Correctly rejected unauthenticated request")
+        else:
+            self.log_result("Health Scores - No Auth", False, f"Expected 401/403, got {response.status_code if success else 'Request failed'}")
+        
+        # Test with authentication
+        success, response = self.make_request('GET', '/property-health-scores')
+        if not success:
+            self.log_result("Get Property Health Scores", False, response)
+            return False
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                
+                # Check main structure
+                required_top_level_fields = ['properties', 'portfolio_average', 'portfolio_status']
+                if not all(field in data for field in required_top_level_fields):
+                    self.log_result("Health Scores Structure", False, f"Missing required top-level fields: {required_top_level_fields}")
+                    return False
+                
+                # Check portfolio data
+                portfolio_avg = data.get('portfolio_average')
+                portfolio_status = data.get('portfolio_status')
+                
+                if not isinstance(portfolio_avg, int) or portfolio_avg < 0 or portfolio_avg > 100:
+                    self.log_result("Portfolio Average", False, f"Invalid portfolio average: {portfolio_avg} (should be 0-100)")
+                else:
+                    self.log_result("Portfolio Average", True, f"Portfolio average: {portfolio_avg}")
+                
+                if portfolio_status not in ['healthy', 'moderate', 'at_risk']:
+                    self.log_result("Portfolio Status", False, f"Invalid portfolio status: {portfolio_status}")
+                else:
+                    self.log_result("Portfolio Status", True, f"Portfolio status: {portfolio_status}")
+                
+                # Check properties array
+                properties = data.get('properties', [])
+                if not isinstance(properties, list):
+                    self.log_result("Properties Array", False, "Properties is not an array")
+                    return False
+                
+                if len(properties) == 0:
+                    self.log_result("Properties Count", True, "No properties found (expected for fresh account)")
+                    return True
+                
+                self.log_result("Properties Count", True, f"Found {len(properties)} properties")
+                
+                # Check each property structure
+                for i, prop in enumerate(properties):
+                    prop_name = prop.get('property_name', f'Property {i+1}')
+                    
+                    # Required fields for each property
+                    required_prop_fields = [
+                        'property_id', 'property_name', 'property_type', 'score', 'status', 
+                        'breakdown', 'total_units', 'occupied_units', 'open_issues', 
+                        'collection_rate'
+                    ]
+                    
+                    missing_fields = [field for field in required_prop_fields if field not in prop]
+                    if missing_fields:
+                        self.log_result(f"Property {prop_name} - Structure", False, f"Missing fields: {missing_fields}")
+                        continue
+                    
+                    # Validate score
+                    score = prop.get('score')
+                    if not isinstance(score, int) or score < 0 or score > 100:
+                        self.log_result(f"Property {prop_name} - Score", False, f"Invalid score: {score} (should be 0-100)")
+                    else:
+                        self.log_result(f"Property {prop_name} - Score", True, f"Score: {score}")
+                    
+                    # Validate status
+                    status = prop.get('status')
+                    if status not in ['healthy', 'moderate', 'at_risk']:
+                        self.log_result(f"Property {prop_name} - Status", False, f"Invalid status: {status}")
+                    else:
+                        # Validate status logic
+                        expected_status = "healthy" if score >= 70 else "moderate" if score >= 40 else "at_risk"
+                        if status == expected_status:
+                            self.log_result(f"Property {prop_name} - Status Logic", True, f"Status '{status}' correct for score {score}")
+                        else:
+                            self.log_result(f"Property {prop_name} - Status Logic", False, f"Status '{status}' incorrect for score {score}, expected '{expected_status}'")
+                    
+                    # Validate breakdown
+                    breakdown = prop.get('breakdown', {})
+                    if not isinstance(breakdown, dict):
+                        self.log_result(f"Property {prop_name} - Breakdown", False, "Breakdown is not an object")
+                        continue
+                    
+                    breakdown_fields = ['rent_collection', 'occupancy', 'maintenance', 'lease_stability']
+                    missing_breakdown = [field for field in breakdown_fields if field not in breakdown]
+                    if missing_breakdown:
+                        self.log_result(f"Property {prop_name} - Breakdown Fields", False, f"Missing breakdown fields: {missing_breakdown}")
+                    else:
+                        # Validate breakdown values and totals
+                        rent_collection = breakdown.get('rent_collection', 0)
+                        occupancy = breakdown.get('occupancy', 0)
+                        maintenance = breakdown.get('maintenance', 0)
+                        lease_stability = breakdown.get('lease_stability', 0)
+                        
+                        # Check individual breakdown ranges
+                        breakdown_valid = True
+                        if not (0 <= rent_collection <= 30):
+                            self.log_result(f"Property {prop_name} - Rent Collection", False, f"Invalid rent_collection: {rent_collection} (should be 0-30)")
+                            breakdown_valid = False
+                        if not (0 <= occupancy <= 25):
+                            self.log_result(f"Property {prop_name} - Occupancy", False, f"Invalid occupancy: {occupancy} (should be 0-25)")
+                            breakdown_valid = False
+                        if not (0 <= maintenance <= 20):
+                            self.log_result(f"Property {prop_name} - Maintenance", False, f"Invalid maintenance: {maintenance} (should be 0-20)")
+                            breakdown_valid = False
+                        if not (0 <= lease_stability <= 25):
+                            self.log_result(f"Property {prop_name} - Lease Stability", False, f"Invalid lease_stability: {lease_stability} (should be 0-25)")
+                            breakdown_valid = False
+                        
+                        if breakdown_valid:
+                            breakdown_total = rent_collection + occupancy + maintenance + lease_stability
+                            # Allow for small rounding differences
+                            if abs(breakdown_total - score) <= 2:
+                                self.log_result(f"Property {prop_name} - Breakdown Total", True, f"Breakdown adds up to score ({breakdown_total} ≈ {score})")
+                            else:
+                                self.log_result(f"Property {prop_name} - Breakdown Total", False, f"Breakdown total {breakdown_total} doesn't match score {score}")
+                    
+                    # Validate other numeric fields
+                    total_units = prop.get('total_units', 0)
+                    occupied_units = prop.get('occupied_units', 0)
+                    open_issues = prop.get('open_issues', 0)
+                    collection_rate = prop.get('collection_rate', 0)
+                    
+                    if not isinstance(total_units, int) or total_units < 0:
+                        self.log_result(f"Property {prop_name} - Total Units", False, f"Invalid total_units: {total_units}")
+                    elif not isinstance(occupied_units, int) or occupied_units < 0 or occupied_units > total_units:
+                        self.log_result(f"Property {prop_name} - Occupied Units", False, f"Invalid occupied_units: {occupied_units} (total: {total_units})")
+                    else:
+                        self.log_result(f"Property {prop_name} - Units", True, f"{occupied_units}/{total_units} occupied")
+                    
+                    if not isinstance(open_issues, int) or open_issues < 0:
+                        self.log_result(f"Property {prop_name} - Open Issues", False, f"Invalid open_issues: {open_issues}")
+                    else:
+                        self.log_result(f"Property {prop_name} - Open Issues", True, f"{open_issues} open issues")
+                    
+                    if not isinstance(collection_rate, (int, float)) or collection_rate < 0 or collection_rate > 100:
+                        self.log_result(f"Property {prop_name} - Collection Rate", False, f"Invalid collection_rate: {collection_rate}")
+                    else:
+                        self.log_result(f"Property {prop_name} - Collection Rate", True, f"Collection rate: {collection_rate}%")
+                
+                # Check portfolio average calculation
+                if len(properties) > 1:
+                    calculated_avg = round(sum(p.get('score', 0) for p in properties) / len(properties))
+                    if calculated_avg == portfolio_avg:
+                        self.log_result("Portfolio Average Calculation", True, f"Calculated average matches: {calculated_avg}")
+                    else:
+                        self.log_result("Portfolio Average Calculation", False, f"Calculated {calculated_avg} but got {portfolio_avg}")
+                
+                # Verify demo properties are present (Duplex Rosemont and Triplex Plateau)
+                property_names = [p.get('property_name', '').lower() for p in properties]
+                expected_demo_properties = ['duplex rosemont', 'triplex plateau']
+                found_demo_properties = []
+                
+                for demo_prop in expected_demo_properties:
+                    if any(demo_prop in name for name in property_names):
+                        found_demo_properties.append(demo_prop)
+                
+                if len(found_demo_properties) >= 2:
+                    self.log_result("Demo Properties", True, f"Found expected demo properties: {found_demo_properties}")
+                elif len(found_demo_properties) > 0:
+                    self.log_result("Demo Properties", True, f"Found some demo properties: {found_demo_properties} (partial)")
+                else:
+                    self.log_result("Demo Properties", True, "No demo properties found (may not be seeded yet)")
+                
+            except json.JSONDecodeError:
+                self.log_result("Get Property Health Scores", False, "Invalid JSON response")
+        else:
+            self.log_result("Get Property Health Scores", False, f"Status code: {response.status_code}, Response: {response.text}")
+        
+        return True
+
     def run_all_tests(self):
         """Run all API tests in sequence"""
         print("=" * 60)
@@ -666,6 +848,9 @@ class BackendTester:
         self.test_rent_payments()
         self.test_maintenance()
         self.test_reminders()
+        
+        # Test NEW Property Health Scores endpoint
+        self.test_property_health_scores()
         
         # Print final results
         print("\n" + "=" * 60)

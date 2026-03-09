@@ -165,3 +165,84 @@ export interface DashboardStats {
   overdue_rent_count: number;
   current_month: string;
 }
+
+// Insights Types
+export interface PropertyPerformance {
+  property_id: string;
+  property_name: string;
+  property_type: string;
+  total_units: number;
+  occupied_units: number;
+  occupancy_rate: number;
+  rent_collected: number;
+  rent_expected: number;
+  collection_rate: number;
+  maintenance_expenses: number;
+  open_issues: number;
+  estimated_profit: number;
+}
+
+export interface InsightAlert {
+  id: string;
+  type: string;
+  severity: 'info' | 'warning' | 'critical';
+  title: string;
+  description: string;
+  related_id?: string;
+  action_label?: string;
+}
+
+export interface InsightRecommendation {
+  id: string;
+  type: string;
+  title: string;
+  description: string;
+  priority: 'high' | 'medium' | 'low';
+  action_label: string;
+  related_id?: string;
+}
+
+export interface PortfolioInsights {
+  total_rent_collected: number;
+  total_rent_expected: number;
+  collection_rate: number;
+  maintenance_expenses: number;
+  net_cash_flow: number;
+  occupancy_rate: number;
+  total_properties: number;
+  total_units: number;
+  occupied_units: number;
+  vacant_units: number;
+  current_month: string;
+  property_performance: PropertyPerformance[];
+  alerts: InsightAlert[];
+  recommendations: InsightRecommendation[];
+}
+
+// Property Health Score Types
+export interface HealthScoreBreakdown {
+  rent_collection: number;  // out of 30
+  occupancy: number;        // out of 25
+  maintenance: number;      // out of 20
+  lease_stability: number;  // out of 25
+}
+
+export interface PropertyHealthScore {
+  property_id: string;
+  property_name: string;
+  property_type: string;
+  score: number;            // 0-100
+  status: 'healthy' | 'moderate' | 'at_risk';
+  breakdown: HealthScoreBreakdown;
+  total_units: number;
+  occupied_units: number;
+  open_issues: number;
+  collection_rate: number;
+  days_to_nearest_expiry: number | null;
+}
+
+export interface HealthScoreResponse {
+  properties: PropertyHealthScore[];
+  portfolio_average: number;
+  portfolio_status: 'healthy' | 'moderate' | 'at_risk';
+}

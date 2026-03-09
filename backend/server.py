@@ -1564,6 +1564,513 @@ async def seed_demo_data(current_user: dict = Depends(get_current_user)):
     }
 
 # ===========================
+# INSIGHTS ROUTES
+# ===========================
+
+class PropertyPerformance(BaseModel):
+    property_id: str
+    property_name: str
+    property_type: str
+    total_units: int
+    occupied_units: int
+    occupancy_rate: float
+    rent_collected: float
+    rent_expected: float
+    collection_rate: float
+    maintenance_expenses: float
+    open_issues: int
+    estimated_profit: float
+
+class InsightAlert(BaseModel):
+    id: str
+    type: str  # late_rent, maintenance_cost, lease_expiry, vacancy
+    severity: str  # info, warning, critical
+    title: str
+    description: str
+    related_id: Optional[str] = None
+    action_label: Optional[str] = None
+
+class InsightRecommendation(BaseModel):
+    id: str
+    type: str
+    title: str
+    description: str
+    priority: str  # high, medium, low
+    action_label: str
+    related_id: Optional[str] = None
+
+class PortfolioInsights(BaseModel):
+    # Portfolio Overview
+    total_rent_collected: float
+    total_rent_expected: float
+    collection_rate: float
+    maintenance_expenses: float
+    net_cash_flow: float
+    occupancy_rate: float
+    total_properties: int
+    total_units: int
+    occupied_units: int
+    vacant_units: int
+    current_month: str
+    
+    # Property Performance
+    property_performance: List[PropertyPerformance]
+    
+    # Alerts and Warnings
+    alerts: List[InsightAlert]
+    
+    # Recommendations
+    recommendations: List[InsightRecommendation]
+
+@api_router.get("/insights", response_model=PortfolioInsights)
+async def get_insights(current_user: dict = Depends(get_current_user)):
+    """Get comprehensive portfolio insights"""
+    user_id = current_user["id"]
+    current_month = datetime.now().strftime("%Y-%m")
+    today = datetime.now()
+    
+    # Get all properties
+    properties = await db.properties.find({"user_id": user_id}).to_list(100)
+    property_ids = [p["id"] for p in properties]
+    
+    # Get all units
+    units = await db.units.find({"property_id": {"$in": property_ids}}).to_list(100)
+    total_units = len(units)
+    occupied_units = sum(1 for u in units if u.get("is_occupied", False))
+    vacant_units = total_units - occupied_units
+    
+    # Calculate portfolio-level metrics
+    total_rent_expected = sum(u.get("rent_amount", 0) for u in units if u.get("is_occupied", False))
+    
+    unit_ids = [u["id"] for u in units]
+    payments = await db.rent_payments.find({
+        "unit_id": {"$in": unit_ids},
+        "month_year": current_month
+    }).to_list(100)
+    total_rent_collected = sum(p.get("amount", 0) for p in payments)
+    
+    # Get maintenance expenses (completed maintenance with costs this month)
+    maintenance_requests = await db.maintenance_requests.find({
+        "user_id": user_id
+    }).to_list(500)
+    
+    # Calculate total maintenance expenses from completed requests
+    maintenance_expenses = sum(
+        m.get("cost", 0) or 0 
+        for m in maintenance_requests 
+        if m.get("cost") and m.get("status") in ["completed", "in_progress"]
+    )
+    
+    collection_rate = (total_rent_collected / total_rent_expected * 100) if total_rent_expected > 0 else 0
+    occupancy_rate = (occupied_units / total_units * 100) if total_units > 0 else 0
+    net_cash_flow = total_rent_collected - maintenance_expenses
+    
+    # Calculate property performance
+    property_performance = []
+    for prop in properties:
+        prop_units = [u for u in units if u["property_id"] == prop["id"]]
+        prop_unit_ids = [u["id"] for u in prop_units]
+        
+        prop_total_units = len(prop_units)
+        prop_occupied = sum(1 for u in prop_units if u.get("is_occupied", False))
+        prop_occupancy = (prop_occupied / prop_total_units * 100) if prop_total_units > 0 else 0
+        
+        prop_rent_expected = sum(u.get("rent_amount", 0) for u in prop_units if u.get("is_occupied", False))
+        prop_payments = [p for p in payments if p["unit_id"] in prop_unit_ids]
+        prop_rent_collected = sum(p.get("amount", 0) for p in prop_payments)
+        prop_collection_rate = (prop_rent_collected / prop_rent_expected * 100) if prop_rent_expected > 0 else 0
+        
+        prop_maintenance = [m for m in maintenance_requests if m["property_id"] == prop["id"]]
+        prop_expenses = sum(m.get("cost", 0) or 0 for m in prop_maintenance if m.get("cost") and m.get("status") in ["completed", "in_progress"])
+        prop_open_issues = sum(1 for m in prop_maintenance if m.get("status") in ["open", "in_progress"])
+        
+        prop_profit = prop_rent_collected - prop_expenses
+        
+        property_performance.append(PropertyPerformance(
+            property_id=prop["id"],
+            property_name=prop["name"],
+            property_type=prop.get("property_type", "other"),
+            total_units=prop_total_units,
+            occupied_units=prop_occupied,
+            occupancy_rate=round(prop_occupancy, 1),
+            rent_collected=prop_rent_collected,
+            rent_expected=prop_rent_expected,
+            collection_rate=round(prop_collection_rate, 1),
+            maintenance_expenses=prop_expenses,
+            open_issues=prop_open_issues,
+            estimated_profit=prop_profit
+        ))
+    
+    # Generate alerts
+    alerts = []
+    alert_counter = 0
+    
+    # Late rent alerts
+    active_leases = await db.leases.find({
+        "user_id": user_id,
+        "is_active": True
+    }).to_list(100)
+    
+    late_tenants = []
+    for lease in active_leases:
+        payment = await db.rent_payments.find_one({
+            "tenant_id": lease["tenant_id"],
+            "month_year": current_month
+        })
+        if not payment and today.day > lease.get("payment_due_day", 1):
+            tenant = await db.tenants.find_one({"id": lease["tenant_id"]})
+            if tenant:
+                late_tenants.append(tenant)
+    
+    if late_tenants:
+        alert_counter += 1
+        days_late = today.day - 1  # Assuming due on 1st
+        severity = "critical" if days_late > 7 else "warning"
+        alerts.append(InsightAlert(
+            id=f"alert_{alert_counter}",
+            type="late_rent",
+            severity=severity,
+            title=f"{len(late_tenants)} tenant{'s' if len(late_tenants) > 1 else ''} with late rent",
+            description=f"${sum(l.get('rent_amount', 0) for l in active_leases if any(t['id'] == l['tenant_id'] for t in late_tenants)):,.0f} overdue for {current_month}",
+            action_label="View Tenants"
+        ))
+    
+    # High maintenance costs alert
+    if maintenance_expenses > total_rent_collected * 0.3 and maintenance_expenses > 0:
+        alert_counter += 1
+        alerts.append(InsightAlert(
+            id=f"alert_{alert_counter}",
+            type="maintenance_cost",
+            severity="warning",
+            title="High maintenance expenses",
+            description=f"Maintenance costs (${maintenance_expenses:,.0f}) are {(maintenance_expenses/total_rent_collected*100):.0f}% of collected rent",
+            action_label="Review Issues"
+        ))
+    
+    # Expiring leases alert
+    future_60 = (today + timedelta(days=60)).strftime("%Y-%m-%d")
+    today_str = today.strftime("%Y-%m-%d")
+    
+    expiring_leases = await db.leases.find({
+        "user_id": user_id,
+        "is_active": True,
+        "end_date": {"$lte": future_60, "$gte": today_str}
+    }).to_list(100)
+    
+    if expiring_leases:
+        alert_counter += 1
+        soonest = min(expiring_leases, key=lambda x: x["end_date"])
+        days_until = (datetime.strptime(soonest["end_date"], "%Y-%m-%d").date() - today.date()).days
+        severity = "critical" if days_until <= 14 else "warning" if days_until <= 30 else "info"
+        alerts.append(InsightAlert(
+            id=f"alert_{alert_counter}",
+            type="lease_expiry",
+            severity=severity,
+            title=f"{len(expiring_leases)} lease{'s' if len(expiring_leases) > 1 else ''} expiring soon",
+            description=f"Soonest expires in {days_until} days",
+            action_label="View Leases"
+        ))
+    
+    # Vacancy alert
+    if vacant_units > 0:
+        alert_counter += 1
+        vacancy_rate = (vacant_units / total_units * 100) if total_units > 0 else 0
+        potential_loss = sum(u.get("rent_amount", 0) for u in units if not u.get("is_occupied", False))
+        severity = "critical" if vacancy_rate > 30 else "warning" if vacancy_rate > 15 else "info"
+        alerts.append(InsightAlert(
+            id=f"alert_{alert_counter}",
+            type="vacancy",
+            severity=severity,
+            title=f"{vacant_units} vacant unit{'s' if vacant_units > 1 else ''}",
+            description=f"Potential monthly income loss: ${potential_loss:,.0f}",
+            action_label="View Properties"
+        ))
+    
+    # Open maintenance issues
+    open_issues = [m for m in maintenance_requests if m.get("status") in ["open", "in_progress"]]
+    high_priority_issues = [m for m in open_issues if m.get("priority") in ["high", "urgent"]]
+    
+    if high_priority_issues:
+        alert_counter += 1
+        alerts.append(InsightAlert(
+            id=f"alert_{alert_counter}",
+            type="maintenance_urgent",
+            severity="warning",
+            title=f"{len(high_priority_issues)} high priority issue{'s' if len(high_priority_issues) > 1 else ''}",
+            description=f"{len(open_issues)} total open maintenance requests",
+            action_label="View Issues"
+        ))
+    
+    # Generate recommendations
+    recommendations = []
+    rec_counter = 0
+    
+    # Follow up on late tenants
+    if late_tenants:
+        for tenant in late_tenants[:3]:  # Top 3
+            rec_counter += 1
+            recommendations.append(InsightRecommendation(
+                id=f"rec_{rec_counter}",
+                type="late_rent",
+                title=f"Follow up with {tenant['first_name']} {tenant['last_name']}",
+                description="Rent payment is overdue. Consider sending a reminder.",
+                priority="high",
+                action_label="Contact Tenant",
+                related_id=tenant["id"]
+            ))
+    
+    # Review units with frequent issues
+    unit_issue_count = {}
+    for m in maintenance_requests:
+        if m.get("unit_id"):
+            unit_issue_count[m["unit_id"]] = unit_issue_count.get(m["unit_id"], 0) + 1
+    
+    problematic_units = [(uid, count) for uid, count in unit_issue_count.items() if count >= 2]
+    for uid, count in sorted(problematic_units, key=lambda x: -x[1])[:2]:
+        unit = next((u for u in units if u["id"] == uid), None)
+        if unit:
+            prop = next((p for p in properties if p["id"] == unit["property_id"]), None)
+            if prop:
+                rec_counter += 1
+                recommendations.append(InsightRecommendation(
+                    id=f"rec_{rec_counter}",
+                    type="maintenance",
+                    title=f"Review Unit {unit['unit_number']} at {prop['name']}",
+                    description=f"This unit has had {count} maintenance issues. Consider inspection.",
+                    priority="medium",
+                    action_label="View Unit",
+                    related_id=uid
+                ))
+    
+    # Lease renewals
+    for lease in expiring_leases[:3]:
+        tenant = await db.tenants.find_one({"id": lease["tenant_id"]})
+        if tenant:
+            days_until = (datetime.strptime(lease["end_date"], "%Y-%m-%d").date() - today.date()).days
+            rec_counter += 1
+            recommendations.append(InsightRecommendation(
+                id=f"rec_{rec_counter}",
+                type="lease_renewal",
+                title=f"Discuss renewal with {tenant['first_name']} {tenant['last_name']}",
+                description=f"Lease expires in {days_until} days. Start renewal conversation.",
+                priority="high" if days_until <= 30 else "medium",
+                action_label="View Lease",
+                related_id=lease["id"]
+            ))
+    
+    # Fill vacancies
+    if vacant_units > 0:
+        for unit in [u for u in units if not u.get("is_occupied", False)][:2]:
+            prop = next((p for p in properties if p["id"] == unit["property_id"]), None)
+            if prop:
+                rec_counter += 1
+                recommendations.append(InsightRecommendation(
+                    id=f"rec_{rec_counter}",
+                    type="vacancy",
+                    title=f"List Unit {unit['unit_number']} at {prop['name']}",
+                    description=f"Vacant unit at ${unit.get('rent_amount', 0):,.0f}/month. Consider listing.",
+                    priority="medium",
+                    action_label="View Unit",
+                    related_id=unit["id"]
+                ))
+    
+    return PortfolioInsights(
+        total_rent_collected=total_rent_collected,
+        total_rent_expected=total_rent_expected,
+        collection_rate=round(collection_rate, 1),
+        maintenance_expenses=maintenance_expenses,
+        net_cash_flow=net_cash_flow,
+        occupancy_rate=round(occupancy_rate, 1),
+        total_properties=len(properties),
+        total_units=total_units,
+        occupied_units=occupied_units,
+        vacant_units=vacant_units,
+        current_month=current_month,
+        property_performance=property_performance,
+        alerts=alerts,
+        recommendations=recommendations
+    )
+
+# ===========================
+# PROPERTY HEALTH SCORE
+# ===========================
+
+class HealthScoreBreakdown(BaseModel):
+    rent_collection: float = 0  # out of 30
+    occupancy: float = 0        # out of 25
+    maintenance: float = 0      # out of 20
+    lease_stability: float = 0  # out of 25
+
+class PropertyHealthScore(BaseModel):
+    property_id: str
+    property_name: str
+    property_type: str
+    score: int  # 0-100
+    status: str  # healthy, moderate, at_risk
+    breakdown: HealthScoreBreakdown
+    total_units: int
+    occupied_units: int
+    open_issues: int
+    collection_rate: float
+    days_to_nearest_expiry: Optional[int] = None
+
+class HealthScoreResponse(BaseModel):
+    properties: List[PropertyHealthScore]
+    portfolio_average: int
+    portfolio_status: str
+
+@api_router.get("/property-health-scores", response_model=HealthScoreResponse)
+async def get_property_health_scores(current_user: dict = Depends(get_current_user)):
+    """Calculate health scores for all properties"""
+    user_id = current_user["id"]
+    current_month = datetime.now().strftime("%Y-%m")
+    today = datetime.now()
+
+    properties = await db.properties.find({"user_id": user_id}).to_list(100)
+    if not properties:
+        return HealthScoreResponse(properties=[], portfolio_average=0, portfolio_status="healthy")
+
+    all_units = await db.units.find({"property_id": {"$in": [p["id"] for p in properties]}}).to_list(500)
+    all_unit_ids = [u["id"] for u in all_units]
+
+    all_payments = await db.rent_payments.find({
+        "unit_id": {"$in": all_unit_ids},
+        "month_year": current_month
+    }).to_list(500)
+
+    all_maintenance = await db.maintenance_requests.find({
+        "user_id": user_id
+    }).to_list(500)
+
+    all_leases = await db.leases.find({
+        "user_id": user_id,
+        "is_active": True
+    }).to_list(500)
+
+    results = []
+
+    for prop in properties:
+        prop_units = [u for u in all_units if u["property_id"] == prop["id"]]
+        prop_unit_ids = [u["id"] for u in prop_units]
+        total_units = len(prop_units)
+
+        if total_units == 0:
+            results.append(PropertyHealthScore(
+                property_id=prop["id"],
+                property_name=prop["name"],
+                property_type=prop.get("property_type", "other"),
+                score=50,
+                status="moderate",
+                breakdown=HealthScoreBreakdown(),
+                total_units=0,
+                occupied_units=0,
+                open_issues=0,
+                collection_rate=0,
+                days_to_nearest_expiry=None,
+            ))
+            continue
+
+        occupied = sum(1 for u in prop_units if u.get("is_occupied", False))
+
+        # --- 1. Rent Collection Stability (30 pts) ---
+        rent_expected = sum(u.get("rent_amount", 0) for u in prop_units if u.get("is_occupied", False))
+        prop_payments = [p for p in all_payments if p["unit_id"] in prop_unit_ids]
+        rent_collected = sum(p.get("amount", 0) for p in prop_payments)
+        collection_rate = (rent_collected / rent_expected * 100) if rent_expected > 0 else 100
+        rent_score = min(30, round(collection_rate / 100 * 30, 1))
+
+        # --- 2. Occupancy Rate (25 pts) ---
+        occupancy_rate = (occupied / total_units * 100)
+        occupancy_score = min(25, round(occupancy_rate / 100 * 25, 1))
+
+        # --- 3. Maintenance Health (20 pts) ---
+        prop_maintenance = [m for m in all_maintenance if m["property_id"] == prop["id"]]
+        open_issues = sum(1 for m in prop_maintenance if m.get("status") in ["open", "in_progress"])
+        high_priority = sum(1 for m in prop_maintenance if m.get("status") in ["open", "in_progress"] and m.get("priority") in ["high", "urgent"])
+
+        # Deductions: -4 per open issue, -3 extra for high/urgent
+        maintenance_deduction = min(20, (open_issues * 4) + (high_priority * 3))
+        maintenance_score = max(0, 20 - maintenance_deduction)
+
+        # --- 4. Lease Stability (25 pts) ---
+        prop_leases = [l for l in all_leases if l["unit_id"] in prop_unit_ids]
+        lease_coverage = (len(prop_leases) / total_units * 100) if total_units > 0 else 0
+
+        # Base score from coverage
+        lease_base = min(15, round(lease_coverage / 100 * 15, 1))
+
+        # Bonus for lease time remaining (up to 10 pts)
+        days_to_expiry_list = []
+        lease_time_score = 10.0  # start full, deduct
+        for lease in prop_leases:
+            try:
+                end = datetime.strptime(lease["end_date"], "%Y-%m-%d").date()
+                days_left = (end - today.date()).days
+                days_to_expiry_list.append(days_left)
+                if days_left < 0:
+                    lease_time_score -= 5  # expired lease
+                elif days_left <= 30:
+                    lease_time_score -= 3  # expiring very soon
+                elif days_left <= 60:
+                    lease_time_score -= 1  # expiring soon
+            except (ValueError, KeyError):
+                pass
+
+        lease_time_score = max(0, min(10, lease_time_score))
+        lease_stability_score = lease_base + lease_time_score
+
+        nearest_expiry = min(days_to_expiry_list) if days_to_expiry_list else None
+
+        # --- Total Score ---
+        total_score = round(rent_score + occupancy_score + maintenance_score + lease_stability_score)
+        total_score = max(0, min(100, total_score))
+
+        if total_score >= 70:
+            status = "healthy"
+        elif total_score >= 40:
+            status = "moderate"
+        else:
+            status = "at_risk"
+
+        results.append(PropertyHealthScore(
+            property_id=prop["id"],
+            property_name=prop["name"],
+            property_type=prop.get("property_type", "other"),
+            score=total_score,
+            status=status,
+            breakdown=HealthScoreBreakdown(
+                rent_collection=rent_score,
+                occupancy=occupancy_score,
+                maintenance=maintenance_score,
+                lease_stability=round(lease_stability_score, 1),
+            ),
+            total_units=total_units,
+            occupied_units=occupied,
+            open_issues=open_issues,
+            collection_rate=round(collection_rate, 1),
+            days_to_nearest_expiry=nearest_expiry,
+        ))
+
+    # Portfolio average
+    if results:
+        avg_score = round(sum(r.score for r in results) / len(results))
+    else:
+        avg_score = 0
+
+    if avg_score >= 70:
+        portfolio_status = "healthy"
+    elif avg_score >= 40:
+        portfolio_status = "moderate"
+    else:
+        portfolio_status = "at_risk"
+
+    return HealthScoreResponse(
+        properties=results,
+        portfolio_average=avg_score,
+        portfolio_status=portfolio_status,
+    )
+
+# ===========================
 # HEALTH CHECK
 # ===========================
 

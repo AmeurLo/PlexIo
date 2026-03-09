@@ -255,6 +255,21 @@ backend:
         agent: "testing"
         comment: "Tested demo data endpoint: POST /seed-demo-data - Successfully seeds realistic demo data including properties, units, tenants, leases, payments, maintenance, and reminders"
 
+  - task: "Property Health Scores API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "New endpoint GET /api/property-health-scores that calculates health score (0-100) for each property based on 4 factors: rent collection stability (30pts), occupancy rate (25pts), maintenance health (20pts), and lease stability (25pts). Returns per-property breakdown, portfolio average, and status (healthy/moderate/at_risk). Tested manually via screenshots - working correctly with demo data."
+      - working: true
+        agent: "testing"
+        comment: "Comprehensive testing completed. Endpoint properly secured with authentication (401/403 without token). Returns valid structure with properties array, portfolio_average (int 0-100), portfolio_status (healthy/moderate/at_risk). Found 3 properties including expected demo properties (Duplex Rosemont, Triplex Plateau). All scores calculated correctly: breakdown values sum to total score, status logic correct (>=70 healthy, 40-69 moderate, <40 at_risk), all numeric fields validated. Portfolio average calculation verified. All 21 individual property health score test cases passed (100% success)."
+
 frontend:
   - task: "Login Screen"
     implemented: true
@@ -340,6 +355,18 @@ frontend:
         agent: "main"
         comment: "Profile, financial overview, expiring leases, reminders, settings, logout"
 
+  - task: "Property Health Score Screen"
+    implemented: true
+    working: true
+    file: "app/(tabs)/insights.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "New Health Score tab showing property health scores (0-100) with visual indicators (green/yellow/red), expandable breakdown per property, actionable tips, portfolio average, and 'How Scores Work' explainer card. Tab icon is pulse icon. Tested via screenshots - working correctly."
+
 metadata:
   created_by: "main_agent"
   version: "1.0"
@@ -347,9 +374,7 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "Backend API endpoints"
-    - "Frontend screens and navigation"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -359,3 +384,7 @@ agent_communication:
     message: "MVP implementation complete. All core modules working - auth, properties, units, tenants, leases, rent tracking, maintenance, reminders, dashboard. Premium UI inspired by Emaar One. Ready for backend testing."
   - agent: "testing"
     message: "Backend API testing completed successfully. All 23 test cases passed (100% success rate). Tested authentication flow, CRUD operations for all entities (properties, units, tenants, leases, rent payments, maintenance, reminders), dashboard stats, and demo data seeding. All endpoints working correctly with proper authentication and data validation."
+  - agent: "main"
+    message: "Added Property Health Score feature. New endpoint GET /api/property-health-scores calculates health scores (0-100) for each property based on 4 factors: rent collection (30pts), occupancy (25pts), maintenance (20pts), lease stability (25pts). Returns per-property breakdown, portfolio average. New Health tab in the frontend shows scores with green/yellow/red indicators, expandable breakdowns, tips. Test credentials: test@landlord.com / test123. Please test the new /api/property-health-scores endpoint specifically."
+  - agent: "testing"
+    message: "Property Health Scores API testing completed successfully! All 48 backend tests passed (100% success rate). The new endpoint GET /api/property-health-scores works perfectly: proper authentication required (returns 403 without token), returns correct structure with properties array, portfolio_average, and portfolio_status. Verified all expected demo properties (Duplex Rosemont, Triplex Plateau). Score calculations are accurate: breakdown values sum correctly, status logic works (healthy >=70, moderate 40-69, at_risk <40), portfolio average calculated correctly. All validation scenarios passed including edge cases for units, occupancy, maintenance issues, and collection rates. Ready for production use."
