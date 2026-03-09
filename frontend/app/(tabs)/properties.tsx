@@ -14,7 +14,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, Button, theme, EmptyState } from '../../src/components';
 import { api } from '../../src/services/api';
@@ -220,6 +220,14 @@ export default function PropertiesScreen() {
                           </View>
                         </View>
                       </View>
+                      <TouchableOpacity
+                        style={styles.timelineButton}
+                        onPress={() => router.push({ pathname: '/unit-timeline', params: { unitId: unit.id } })}
+                      >
+                        <Ionicons name="time-outline" size={16} color={theme.colors.primary} />
+                        <Text style={styles.timelineButtonText}>View Timeline</Text>
+                        <Ionicons name="chevron-forward" size={14} color={theme.colors.primary} />
+                      </TouchableOpacity>
                     </Card>
                   )) || (
                     <View style={styles.loadingUnits}>
@@ -513,6 +521,21 @@ const styles = StyleSheet.create({
   loadingUnits: {
     padding: theme.spacing.md,
     alignItems: 'center',
+  },
+  timelineButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: theme.spacing.sm,
+    paddingVertical: 8,
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: theme.borderRadius.sm,
+    gap: 6,
+  },
+  timelineButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: theme.colors.primary,
   },
   bottomSpacing: {
     height: theme.spacing.xl,

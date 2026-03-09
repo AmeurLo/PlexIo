@@ -270,6 +270,21 @@ backend:
         agent: "testing"
         comment: "Comprehensive testing completed. Endpoint properly secured with authentication (401/403 without token). Returns valid structure with properties array, portfolio_average (int 0-100), portfolio_status (healthy/moderate/at_risk). Found 3 properties including expected demo properties (Duplex Rosemont, Triplex Plateau). All scores calculated correctly: breakdown values sum to total score, status logic correct (>=70 healthy, 40-69 moderate, <40 at_risk), all numeric fields validated. Portfolio average calculation verified. All 21 individual property health score test cases passed (100% success)."
 
+  - task: "Unit Timeline API"
+    implemented: true
+    working: true
+    file: "server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "main"
+        comment: "New endpoint GET /api/units/{unit_id}/timeline implemented with authentication, returns chronological timeline of events for a unit including lease events, rent payments, and maintenance requests"
+      - working: true
+        agent: "testing"
+        comment: "Comprehensive testing completed successfully. Endpoint properly secured with Bearer token authentication (403 without token, 404 for invalid unit_id). Response structure validated: contains unit_id, unit_number, property_name, events array. All event types working correctly: lease_created, tenant_move_in, rent_payment, late_payment, maintenance_opened, maintenance_completed. Events properly sorted by date descending (newest first). Fixed datetime serialization issue during testing. All validation scenarios passed including authentication, invalid unit ID, response structure, event field validation (id, event_type, date, title, description, icon, color), event type validation, date formatting, and proper sorting. Successfully tested with demo data and created test data showing various event types."
+
 frontend:
   - task: "Login Screen"
     implemented: true
@@ -388,3 +403,5 @@ agent_communication:
     message: "Added Property Health Score feature. New endpoint GET /api/property-health-scores calculates health scores (0-100) for each property based on 4 factors: rent collection (30pts), occupancy (25pts), maintenance (20pts), lease stability (25pts). Returns per-property breakdown, portfolio average. New Health tab in the frontend shows scores with green/yellow/red indicators, expandable breakdowns, tips. Test credentials: test@landlord.com / test123. Please test the new /api/property-health-scores endpoint specifically."
   - agent: "testing"
     message: "Property Health Scores API testing completed successfully! All 48 backend tests passed (100% success rate). The new endpoint GET /api/property-health-scores works perfectly: proper authentication required (returns 403 without token), returns correct structure with properties array, portfolio_average, and portfolio_status. Verified all expected demo properties (Duplex Rosemont, Triplex Plateau). Score calculations are accurate: breakdown values sum correctly, status logic works (healthy >=70, moderate 40-69, at_risk <40), portfolio average calculated correctly. All validation scenarios passed including edge cases for units, occupancy, maintenance issues, and collection rates. Ready for production use."
+  - agent: "testing"  
+    message: "Unit Timeline API testing completed successfully! Comprehensive testing of new GET /api/units/{unit_id}/timeline endpoint passed all validation scenarios. Fixed one datetime serialization issue during testing (maintenance events). All test requirements verified: ✅ Bearer token authentication required (403 without token) ✅ Invalid unit_id returns 404 ✅ Response structure contains unit_id, unit_number, property_name, events array ✅ Event fields validated: id, event_type, date, title, description, icon, color ✅ All event types working: lease_created, tenant_move_in, rent_payment, late_payment, maintenance_opened, maintenance_completed ✅ Events sorted by date descending (newest first) ✅ Existing endpoints (dashboard, property-health-scores) still working correctly. Ready for production use."

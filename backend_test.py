@@ -814,6 +814,185 @@ class BackendTester:
         
         return True
 
+    def test_unit_timeline(self):
+        """Test Unit Timeline API endpoint"""
+        print("\n=== Unit Timeline ===")
+        
+        # First, ensure we have demo data and unit IDs
+        if not self.test_data.get('unit_id'):
+            # Try to get units to find a valid unit_id
+            success, response = self.make_request('GET', '/units')
+            if success and response.status_code == 200:
+                try:
+                    units = response.json()
+                    if units and len(units) > 0:
+                        self.test_data['unit_id'] = units[0]['id']
+                    else:
+                        self.log_result("Unit Timeline - Setup", False, "No units available for testing")
+                        return False
+                except json.JSONDecodeError:
+                    self.log_result("Unit Timeline - Setup", False, "Failed to parse units response")
+                    return False
+            else:
+                self.log_result("Unit Timeline - Setup", False, "Failed to fetch units for testing")
+                return False
+        
+        unit_id = self.test_data['unit_id']
+        
+        # Test 1: Without authentication - should return 403
+        success, response = self.make_request('GET', f'/units/{unit_id}/timeline', require_auth=False)
+        if success and response.status_code == 403:
+            self.log_result("Unit Timeline - No Auth", True, "Correctly rejected unauthenticated request")
+        else:
+            self.log_result("Unit Timeline - No Auth", False, f"Expected 403, got {response.status_code if success else 'Request failed'}")
+        
+        # Test 2: With invalid unit_id - should return 404
+        invalid_unit_id = "invalid-unit-id-12345"
+        success, response = self.make_request('GET', f'/units/{invalid_unit_id}/timeline')
+        if success and response.status_code == 404:
+            self.log_result("Unit Timeline - Invalid ID", True, "Correctly returned 404 for invalid unit ID")
+        else:
+            self.log_result("Unit Timeline - Invalid ID", False, f"Expected 404, got {response.status_code if success else 'Request failed'}")
+        
+        # Test 3: Valid request with authentication
+        success, response = self.make_request('GET', f'/units/{unit_id}/timeline')
+        if not success:
+            self.log_result("Unit Timeline - Valid Request", False, response)
+            return False
+        
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                
+                # Check main structure
+                required_fields = ['unit_id', 'unit_number', 'property_name', 'events']
+                missing_fields = [field for field in required_fields if field not in data]
+                if missing_fields:
+                    self.log_result("Unit Timeline - Structure", False, f"Missing required fields: {missing_fields}")
+                    return False
+                
+                self.log_result("Unit Timeline - Structure", True, "All required fields present")
+                
+                # Validate basic fields
+                if data.get('unit_id') != unit_id:
+                    self.log_result("Unit Timeline - Unit ID", False, f"Unit ID mismatch: expected {unit_id}, got {data.get('unit_id')}")
+                else:
+                    self.log_result("Unit Timeline - Unit ID", True, f"Unit ID matches: {unit_id}")
+                
+                unit_number = data.get('unit_number', '')
+                property_name = data.get('property_name', '')
+                self.log_result("Unit Timeline - Unit Info", True, f"Unit {unit_number} in {property_name}")
+                
+                # Check events array
+                events = data.get('events', [])
+                if not isinstance(events, list):
+                    self.log_result("Unit Timeline - Events Array", False, "Events is not an array")
+                    return False
+                
+                if len(events) == 0:
+                    self.log_result("Unit Timeline - Events Count", True, "No events found (expected for new/empty unit)")
+                    return True
+                
+                self.log_result("Unit Timeline - Events Count", True, f"Found {len(events)} events")
+                
+                # Check event structure and content
+                valid_event_types = [
+                    'lease_created', 'tenant_move_in', 'rent_payment', 'late_payment',
+                    'maintenance_opened', 'maintenance_completed', 'lease_renewal'
+                ]
+                
+                required_event_fields = ['id', 'event_type', 'date', 'title', 'description', 'icon', 'color']
+                
+                events_by_date = []
+                
+                for i, event in enumerate(events):
+                    event_name = f"Event {i+1}"
+                    
+                    # Check required fields
+                    missing_event_fields = [field for field in required_event_fields if field not in event]
+                    if missing_event_fields:
+                        self.log_result(f"{event_name} - Structure", False, f"Missing fields: {missing_event_fields}")
+                        continue
+                    
+                    self.log_result(f"{event_name} - Structure", True, "All required fields present")
+                    
+                    # Validate event_type
+                    event_type = event.get('event_type', '')
+                    if event_type not in valid_event_types:
+                        self.log_result(f"{event_name} - Event Type", False, f"Invalid event_type: {event_type} (valid: {valid_event_types})")
+                    else:
+                        self.log_result(f"{event_name} - Event Type", True, f"Event type: {event_type}")
+                    
+                    # Validate date format
+                    event_date = event.get('date', '')
+                    try:
+                        # Try to parse the date (should be in YYYY-MM-DD format or YYYY-MM-DDTHH:MM:SS format)
+                        if 'T' in event_date:
+                            parsed_date = datetime.fromisoformat(event_date.replace('Z', '+00:00'))
+                        else:
+                            parsed_date = datetime.strptime(event_date[:10], '%Y-%m-%d')
+                        events_by_date.append(parsed_date)
+                        self.log_result(f"{event_name} - Date Format", True, f"Date: {event_date[:10]}")
+                    except (ValueError, IndexError) as e:
+                        self.log_result(f"{event_name} - Date Format", False, f"Invalid date format: {event_date}")
+                        events_by_date.append(None)
+                    
+                    # Check other required fields are non-empty strings
+                    title = event.get('title', '')
+                    description = event.get('description', '')
+                    icon = event.get('icon', '')
+                    color = event.get('color', '')
+                    
+                    if not title or not isinstance(title, str):
+                        self.log_result(f"{event_name} - Title", False, f"Invalid title: {title}")
+                    else:
+                        self.log_result(f"{event_name} - Title", True, f"Title: {title[:30]}...")
+                    
+                    if not description or not isinstance(description, str):
+                        self.log_result(f"{event_name} - Description", False, f"Invalid description: {description}")
+                    else:
+                        self.log_result(f"{event_name} - Description", True, f"Description: {description[:30]}...")
+                    
+                    if not icon or not isinstance(icon, str):
+                        self.log_result(f"{event_name} - Icon", False, f"Invalid icon: {icon}")
+                    else:
+                        self.log_result(f"{event_name} - Icon", True, f"Icon: {icon}")
+                    
+                    # Validate color is hex format
+                    if not color or not isinstance(color, str) or not color.startswith('#') or len(color) != 7:
+                        self.log_result(f"{event_name} - Color", False, f"Invalid color format: {color} (should be hex like #1A8FC4)")
+                    else:
+                        self.log_result(f"{event_name} - Color", True, f"Color: {color}")
+                
+                # Check if events are sorted by date descending (newest first)
+                if len(events_by_date) > 1:
+                    # Remove None values (invalid dates) for sorting check
+                    valid_dates = [d for d in events_by_date if d is not None]
+                    
+                    if len(valid_dates) > 1:
+                        is_descending = all(
+                            valid_dates[i] >= valid_dates[i+1]
+                            for i in range(len(valid_dates)-1)
+                        )
+                        
+                        if is_descending:
+                            self.log_result("Unit Timeline - Date Sorting", True, "Events sorted by date descending (newest first)")
+                        else:
+                            self.log_result("Unit Timeline - Date Sorting", False, "Events not properly sorted by date descending")
+                    else:
+                        self.log_result("Unit Timeline - Date Sorting", True, "Not enough valid dates to verify sorting")
+                else:
+                    self.log_result("Unit Timeline - Date Sorting", True, "Single/no events - sorting not applicable")
+                
+            except json.JSONDecodeError:
+                self.log_result("Unit Timeline - Valid Request", False, "Invalid JSON response")
+                return False
+        else:
+            self.log_result("Unit Timeline - Valid Request", False, f"Status code: {response.status_code}, Response: {response.text}")
+            return False
+        
+        return True
+
     def run_all_tests(self):
         """Run all API tests in sequence"""
         print("=" * 60)
@@ -851,6 +1030,9 @@ class BackendTester:
         
         # Test NEW Property Health Scores endpoint
         self.test_property_health_scores()
+        
+        # Test NEW Unit Timeline endpoint
+        self.test_unit_timeline()
         
         # Print final results
         print("\n" + "=" * 60)

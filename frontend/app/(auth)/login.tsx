@@ -55,8 +55,9 @@ export default function LoginScreen() {
         >
           <View style={styles.header}>
             <View style={styles.logoContainer}>
-              <Ionicons name="home" size={48} color={theme.colors.primary} />
+              <Text style={styles.logoText}>P</Text>
             </View>
+            <Text style={styles.brandName}>Plexio</Text>
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Sign in to manage your properties</Text>
           </View>
@@ -132,13 +133,27 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
   },
   logoContainer: {
-    width: 96,
-    height: 96,
-    borderRadius: theme.borderRadius.xl,
-    backgroundColor: theme.colors.primaryLight,
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
+    ...theme.shadows.lg,
+  },
+  logoText: {
+    fontSize: 36,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -1,
+  },
+  brandName: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: theme.colors.primary,
+    letterSpacing: -1,
+    marginBottom: theme.spacing.sm,
   },
   title: {
     fontSize: 28,

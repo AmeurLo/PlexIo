@@ -106,48 +106,48 @@ export const getPropertyTypeLabel = (type: string): string => {
   return types[type] || type;
 };
 
-// Rent status labels and colors
+// Rent status labels and colors - Plexio Design System
 export const getRentStatusConfig = (status: string): { label: string; color: string; bgColor: string } => {
   switch (status) {
     case 'paid':
-      return { label: 'Paid', color: '#059669', bgColor: '#D1FAE5' };
+      return { label: 'Paid', color: '#00C48C', bgColor: '#E6F9F4' };
     case 'late':
-      return { label: 'Late', color: '#DC2626', bgColor: '#FEE2E2' };
+      return { label: 'Late', color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'pending':
-      return { label: 'Pending', color: '#D97706', bgColor: '#FEF3C7' };
+      return { label: 'Pending', color: '#F5A623', bgColor: '#FFF6E6' };
     default:
-      return { label: 'N/A', color: '#6B7280', bgColor: '#F3F4F6' };
+      return { label: 'N/A', color: '#6B7D93', bgColor: '#F0F3F7' };
   }
 };
 
-// Priority labels and colors
+// Priority labels and colors - Plexio Design System
 export const getPriorityConfig = (priority: string): { label: string; color: string; bgColor: string } => {
   switch (priority) {
     case 'urgent':
-      return { label: 'Urgent', color: '#DC2626', bgColor: '#FEE2E2' };
+      return { label: 'Urgent', color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'high':
-      return { label: 'High', color: '#EA580C', bgColor: '#FFEDD5' };
+      return { label: 'High', color: '#E87D3E', bgColor: '#FFF0E6' };
     case 'medium':
-      return { label: 'Medium', color: '#D97706', bgColor: '#FEF3C7' };
+      return { label: 'Medium', color: '#F5A623', bgColor: '#FFF6E6' };
     case 'low':
-      return { label: 'Low', color: '#059669', bgColor: '#D1FAE5' };
+      return { label: 'Low', color: '#00C48C', bgColor: '#E6F9F4' };
     default:
-      return { label: priority, color: '#6B7280', bgColor: '#F3F4F6' };
+      return { label: priority, color: '#6B7D93', bgColor: '#F0F3F7' };
   }
 };
 
-// Maintenance status labels
+// Maintenance status labels - Plexio Design System
 export const getMaintenanceStatusConfig = (status: string): { label: string; color: string; bgColor: string } => {
   switch (status) {
     case 'open':
-      return { label: 'Open', color: '#DC2626', bgColor: '#FEE2E2' };
+      return { label: 'Open', color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'in_progress':
-      return { label: 'In Progress', color: '#D97706', bgColor: '#FEF3C7' };
+      return { label: 'In Progress', color: '#F5A623', bgColor: '#FFF6E6' };
     case 'completed':
-      return { label: 'Completed', color: '#059669', bgColor: '#D1FAE5' };
+      return { label: 'Completed', color: '#00C48C', bgColor: '#E6F9F4' };
     case 'cancelled':
-      return { label: 'Cancelled', color: '#6B7280', bgColor: '#F3F4F6' };
+      return { label: 'Cancelled', color: '#6B7D93', bgColor: '#F0F3F7' };
     default:
-      return { label: status, color: '#6B7280', bgColor: '#F3F4F6' };
+      return { label: status, color: '#6B7D93', bgColor: '#F0F3F7' };
   }
 };

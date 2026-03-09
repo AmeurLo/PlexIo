@@ -2071,12 +2071,203 @@ async def get_property_health_scores(current_user: dict = Depends(get_current_us
     )
 
 # ===========================
+# UNIT TIMELINE
+# ===========================
+
+class TimelineEvent(BaseModel):
+    id: str
+    event_type: str  # lease_created, tenant_move_in, rent_payment, late_payment, maintenance_opened, maintenance_completed, lease_renewal
+    date: str
+    title: str
+    description: str
+    icon: str  # frontend icon name
+    color: str  # hex color for the dot/icon
+
+class UnitTimelineResponse(BaseModel):
+    unit_id: str
+    unit_number: str
+    property_name: str
+    events: List[TimelineEvent]
+
+@api_router.get("/units/{unit_id}/timeline", response_model=UnitTimelineResponse)
+async def get_unit_timeline(unit_id: str, current_user: dict = Depends(get_current_user)):
+    """Get chronological timeline of events for a unit"""
+    user_id = current_user["id"]
+
+    # Verify unit belongs to user
+    unit = await db.units.find_one({"id": unit_id})
+    if not unit:
+        raise HTTPException(status_code=404, detail="Unit not found")
+
+    prop = await db.properties.find_one({"id": unit["property_id"], "user_id": user_id})
+    if not prop:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    events: list = []
+
+    # 1. Leases (lease creation, tenant move-in, lease renewal)
+    leases = await db.leases.find({"unit_id": unit_id}).to_list(50)
+    tenants_cache = {}
+
+    for lease in leases:
+        tenant_name = "Unknown"
+        if lease.get("tenant_id"):
+            if lease["tenant_id"] not in tenants_cache:
+                tenant = await db.tenants.find_one({"id": lease["tenant_id"]})
+                if tenant:
+                    tenants_cache[lease["tenant_id"]] = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}"
+            tenant_name = tenants_cache.get(lease["tenant_id"], "Unknown")
+
+        # Lease created event
+        events.append(TimelineEvent(
+            id=f"lease-{lease['id']}",
+            event_type="lease_created",
+            date=lease.get("start_date", lease.get("created_at", "")),
+            title="Lease Created",
+            description=f"New lease signed with {tenant_name}. Rent: ${lease.get('rent_amount', 0)}/mo",
+            icon="document-text",
+            color="#1A8FC4",
+        ))
+
+        # Tenant move-in event (same as lease start)
+        events.append(TimelineEvent(
+            id=f"movein-{lease['id']}",
+            event_type="tenant_move_in",
+            date=lease.get("start_date", ""),
+            title=f"{tenant_name} Moved In",
+            description=f"Tenant moved into Unit {unit.get('unit_number', '')}",
+            icon="person-add",
+            color="#00C48C",
+        ))
+
+        # If lease is not active and has end date, add move-out or renewal
+        if not lease.get("is_active", True) and lease.get("end_date"):
+            events.append(TimelineEvent(
+                id=f"leaseend-{lease['id']}",
+                event_type="lease_renewal",
+                date=lease["end_date"],
+                title="Lease Ended",
+                description=f"Lease for {tenant_name} concluded",
+                icon="document",
+                color="#6B7D93",
+            ))
+
+    # 2. Rent Payments
+    payments = await db.rent_payments.find({"unit_id": unit_id}).to_list(200)
+    for pay in payments:
+        # Determine if late (payment after the 5th of month)
+        is_late = False
+        try:
+            pay_date = datetime.strptime(pay.get("payment_date", ""), "%Y-%m-%d")
+            if pay_date.day > 5:
+                is_late = True
+        except (ValueError, KeyError):
+            pass
+
+        tenant_name = "Tenant"
+        if pay.get("tenant_id") and pay["tenant_id"] in tenants_cache:
+            tenant_name = tenants_cache[pay["tenant_id"]]
+        elif pay.get("tenant_id"):
+            tenant = await db.tenants.find_one({"id": pay["tenant_id"]})
+            if tenant:
+                tenant_name = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}"
+                tenants_cache[pay["tenant_id"]] = tenant_name
+
+        if is_late:
+            events.append(TimelineEvent(
+                id=f"latepay-{pay['id']}",
+                event_type="late_payment",
+                date=pay.get("payment_date", ""),
+                title="Late Payment Received",
+                description=f"{tenant_name} paid ${pay.get('amount', 0)} for {pay.get('month_year', '')} (late)",
+                icon="alert-circle",
+                color="#F5A623",
+            ))
+        else:
+            events.append(TimelineEvent(
+                id=f"pay-{pay['id']}",
+                event_type="rent_payment",
+                date=pay.get("payment_date", ""),
+                title="Rent Payment Received",
+                description=f"{tenant_name} paid ${pay.get('amount', 0)} for {pay.get('month_year', '')}",
+                icon="cash",
+                color="#00C48C",
+            ))
+
+    # 3. Maintenance Requests
+    maint_requests = await db.maintenance_requests.find({
+        "property_id": unit["property_id"],
+        "$or": [
+            {"unit_id": unit_id},
+            {"unit_id": None},
+            {"unit_id": ""},
+        ]
+    }).to_list(100)
+
+    for maint in maint_requests:
+        # Only include if unit matches or no unit specified
+        if maint.get("unit_id") and maint["unit_id"] != unit_id:
+            continue
+
+        # Convert datetime to string if needed
+        created_at = maint.get("created_at", "")
+        if isinstance(created_at, datetime):
+            created_at = created_at.isoformat()
+        
+        events.append(TimelineEvent(
+            id=f"maint-open-{maint['id']}",
+            event_type="maintenance_opened",
+            date=created_at,
+            title="Issue Reported",
+            description=f"{maint.get('title', 'Maintenance issue')}: {maint.get('description', '')[:80]}",
+            icon="construct",
+            color="#E85D5D",
+        ))
+
+        if maint.get("status") == "completed" and maint.get("updated_at"):
+            # Convert datetime to string if needed
+            updated_at = maint.get("updated_at", maint.get("created_at", ""))
+            if isinstance(updated_at, datetime):
+                updated_at = updated_at.isoformat()
+            
+            events.append(TimelineEvent(
+                id=f"maint-done-{maint['id']}",
+                event_type="maintenance_completed",
+                date=updated_at,
+                title="Repair Completed",
+                description=f"Resolved: {maint.get('title', '')}",
+                icon="checkmark-circle",
+                color="#00C48C",
+            ))
+
+    # Sort by date descending (newest first)
+    def sort_key(e):
+        try:
+            # Try to parse full ISO datetime first
+            if 'T' in e.date:
+                return datetime.fromisoformat(e.date.replace('Z', '+00:00'))
+            else:
+                # Parse just the date part
+                return datetime.strptime(e.date[:10], "%Y-%m-%d")
+        except (ValueError, IndexError):
+            return datetime(2000, 1, 1)
+
+    events.sort(key=sort_key, reverse=True)
+
+    return UnitTimelineResponse(
+        unit_id=unit_id,
+        unit_number=unit.get("unit_number", ""),
+        property_name=prop.get("name", ""),
+        events=events,
+    )
+
+# ===========================
 # HEALTH CHECK
 # ===========================
 
 @api_router.get("/")
 async def root():
-    return {"message": "Small Landlord OS API", "version": "1.0.0"}
+    return {"message": "Plexio API", "version": "2.0.0"}
 
 @api_router.get("/health")
 async def health_check():

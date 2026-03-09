@@ -1,17 +1,17 @@
 import React from 'react';
+import { View, Text, StyleSheet, Platform } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, StyleSheet } from 'react-native';
 import { theme } from '../../src/components';
 
-export default function TabsLayout() {
+export default function TabLayout() {
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarStyle: styles.tabBar,
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textTertiary,
+        tabBarStyle: styles.tabBar,
         tabBarLabelStyle: styles.tabBarLabel,
         tabBarIconStyle: styles.tabBarIcon,
       }}
@@ -19,18 +19,22 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Dashboard',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid" size={size} color={color} />
+          title: 'Home',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "home" : "home-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
       <Tabs.Screen
         name="properties"
         options={{
-          title: 'Properties',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="home" size={size} color={color} />
+          title: 'Portfolio',
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "business" : "business-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
@@ -38,8 +42,10 @@ export default function TabsLayout() {
         name="tenants"
         options={{
           title: 'Tenants',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "people" : "people-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
@@ -47,8 +53,10 @@ export default function TabsLayout() {
         name="maintenance"
         options={{
           title: 'Issues',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="construct" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "construct" : "construct-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
@@ -56,8 +64,10 @@ export default function TabsLayout() {
         name="insights"
         options={{
           title: 'Health',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="pulse" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "pulse" : "pulse-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
@@ -65,8 +75,10 @@ export default function TabsLayout() {
         name="more"
         options={{
           title: 'More',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="menu" size={size} color={color} />
+          tabBarIcon: ({ color, focused }) => (
+            <View style={focused ? styles.activeIconContainer : undefined}>
+              <Ionicons name={focused ? "grid" : "grid-outline"} size={22} color={color} />
+            </View>
           ),
         }}
       />
@@ -77,19 +89,23 @@ export default function TabsLayout() {
 const styles = StyleSheet.create({
   tabBar: {
     backgroundColor: theme.colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.borderLight,
-    paddingTop: 8,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+    borderTopWidth: 0,
+    paddingTop: 6,
     height: Platform.OS === 'ios' ? 88 : 64,
-    ...theme.shadows.sm,
+    ...theme.shadows.md,
   },
   tabBarLabel: {
-    fontSize: 11,
-    fontWeight: '500',
-    marginTop: 2,
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   tabBarIcon: {
-    marginBottom: -4,
+    marginBottom: -2,
+  },
+  activeIconContainer: {
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
   },
 });

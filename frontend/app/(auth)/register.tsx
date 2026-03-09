@@ -80,9 +80,9 @@ export default function RegisterScreen() {
 
           <View style={styles.header}>
             <View style={styles.logoContainer}>
-              <Ionicons name="person-add" size={40} color={theme.colors.primary} />
+              <Text style={styles.logoText}>P</Text>
             </View>
-            <Text style={styles.title}>Create Account</Text>
+            <Text style={styles.title}>Join Plexio</Text>
             <Text style={styles.subtitle}>Start managing your properties today</Text>
           </View>
 
@@ -179,13 +179,20 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
   },
   logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: theme.borderRadius.xl,
-    backgroundColor: theme.colors.primaryLight,
+    width: 72,
+    height: 72,
+    borderRadius: 20,
+    backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: theme.spacing.md,
+    ...theme.shadows.lg,
+  },
+  logoText: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: -1,
   },
   title: {
     fontSize: 24,

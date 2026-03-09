@@ -13,6 +13,7 @@ import {
   DashboardStats,
   PortfolioInsights,
   HealthScoreResponse,
+  UnitTimeline,
 } from '../types';
 
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
@@ -321,6 +322,12 @@ class ApiService {
   // Property Health Scores
   async getHealthScores(): Promise<HealthScoreResponse> {
     const response = await this.client.get('/property-health-scores');
+    return response.data;
+  }
+
+  // Unit Timeline
+  async getUnitTimeline(unitId: string): Promise<UnitTimeline> {
+    const response = await this.client.get(`/units/${unitId}/timeline`);
     return response.data;
   }
 

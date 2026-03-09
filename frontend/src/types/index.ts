@@ -246,3 +246,21 @@ export interface HealthScoreResponse {
   portfolio_average: number;
   portfolio_status: 'healthy' | 'moderate' | 'at_risk';
 }
+
+// Unit Timeline Types
+export interface TimelineEvent {
+  id: string;
+  event_type: 'lease_created' | 'tenant_move_in' | 'rent_payment' | 'late_payment' | 'maintenance_opened' | 'maintenance_completed' | 'lease_renewal';
+  date: string;
+  title: string;
+  description: string;
+  icon: string;
+  color: string;
+}
+
+export interface UnitTimeline {
+  unit_id: string;
+  unit_number: string;
+  property_name: string;
+  events: TimelineEvent[];
+}

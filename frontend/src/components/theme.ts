@@ -1,48 +1,55 @@
-// Premium Design System - Emaar One inspired
+// Plexio Design System - Premium Real Estate Inspired
+// Inspired by Emaar One: calm, elegant, card-based, luxury feel
+
 export const theme = {
   colors: {
-    // Primary palette
-    primary: '#0066CC',
-    primaryLight: '#E6F0FA',
-    primaryDark: '#004C99',
-    
-    // Accent
-    accent: '#00A896',
-    accentLight: '#E6F7F5',
-    
-    // Backgrounds
-    background: '#F8FAFC',
+    // Primary - Ocean Blue (trust, professional, premium)
+    primary: '#1A8FC4',
+    primaryLight: '#E8F4FA',
+    primaryDark: '#0D6E9E',
+
+    // Accent - Emerald Green (fresh, modern actions)
+    accent: '#00C48C',
+    accentLight: '#E6F9F4',
+
+    // Gold - Luxury touch
+    gold: '#C9A96E',
+    goldLight: '#FDF6E9',
+
+    // Backgrounds - Clean, airy
+    background: '#F5F7FA',
     surface: '#FFFFFF',
     surfaceElevated: '#FFFFFF',
-    
-    // Text
-    textPrimary: '#1E293B',
-    textSecondary: '#64748B',
-    textTertiary: '#94A3B8',
+    surfaceWarm: '#FBF8F3',
+
+    // Text - Deep navy hierarchy
+    textPrimary: '#1B2838',
+    textSecondary: '#6B7D93',
+    textTertiary: '#A0AEC0',
     textInverse: '#FFFFFF',
-    
-    // Borders
+
+    // Borders - Subtle, refined
     border: '#E2E8F0',
-    borderLight: '#F1F5F9',
-    
+    borderLight: '#F0F3F7',
+
     // Status colors
-    success: '#059669',
-    successLight: '#D1FAE5',
-    warning: '#D97706',
-    warningLight: '#FEF3C7',
-    error: '#DC2626',
-    errorLight: '#FEE2E2',
-    info: '#0284C7',
-    infoLight: '#E0F2FE',
-    
+    success: '#00C48C',
+    successLight: '#E6F9F4',
+    warning: '#F5A623',
+    warningLight: '#FFF6E6',
+    error: '#E85D5D',
+    errorLight: '#FDE8E8',
+    info: '#1A8FC4',
+    infoLight: '#E8F4FA',
+
     // Occupancy
-    occupied: '#059669',
-    vacant: '#DC2626',
-    
+    occupied: '#00C48C',
+    vacant: '#E85D5D',
+
     // Overlay
-    overlay: 'rgba(0, 0, 0, 0.5)',
+    overlay: 'rgba(27, 40, 56, 0.5)',
   },
-  
+
   spacing: {
     xs: 4,
     sm: 8,
@@ -51,26 +58,27 @@ export const theme = {
     xl: 32,
     xxl: 48,
   },
-  
+
   borderRadius: {
-    sm: 8,
-    md: 12,
-    lg: 16,
+    sm: 10,
+    md: 14,
+    lg: 18,
     xl: 24,
     full: 9999,
   },
-  
+
   typography: {
-    // Headings
     h1: {
       fontSize: 32,
       fontWeight: '700' as const,
       lineHeight: 40,
+      letterSpacing: -0.5,
     },
     h2: {
       fontSize: 24,
-      fontWeight: '600' as const,
+      fontWeight: '700' as const,
       lineHeight: 32,
+      letterSpacing: -0.3,
     },
     h3: {
       fontSize: 20,
@@ -82,8 +90,6 @@ export const theme = {
       fontWeight: '600' as const,
       lineHeight: 24,
     },
-    
-    // Body
     bodyLarge: {
       fontSize: 16,
       fontWeight: '400' as const,
@@ -99,8 +105,6 @@ export const theme = {
       fontWeight: '400' as const,
       lineHeight: 16,
     },
-    
-    // Labels
     label: {
       fontSize: 14,
       fontWeight: '500' as const,
@@ -111,12 +115,11 @@ export const theme = {
       fontWeight: '500' as const,
       lineHeight: 16,
     },
-    
-    // Numbers/Stats
     stat: {
       fontSize: 28,
       fontWeight: '700' as const,
       lineHeight: 36,
+      letterSpacing: -0.5,
     },
     statSmall: {
       fontSize: 20,
@@ -124,28 +127,28 @@ export const theme = {
       lineHeight: 28,
     },
   },
-  
+
   shadows: {
     sm: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      shadowColor: '#1B2838',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.04,
+      shadowRadius: 8,
+      elevation: 2,
     },
     md: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
+      shadowColor: '#1B2838',
+      shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.08,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowRadius: 16,
+      elevation: 4,
     },
     lg: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
+      shadowColor: '#1B2838',
+      shadowOffset: { width: 0, height: 8 },
       shadowOpacity: 0.12,
-      shadowRadius: 16,
-      elevation: 5,
+      shadowRadius: 24,
+      elevation: 6,
     },
   },
 };
