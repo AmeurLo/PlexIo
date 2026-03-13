@@ -3,13 +3,16 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useAuthStore } from '../src/store/authStore';
+import { useLanguageStore } from '../src/store/languageStore';
 import { theme } from '../src/components';
 
 export default function RootLayout() {
   const { loadAuth, isLoading } = useAuthStore();
+  const { loadLang } = useLanguageStore();
 
   useEffect(() => {
     loadAuth();
+    loadLang();
   }, []);
 
   if (isLoading) {
@@ -34,6 +37,7 @@ export default function RootLayout() {
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="unit-timeline" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="property-financials" options={{ headerShown: false, presentation: 'card' }} />
       </Stack>
     </>
   );

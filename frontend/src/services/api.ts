@@ -71,6 +71,11 @@ class ApiService {
     return response.data;
   }
 
+  async updateProfile(data: { full_name?: string; email?: string }): Promise<User> {
+    const response = await this.client.patch('/auth/me', data);
+    return response.data;
+  }
+
   // Dashboard
   async getDashboard(): Promise<DashboardStats> {
     const response = await this.client.get('/dashboard');
@@ -328,6 +333,65 @@ class ApiService {
   // Unit Timeline
   async getUnitTimeline(unitId: string): Promise<UnitTimeline> {
     const response = await this.client.get(`/units/${unitId}/timeline`);
+    return response.data;
+  }
+
+  // Expenses
+  async getExpenses(propertyId?: string, monthYear?: string, category?: string): Promise<any[]> {
+    const params: any = {};
+    if (propertyId) params.property_id = propertyId;
+    if (monthYear) params.month_year = monthYear;
+    if (category) params.category = category;
+    const response = await this.client.get('/expenses', { params });
+    return response.data;
+  }
+
+  async createExpense(data: {
+    property_id: string;
+    unit_id?: string;
+    title: string;
+    amount: number;
+    category: string;
+    expense_date: string;
+    notes?: string;
+  }): Promise<any> {
+    const response = await this.client.post('/expenses', data);
+    return response.data;
+  }
+
+  async updateExpense(id: string, data: any): Promise<any> {
+    const response = await this.client.put(`/expenses/${id}`, data);
+    return response.data;
+  }
+
+  async deleteExpense(id: string): Promise<void> {
+    await this.client.delete(`/expenses/${id}`);
+  }
+
+  async scanReceipt(imageBase64: string): Promise<{
+    title: string | null;
+    amount: number | null;
+    date: string | null;
+    category: string | null;
+    notes: string | null;
+  }> {
+    const response = await this.client.post('/expenses/scan-receipt', { image_base64: imageBase64 });
+    return response.data;
+  }
+
+  async getPropertyFinancials(propertyId: string, monthYear?: string, period?: 'monthly' | 'ytd'): Promise<any> {
+    const params: any = {};
+    if (monthYear) params.month_year = monthYear;
+    if (period) params.period = period;
+    const response = await this.client.get(`/properties/${propertyId}/financials`, { params });
+    return response.data;
+  }
+
+  async exportPropertyFinancials(propertyId: string, monthYear?: string, period?: 'monthly' | 'ytd'): Promise<string> {
+    const params: any = {};
+    if (monthYear) params.month_year = monthYear;
+    if (period) params.period = period;
+    const response = await this.client.get(`/properties/${propertyId}/financials/export`, { params, responseType: 'text' });
     return response.data;
   }
 

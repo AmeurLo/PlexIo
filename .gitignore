@@ -77,4 +77,17 @@ agenthub/agents/youtube/db
 .cache/
 
 # Mobile development
-android-sdk/ 
+android-sdk/
+
+# Expo / Metro
+frontend/.metro-cache/
+frontend/.expo/
+frontend/android/
+frontend/ios/
+frontend/.env
+frontend/.env.local
+frontend/.env.production
+
+# Generated Word/Python files
+generate_domely_doc.py
+Domely_Document_Produit.docx 

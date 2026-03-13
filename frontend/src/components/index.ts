@@ -4,3 +4,5 @@ export { Input } from './Input';
 export { StatusBadge } from './StatusBadge';
 export { EmptyState } from './EmptyState';
 export { theme } from './theme';
+export { AddressAutocomplete } from './AddressAutocomplete';
+export type { AddressSuggestion } from './AddressAutocomplete';

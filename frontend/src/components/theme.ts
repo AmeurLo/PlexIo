@@ -1,16 +1,22 @@
 // Plexio Design System - Premium Real Estate Inspired
 // Inspired by Emaar One: calm, elegant, card-based, luxury feel
+// Brand palette extracted from Plexio logo: deep navy → teal gradient
 
 export const theme = {
   colors: {
-    // Primary - Ocean Blue (trust, professional, premium)
-    primary: '#1A8FC4',
-    primaryLight: '#E8F4FA',
-    primaryDark: '#0D6E9E',
+    // Primary - Logo Navy (deep trust, architectural, premium)
+    primary: '#1B4F7C',
+    primaryLight: '#E6EEF6',
+    primaryDark: '#112F4E',
 
-    // Accent - Emerald Green (fresh, modern actions)
-    accent: '#00C48C',
-    accentLight: '#E6F9F4',
+    // Accent - Logo Teal (the gradient end, modern + fresh)
+    accent: '#2E9B88',
+    accentLight: '#E3F5F2',
+
+    // Brand gradient reference (use with LinearGradient)
+    gradientStart: '#1A3B6B',  // logo deep navy (top-left)
+    gradientEnd: '#3A8E7C',    // logo teal (bottom-right)
+    gradientMid: '#1B6080',    // blended mid-point
 
     // Gold - Luxury touch
     gold: '#C9A96E',
@@ -33,21 +39,21 @@ export const theme = {
     borderLight: '#F0F3F7',
 
     // Status colors
-    success: '#00C48C',
-    successLight: '#E6F9F4',
+    success: '#2E9B88',        // aligned to brand teal
+    successLight: '#E3F5F2',
     warning: '#F5A623',
     warningLight: '#FFF6E6',
     error: '#E85D5D',
     errorLight: '#FDE8E8',
-    info: '#1A8FC4',
-    infoLight: '#E8F4FA',
+    info: '#1B4F7C',           // aligned to brand navy
+    infoLight: '#E6EEF6',
 
     // Occupancy
-    occupied: '#00C48C',
+    occupied: '#2E9B88',
     vacant: '#E85D5D',
 
     // Overlay
-    overlay: 'rgba(27, 40, 56, 0.5)',
+    overlay: 'rgba(26, 59, 107, 0.55)',
   },
 
   spacing: {

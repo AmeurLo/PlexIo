@@ -5,6 +5,9 @@ from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import base64
+import json
+import random
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -96,6 +99,8 @@ class PropertyWithStats(Property):
     vacant_units: int = 0
     rent_collected: float = 0
     rent_expected: float = 0
+    total_expenses: float = 0
+    net_cash_flow: float = 0
     open_maintenance: int = 0
     next_lease_expiry: Optional[str] = None
 
@@ -207,6 +212,44 @@ class RentPayment(BaseModel):
     status: str = "paid"  # paid, partial, late
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Expense Models
+EXPENSE_CATEGORIES = ["maintenance", "insurance", "property_tax", "utilities", "mortgage", "cleaning", "renovation", "other"]
+
+class ExpenseCreate(BaseModel):
+    property_id: str
+    unit_id: Optional[str] = None
+    title: str
+    amount: float
+    category: str
+    expense_date: str  # YYYY-MM-DD
+    notes: Optional[str] = None
+
+class Expense(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    property_id: str
+    unit_id: Optional[str] = None
+    title: str
+    amount: float
+    category: str
+    expense_date: str
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+class PropertyFinancials(BaseModel):
+    property_id: str
+    property_name: str
+    month_year: str
+    expected_rent: float
+    collected_rent: float
+    total_expenses: float
+    maintenance_expenses: float
+    net_cash_flow: float
+    occupancy_rate: float
+    expense_ratio: float
+    expenses: list
 
 # Maintenance Models
 class MaintenanceRequestCreate(BaseModel):
@@ -344,6 +387,27 @@ async def login(credentials: UserLogin):
 async def get_me(current_user: dict = Depends(get_current_user)):
     return User(**current_user)
 
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    email: Optional[str] = None
+
+@api_router.patch("/auth/me", response_model=User)
+async def update_me(data: UserProfileUpdate, current_user: dict = Depends(get_current_user)):
+    update_fields: dict = {}
+    if data.full_name is not None:
+        update_fields["full_name"] = data.full_name.strip()
+    if data.email is not None:
+        new_email = data.email.strip().lower()
+        existing = await db.users.find_one({"email": new_email, "id": {"$ne": current_user["id"]}})
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already in use")
+        update_fields["email"] = new_email
+    if not update_fields:
+        return User(**current_user)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": update_fields})
+    updated = await db.users.find_one({"id": current_user["id"]})
+    return User(**updated)
+
 # ===========================
 # PROPERTY ROUTES
 # ===========================
@@ -397,6 +461,14 @@ async def get_properties(current_user: dict = Depends(get_current_user)):
             if sorted_leases:
                 next_expiry = sorted_leases[0]["end_date"]
         
+        # Get expenses for current month
+        month_expenses = await db.expenses.find({
+            "property_id": prop["id"],
+            "expense_date": {"$regex": f"^{current_month}"}
+        }).to_list(200)
+        total_expenses = sum(e.get("amount", 0) for e in month_expenses)
+        net_cash_flow = rent_collected - total_expenses
+
         result.append(PropertyWithStats(
             **prop,
             total_units=total_units,
@@ -404,10 +476,12 @@ async def get_properties(current_user: dict = Depends(get_current_user)):
             vacant_units=vacant_units,
             rent_collected=rent_collected,
             rent_expected=rent_expected,
+            total_expenses=total_expenses,
+            net_cash_flow=net_cash_flow,
             open_maintenance=open_maintenance,
             next_lease_expiry=next_expiry
         ))
-    
+
     return result
 
 @api_router.get("/properties/{property_id}", response_model=PropertyWithStats)
@@ -447,7 +521,14 @@ async def get_property(property_id: str, current_user: dict = Depends(get_curren
         sorted_leases = sorted(leases, key=lambda x: x["end_date"])
         if sorted_leases:
             next_expiry = sorted_leases[0]["end_date"]
-    
+
+    month_expenses = await db.expenses.find({
+        "property_id": property_id,
+        "expense_date": {"$regex": f"^{current_month}"}
+    }).to_list(200)
+    total_expenses = sum(e.get("amount", 0) for e in month_expenses)
+    net_cash_flow = rent_collected - total_expenses
+
     return PropertyWithStats(
         **prop,
         total_units=total_units,
@@ -455,6 +536,8 @@ async def get_property(property_id: str, current_user: dict = Depends(get_curren
         vacant_units=vacant_units,
         rent_collected=rent_collected,
         rent_expected=rent_expected,
+        total_expenses=total_expenses,
+        net_cash_flow=net_cash_flow,
         open_maintenance=open_maintenance,
         next_lease_expiry=next_expiry
     )
@@ -1549,6 +1632,76 @@ async def seed_demo_data(current_user: dict = Depends(get_current_user)):
     
     await db.reminders.insert_many(reminders_data)
     
+    # Create demo expenses for current month
+    expenses_data = [
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "property_id": duplex_id,
+            "unit_id": units_data[1]["id"],
+            "title": "Plumbing repair – bathroom faucet",
+            "amount": 180.00,
+            "category": "maintenance",
+            "expense_date": f"{current_month}-05",
+            "notes": "Replaced washers and re-sealed",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "property_id": duplex_id,
+            "unit_id": None,
+            "title": "Building insurance premium",
+            "amount": 240.00,
+            "category": "insurance",
+            "expense_date": f"{current_month}-01",
+            "notes": "Monthly installment",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "property_id": triplex_id,
+            "unit_id": None,
+            "title": "Property tax installment",
+            "amount": 320.00,
+            "category": "property_tax",
+            "expense_date": f"{current_month}-01",
+            "notes": None,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "property_id": triplex_id,
+            "unit_id": None,
+            "title": "Electricity – common areas",
+            "amount": 95.00,
+            "category": "utilities",
+            "expense_date": f"{current_month}-07",
+            "notes": None,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        },
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "property_id": triplex_id,
+            "unit_id": units_data[3]["id"],
+            "title": "Furnace inspection & tune-up",
+            "amount": 120.00,
+            "category": "maintenance",
+            "expense_date": f"{current_month}-04",
+            "notes": "Annual maintenance",
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+    ]
+    await db.expenses.insert_many(expenses_data)
+
     return {
         "message": "Demo data seeded successfully",
         "seeded": True,
@@ -1559,9 +1712,265 @@ async def seed_demo_data(current_user: dict = Depends(get_current_user)):
             "leases": len(leases_data),
             "payments": len(payments_data),
             "maintenance_requests": len(maintenance_data),
-            "reminders": len(reminders_data)
+            "reminders": len(reminders_data),
+            "expenses": len(expenses_data)
         }
     }
+
+# ===========================
+# EXPENSE ROUTES
+# ===========================
+
+@api_router.post("/expenses", response_model=Expense)
+async def create_expense(data: ExpenseCreate, current_user: dict = Depends(get_current_user)):
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    if data.category not in EXPENSE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {', '.join(EXPENSE_CATEGORIES)}")
+    # Verify property belongs to user
+    prop = await db.properties.find_one({"id": data.property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    expense = Expense(user_id=current_user["id"], **data.model_dump())
+    await db.expenses.insert_one(expense.model_dump())
+    return expense
+
+@api_router.get("/expenses")
+async def get_expenses(
+    property_id: Optional[str] = None,
+    month_year: Optional[str] = None,
+    category: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    query: dict = {"user_id": current_user["id"]}
+    if property_id:
+        query["property_id"] = property_id
+    if month_year:
+        query["expense_date"] = {"$regex": f"^{month_year}"}
+    if category:
+        query["category"] = category
+    expenses = await db.expenses.find(query).sort("expense_date", -1).to_list(500)
+    # Remove MongoDB _id
+    for e in expenses:
+        e.pop("_id", None)
+    return expenses
+
+@api_router.put("/expenses/{expense_id}", response_model=Expense)
+async def update_expense(expense_id: str, data: ExpenseCreate, current_user: dict = Depends(get_current_user)):
+    expense = await db.expenses.find_one({"id": expense_id, "user_id": current_user["id"]})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    if data.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be greater than 0")
+    update_data = data.model_dump()
+    update_data["updated_at"] = datetime.utcnow()
+    await db.expenses.update_one({"id": expense_id}, {"$set": update_data})
+    updated = await db.expenses.find_one({"id": expense_id})
+    updated.pop("_id", None)
+    return updated
+
+@api_router.delete("/expenses/{expense_id}")
+async def delete_expense(expense_id: str, current_user: dict = Depends(get_current_user)):
+    expense = await db.expenses.find_one({"id": expense_id, "user_id": current_user["id"]})
+    if not expense:
+        raise HTTPException(status_code=404, detail="Expense not found")
+    await db.expenses.delete_one({"id": expense_id})
+    return {"message": "Expense deleted"}
+
+class ScanReceiptRequest(BaseModel):
+    image_base64: str  # base64-encoded image
+
+@api_router.post("/expenses/scan-receipt")
+async def scan_receipt(data: ScanReceiptRequest, current_user: dict = Depends(get_current_user)):
+    """Use Claude Vision (or mock) to extract expense data from a receipt photo."""
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    if anthropic_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_key)
+            # Detect image type from base64 header or default to jpeg
+            img_data = data.image_base64
+            if img_data.startswith("data:"):
+                header, img_data = img_data.split(",", 1)
+                media_type = header.split(";")[0].split(":")[1]
+            else:
+                media_type = "image/jpeg"
+
+            message = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": img_data,
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": (
+                                "You are analyzing a receipt or expense document. "
+                                "Extract the following fields and return ONLY valid JSON (no markdown, no explanation):\n"
+                                "{\n"
+                                '  "title": "short description of what was purchased",\n'
+                                '  "amount": 0.00,\n'
+                                '  "date": "YYYY-MM-DD",\n'
+                                '  "category": one of [maintenance, insurance, property_tax, utilities, mortgage, cleaning, renovation, other],\n'
+                                '  "notes": "any extra details from the receipt"\n'
+                                "}\n"
+                                "If a field cannot be determined, use null. For date, use today if not visible."
+                            )
+                        }
+                    ]
+                }]
+            )
+            text = message.content[0].text.strip()
+            result = json.loads(text)
+            # Sanitize
+            if result.get("amount") and not isinstance(result["amount"], (int, float)):
+                result["amount"] = float(str(result["amount"]).replace(",", ".").replace("$", ""))
+            if not result.get("date"):
+                result["date"] = datetime.now().strftime("%Y-%m-%d")
+            if result.get("category") not in ["maintenance","insurance","property_tax","utilities","mortgage","cleaning","renovation","other"]:
+                result["category"] = "other"
+            return result
+        except Exception as e:
+            logging.error(f"OCR error: {e}")
+            # Fall through to mock
+
+    # Mock response for demo (no API key needed)
+    mock_receipts = [
+        {"title": "Réparation chauffe-eau", "amount": 285.00, "date": datetime.now().strftime("%Y-%m-%d"), "category": "maintenance", "notes": "Remplacement élément chauffant, main-d'œuvre incluse"},
+        {"title": "Prime d'assurance habitation", "amount": 142.50, "date": datetime.now().strftime("%Y-%m-%d"), "category": "insurance", "notes": "Paiement mensuel assurance"},
+        {"title": "Entretien ménager communs", "amount": 80.00, "date": datetime.now().strftime("%Y-%m-%d"), "category": "cleaning", "notes": "Nettoyage entrée et escaliers"},
+        {"title": "Facture Hydro-Québec", "amount": 198.30, "date": datetime.now().strftime("%Y-%m-%d"), "category": "utilities", "notes": "Électricité parties communes"},
+        {"title": "Peinture couloir", "amount": 320.00, "date": datetime.now().strftime("%Y-%m-%d"), "category": "renovation", "notes": "Main-d'œuvre + matériaux"},
+    ]
+    return random.choice(mock_receipts)
+
+
+async def _get_financials_data(property_id: str, prop: dict, month_year: Optional[str], period: str):
+    """Shared helper for financials data — used by both GET and export endpoints."""
+    units = await db.units.find({"property_id": property_id}).to_list(100)
+    total_units = len(units)
+    occupied_units = sum(1 for u in units if u.get("is_occupied", False))
+    occupancy_rate = round((occupied_units / total_units * 100) if total_units > 0 else 0, 1)
+    monthly_expected_rent = sum(u.get("rent_amount", 0) for u in units if u.get("is_occupied", False))
+    unit_ids = [u["id"] for u in units]
+
+    if period == "ytd":
+        current_year = datetime.now().year
+        months_elapsed = datetime.now().month
+        year_prefix = str(current_year)
+        payments = await db.rent_payments.find({
+            "unit_id": {"$in": unit_ids},
+            "month_year": {"$regex": f"^{year_prefix}"}
+        }).to_list(1000)
+        collected_rent = sum(p.get("amount", 0) for p in payments)
+        expenses = await db.expenses.find({
+            "property_id": property_id,
+            "expense_date": {"$regex": f"^{year_prefix}"}
+        }).sort("expense_date", -1).to_list(1000)
+        expected_rent = monthly_expected_rent * months_elapsed
+        period_label = f"{current_year}-ytd"
+    else:
+        target_month = month_year or datetime.now().strftime("%Y-%m")
+        payments = await db.rent_payments.find({
+            "unit_id": {"$in": unit_ids},
+            "month_year": target_month
+        }).to_list(200)
+        collected_rent = sum(p.get("amount", 0) for p in payments)
+        expenses = await db.expenses.find({
+            "property_id": property_id,
+            "expense_date": {"$regex": f"^{target_month}"}
+        }).sort("expense_date", -1).to_list(200)
+        expected_rent = monthly_expected_rent
+        period_label = target_month
+
+    for e in expenses:
+        e.pop("_id", None)
+        if isinstance(e.get("created_at"), datetime):
+            e["created_at"] = e["created_at"].isoformat()
+        if isinstance(e.get("updated_at"), datetime):
+            e["updated_at"] = e["updated_at"].isoformat()
+
+    total_expenses = sum(e.get("amount", 0) for e in expenses)
+    maintenance_expenses = sum(e.get("amount", 0) for e in expenses if e.get("category") == "maintenance")
+    net_cash_flow = collected_rent - total_expenses
+    expense_ratio = round((total_expenses / collected_rent) if collected_rent > 0 else 0, 2)
+
+    return {
+        "property_id": property_id,
+        "property_name": prop["name"],
+        "month_year": period_label,
+        "period": period,
+        "expected_rent": expected_rent,
+        "collected_rent": collected_rent,
+        "total_expenses": total_expenses,
+        "maintenance_expenses": maintenance_expenses,
+        "net_cash_flow": net_cash_flow,
+        "occupancy_rate": occupancy_rate,
+        "expense_ratio": expense_ratio,
+        "expenses": expenses,
+    }
+
+
+@api_router.get("/properties/{property_id}/financials/export")
+async def export_property_financials(
+    property_id: str,
+    month_year: Optional[str] = None,
+    period: str = "monthly",
+    current_user: dict = Depends(get_current_user)
+):
+    from fastapi.responses import StreamingResponse
+    import csv, io
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    data = await _get_financials_data(property_id, prop, month_year, period)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Property", data["property_name"]])
+    writer.writerow(["Period", data["month_year"]])
+    writer.writerow([])
+    writer.writerow(["Expected Rent", data["expected_rent"]])
+    writer.writerow(["Collected Rent", data["collected_rent"]])
+    writer.writerow(["Total Expenses", data["total_expenses"]])
+    writer.writerow(["Net Cash Flow", data["net_cash_flow"]])
+    writer.writerow(["Occupancy Rate", f"{data['occupancy_rate']}%"])
+    writer.writerow([])
+    writer.writerow(["Title", "Category", "Date", "Amount", "Notes"])
+    for e in data["expenses"]:
+        writer.writerow([e["title"], e["category"], e["expense_date"], e["amount"], e.get("notes", "")])
+
+    output.seek(0)
+    filename = f"plexio-{property_id}-{data['month_year']}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@api_router.get("/properties/{property_id}/financials")
+async def get_property_financials(
+    property_id: str,
+    month_year: Optional[str] = None,
+    period: str = "monthly",
+    current_user: dict = Depends(get_current_user)
+):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    return await _get_financials_data(property_id, prop, month_year, period)
 
 # ===========================
 # INSIGHTS ROUTES
@@ -1896,10 +2305,11 @@ async def get_insights(current_user: dict = Depends(get_current_user)):
 # ===========================
 
 class HealthScoreBreakdown(BaseModel):
-    rent_collection: float = 0  # out of 30
-    occupancy: float = 0        # out of 25
-    maintenance: float = 0      # out of 20
-    lease_stability: float = 0  # out of 25
+    rent_collection: float = 0      # out of 25
+    occupancy: float = 0            # out of 20
+    maintenance: float = 0          # out of 15
+    lease_stability: float = 0      # out of 20
+    financial_performance: float = 0 # out of 20
 
 class PropertyHealthScore(BaseModel):
     property_id: str
@@ -1972,57 +2382,91 @@ async def get_property_health_scores(current_user: dict = Depends(get_current_us
 
         occupied = sum(1 for u in prop_units if u.get("is_occupied", False))
 
-        # --- 1. Rent Collection Stability (30 pts) ---
+        # --- 1. Rent Collection Stability (25 pts) ---
         rent_expected = sum(u.get("rent_amount", 0) for u in prop_units if u.get("is_occupied", False))
         prop_payments = [p for p in all_payments if p["unit_id"] in prop_unit_ids]
         rent_collected = sum(p.get("amount", 0) for p in prop_payments)
         collection_rate = (rent_collected / rent_expected * 100) if rent_expected > 0 else 100
-        rent_score = min(30, round(collection_rate / 100 * 30, 1))
+        rent_score = min(25, round(collection_rate / 100 * 25, 1))
 
-        # --- 2. Occupancy Rate (25 pts) ---
+        # --- 2. Occupancy Rate (20 pts) ---
         occupancy_rate = (occupied / total_units * 100)
-        occupancy_score = min(25, round(occupancy_rate / 100 * 25, 1))
+        occupancy_score = min(20, round(occupancy_rate / 100 * 20, 1))
 
-        # --- 3. Maintenance Health (20 pts) ---
+        # --- 3. Maintenance Health (15 pts) ---
         prop_maintenance = [m for m in all_maintenance if m["property_id"] == prop["id"]]
         open_issues = sum(1 for m in prop_maintenance if m.get("status") in ["open", "in_progress"])
         high_priority = sum(1 for m in prop_maintenance if m.get("status") in ["open", "in_progress"] and m.get("priority") in ["high", "urgent"])
 
-        # Deductions: -4 per open issue, -3 extra for high/urgent
-        maintenance_deduction = min(20, (open_issues * 4) + (high_priority * 3))
-        maintenance_score = max(0, 20 - maintenance_deduction)
+        # Deductions: -3 per open issue, -2 extra for high/urgent
+        maintenance_deduction = min(15, (open_issues * 3) + (high_priority * 2))
+        maintenance_score = max(0, 15 - maintenance_deduction)
 
-        # --- 4. Lease Stability (25 pts) ---
+        # --- 4. Lease Stability (20 pts) ---
         prop_leases = [l for l in all_leases if l["unit_id"] in prop_unit_ids]
         lease_coverage = (len(prop_leases) / total_units * 100) if total_units > 0 else 0
 
         # Base score from coverage
-        lease_base = min(15, round(lease_coverage / 100 * 15, 1))
+        lease_base = min(12, round(lease_coverage / 100 * 12, 1))
 
-        # Bonus for lease time remaining (up to 10 pts)
+        # Bonus for lease time remaining (up to 8 pts)
         days_to_expiry_list = []
-        lease_time_score = 10.0  # start full, deduct
+        lease_time_score = 8.0  # start full, deduct
         for lease in prop_leases:
             try:
                 end = datetime.strptime(lease["end_date"], "%Y-%m-%d").date()
                 days_left = (end - today.date()).days
                 days_to_expiry_list.append(days_left)
                 if days_left < 0:
-                    lease_time_score -= 5  # expired lease
+                    lease_time_score -= 4  # expired lease
                 elif days_left <= 30:
-                    lease_time_score -= 3  # expiring very soon
+                    lease_time_score -= 2.5  # expiring very soon
                 elif days_left <= 60:
                     lease_time_score -= 1  # expiring soon
             except (ValueError, KeyError):
                 pass
 
-        lease_time_score = max(0, min(10, lease_time_score))
+        lease_time_score = max(0, min(8, lease_time_score))
         lease_stability_score = lease_base + lease_time_score
 
         nearest_expiry = min(days_to_expiry_list) if days_to_expiry_list else None
 
+        # --- 5. Financial Performance (20 pts) ---
+        prop_expenses = await db.expenses.find({
+            "property_id": prop["id"],
+            "expense_date": {"$regex": f"^{current_month}"}
+        }).to_list(200)
+        total_expenses = sum(e.get("amount", 0) for e in prop_expenses)
+        net_cash_flow = rent_collected - total_expenses
+
+        if rent_expected == 0:
+            financial_score = 10.0  # no units, neutral
+        elif rent_collected == 0:
+            if total_expenses == 0:
+                financial_score = 10.0
+            else:
+                financial_score = max(0.0, 5.0 - min(5.0, total_expenses / 200))
+        else:
+            expense_ratio = total_expenses / rent_collected
+            if net_cash_flow > 0:
+                if expense_ratio <= 0.3:
+                    financial_score = 20.0
+                elif expense_ratio <= 0.5:
+                    financial_score = 17.0
+                elif expense_ratio <= 0.7:
+                    financial_score = 13.0
+                else:
+                    financial_score = 9.0
+            elif net_cash_flow == 0:
+                financial_score = 8.0
+            else:
+                loss_ratio = abs(net_cash_flow) / max(rent_collected, 1)
+                financial_score = max(0.0, 6.0 - round(loss_ratio * 8, 1))
+
+        financial_score = round(min(20.0, max(0.0, financial_score)), 1)
+
         # --- Total Score ---
-        total_score = round(rent_score + occupancy_score + maintenance_score + lease_stability_score)
+        total_score = round(rent_score + occupancy_score + maintenance_score + lease_stability_score + financial_score)
         total_score = max(0, min(100, total_score))
 
         if total_score >= 70:
@@ -2043,6 +2487,7 @@ async def get_property_health_scores(current_user: dict = Depends(get_current_us
                 occupancy=occupancy_score,
                 maintenance=maintenance_score,
                 lease_stability=round(lease_stability_score, 1),
+                financial_performance=financial_score,
             ),
             total_units=total_units,
             occupied_units=occupied,

@@ -1,6 +1,11 @@
 // Formatting utilities for Canadian locale
 import { format, parseISO, formatDistanceToNow } from 'date-fns';
 import { enCA, frCA } from 'date-fns/locale';
+import { getT } from '../i18n/useTranslation';
+
+// Current date-fns locale based on app language
+const getDateLocale = () =>
+  getT()('language') === 'Langue' ? frCA : enCA; // FR when in French
 
 // Currency formatting for CAD
 export const formatCurrency = (amount: number): string => {
@@ -21,11 +26,11 @@ export const formatCurrencyFull = (amount: number): string => {
   }).format(amount);
 };
 
-// Date formatting - Canadian friendly
+// Date formatting - locale-aware
 export const formatDate = (dateString: string): string => {
   try {
     const date = parseISO(dateString);
-    return format(date, 'MMM d, yyyy', { locale: enCA });
+    return format(date, 'MMM d, yyyy', { locale: getDateLocale() });
   } catch {
     return dateString;
   }
@@ -34,7 +39,7 @@ export const formatDate = (dateString: string): string => {
 export const formatDateShort = (dateString: string): string => {
   try {
     const date = parseISO(dateString);
-    return format(date, 'MMM d', { locale: enCA });
+    return format(date, 'MMM d', { locale: getDateLocale() });
   } catch {
     return dateString;
   }
@@ -52,7 +57,7 @@ export const formatDateISO = (dateString: string): string => {
 export const formatRelativeDate = (dateString: string): string => {
   try {
     const date = parseISO(dateString);
-    return formatDistanceToNow(date, { addSuffix: true, locale: enCA });
+    return formatDistanceToNow(date, { addSuffix: true, locale: getDateLocale() });
   } catch {
     return dateString;
   }
@@ -91,62 +96,67 @@ export const formatPostalCode = (code: string): string => {
   return code;
 };
 
-// Property type display names
+// Property type display names — locale-aware
 export const getPropertyTypeLabel = (type: string): string => {
+  const t = getT();
   const types: Record<string, string> = {
-    duplex: 'Duplex',
-    triplex: 'Triplex',
-    fourplex: 'Fourplex',
-    fiveplex: 'Fiveplex',
-    sixplex: 'Sixplex',
-    small_apartment: 'Small Apartment',
-    single_family: 'Single Family',
-    other: 'Other',
+    duplex: t('typeDuplex'),
+    triplex: t('typeTriplex'),
+    fourplex: t('typeFourplex'),
+    fiveplex: t('typeFiveplex'),
+    sixplex: t('typeSixplex'),
+    small_apartment: t('typeSmallApartment'),
+    single_family: t('typeSingleFamily'),
+    condo: 'Condo',
+    other: t('typeOther'),
   };
   return types[type] || type;
 };
 
-// Rent status labels and colors - Plexio Design System
+// Rent status labels — locale-aware
 export const getRentStatusConfig = (status: string): { label: string; color: string; bgColor: string } => {
+  const t = getT();
   switch (status) {
     case 'paid':
-      return { label: 'Paid', color: '#00C48C', bgColor: '#E6F9F4' };
+      return { label: t('statusPaid'), color: '#00C48C', bgColor: '#E6F9F4' };
     case 'late':
-      return { label: 'Late', color: '#E85D5D', bgColor: '#FDE8E8' };
+      return { label: t('statusLate'), color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'pending':
-      return { label: 'Pending', color: '#F5A623', bgColor: '#FFF6E6' };
+      return { label: t('statusPending'), color: '#F5A623', bgColor: '#FFF6E6' };
     default:
-      return { label: 'N/A', color: '#6B7D93', bgColor: '#F0F3F7' };
+      return { label: t('statusNA'), color: '#6B7D93', bgColor: '#F0F3F7' };
   }
 };
 
-// Priority labels and colors - Plexio Design System
+// Priority labels — locale-aware
 export const getPriorityConfig = (priority: string): { label: string; color: string; bgColor: string } => {
+  const t = getT();
   switch (priority) {
     case 'urgent':
-      return { label: 'Urgent', color: '#E85D5D', bgColor: '#FDE8E8' };
+      return { label: t('priorityUrgent'), color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'high':
-      return { label: 'High', color: '#E87D3E', bgColor: '#FFF0E6' };
+      return { label: t('priorityHigh'), color: '#E87D3E', bgColor: '#FFF0E6' };
     case 'medium':
-      return { label: 'Medium', color: '#F5A623', bgColor: '#FFF6E6' };
+      return { label: t('priorityMedium'), color: '#F5A623', bgColor: '#FFF6E6' };
     case 'low':
-      return { label: 'Low', color: '#00C48C', bgColor: '#E6F9F4' };
+      return { label: t('priorityLow'), color: '#00C48C', bgColor: '#E6F9F4' };
     default:
       return { label: priority, color: '#6B7D93', bgColor: '#F0F3F7' };
   }
 };
 
-// Maintenance status labels - Plexio Design System
+// Maintenance status labels — locale-aware
 export const getMaintenanceStatusConfig = (status: string): { label: string; color: string; bgColor: string } => {
+  const t = getT();
   switch (status) {
     case 'open':
-      return { label: 'Open', color: '#E85D5D', bgColor: '#FDE8E8' };
+      return { label: t('maintOpen'), color: '#E85D5D', bgColor: '#FDE8E8' };
     case 'in_progress':
-      return { label: 'In Progress', color: '#F5A623', bgColor: '#FFF6E6' };
+      return { label: t('maintInProgress'), color: '#F5A623', bgColor: '#FFF6E6' };
     case 'completed':
-      return { label: 'Completed', color: '#00C48C', bgColor: '#E6F9F4' };
+      return { label: t('maintCompleted'), color: '#00C48C', bgColor: '#E6F9F4' };
     case 'cancelled':
-      return { label: 'Cancelled', color: '#6B7D93', bgColor: '#F0F3F7' };
+      return { label: t('maintCancelled'), color: '#6B7D93', bgColor: '#F0F3F7' };
     default:
       return { label: status, color: '#6B7D93', bgColor: '#F0F3F7' };
   }

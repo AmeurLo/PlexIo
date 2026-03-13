@@ -28,6 +28,8 @@ export interface PropertyWithStats extends Property {
   vacant_units: number;
   rent_collected: number;
   rent_expected: number;
+  total_expenses: number;
+  net_cash_flow: number;
   open_maintenance: number;
   next_lease_expiry?: string;
 }
@@ -220,11 +222,51 @@ export interface PortfolioInsights {
 }
 
 // Property Health Score Types
+export interface Expense {
+  id: string;
+  user_id: string;
+  property_id: string;
+  unit_id?: string;
+  title: string;
+  amount: number;
+  category: string;
+  expense_date: string;
+  notes?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PropertyFinancials {
+  property_id: string;
+  property_name: string;
+  month_year: string;
+  expected_rent: number;
+  collected_rent: number;
+  total_expenses: number;
+  maintenance_expenses: number;
+  net_cash_flow: number;
+  occupancy_rate: number;
+  expense_ratio: number;
+  expenses: Expense[];
+}
+
+export const EXPENSE_CATEGORIES = [
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'insurance', label: 'Insurance' },
+  { value: 'property_tax', label: 'Property Tax' },
+  { value: 'utilities', label: 'Utilities' },
+  { value: 'mortgage', label: 'Mortgage' },
+  { value: 'cleaning', label: 'Cleaning' },
+  { value: 'renovation', label: 'Renovation' },
+  { value: 'other', label: 'Other' },
+] as const;
+
 export interface HealthScoreBreakdown {
-  rent_collection: number;  // out of 30
-  occupancy: number;        // out of 25
-  maintenance: number;      // out of 20
-  lease_stability: number;  // out of 25
+  rent_collection: number;      // out of 25
+  occupancy: number;            // out of 20
+  maintenance: number;          // out of 15
+  lease_stability: number;      // out of 20
+  financial_performance: number; // out of 20
 }
 
 export interface PropertyHealthScore {

@@ -8,13 +8,16 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Button, Input, theme } from '../../src/components';
 import { api } from '../../src/services/api';
 import { useAuthStore } from '../../src/store/authStore';
+import { useTranslation } from '../../src/i18n/useTranslation';
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
@@ -22,10 +25,11 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { setAuth } = useAuthStore();
+  const { t } = useTranslation();
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter email and password');
+      Alert.alert(t('error') as string, t('loginError') as string);
       return;
     }
 
@@ -35,8 +39,8 @@ export default function LoginScreen() {
       await setAuth(response.user, response.access_token);
       router.replace('/(tabs)');
     } catch (error: any) {
-      const message = error.response?.data?.detail || 'Login failed. Please try again.';
-      Alert.alert('Login Failed', message);
+      const message = error.response?.data?.detail || (t('loginFailedMsg') as string);
+      Alert.alert(t('loginFailed') as string, message);
     } finally {
       setLoading(false);
     }
@@ -53,21 +57,41 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* Header */}
           <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>P</Text>
+            {/* Clean logo mark */}
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+
+            {/* Gradient "Plexio" wordmark */}
+            <View style={styles.wordmarkRow}>
+              {'Plexio'.split('').map((char, i) => {
+                const t_val = i / 5;
+                const r = Math.round(26 + t_val * (58 - 26));
+                const g = Math.round(59 + t_val * (142 - 59));
+                const b = Math.round(107 + t_val * (124 - 107));
+                return (
+                  <Text key={i} style={[styles.wordmarkChar, { color: `rgb(${r},${g},${b})` }]}>
+                    {char}
+                  </Text>
+                );
+              })}
             </View>
-            <Text style={styles.brandName}>Plexio</Text>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to manage your properties</Text>
+
+            <Text style={styles.title}>{t('welcomeBack') as string}</Text>
+            <Text style={styles.subtitle}>{t('loginSubtitle') as string}</Text>
           </View>
 
+          {/* Form */}
           <View style={styles.form}>
             <Input
-              label="Email"
+              label={t('email') as string}
               value={email}
               onChangeText={setEmail}
-              placeholder="Enter your email"
+              placeholder={t('emailPlaceholder') as string}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -75,10 +99,10 @@ export default function LoginScreen() {
 
             <View style={styles.passwordContainer}>
               <Input
-                label="Password"
+                label={t('password') as string}
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Enter your password"
+                placeholder={t('passwordPlaceholder') as string}
                 secureTextEntry={!showPassword}
                 containerStyle={styles.passwordInput}
               />
@@ -94,19 +118,30 @@ export default function LoginScreen() {
               </TouchableOpacity>
             </View>
 
-            <Button
-              title="Sign In"
-              onPress={handleLogin}
-              loading={loading}
-              size="large"
-              style={styles.button}
-            />
+            {/* Gradient Sign In button */}
+            <LinearGradient
+              colors={[theme.colors.gradientStart, theme.colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.gradientButton}
+            >
+              <TouchableOpacity
+                style={styles.gradientButtonInner}
+                onPress={handleLogin}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.gradientButtonText}>
+                  {loading ? (t('signingIn') as string) : (t('signIn') as string)}
+                </Text>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Don't have an account?</Text>
+            <Text style={styles.footerText}>{t('noAccount') as string}</Text>
             <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
-              <Text style={styles.link}>Create Account</Text>
+              <Text style={styles.link}>{t('createAccount') as string}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -132,37 +167,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: theme.spacing.xl,
   },
-  logoContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logoImage: {
+    width: 140,
+    height: 140,
+    marginBottom: 4,
+  },
+  wordmarkRow: {
+    flexDirection: 'row',
     marginBottom: theme.spacing.md,
-    ...theme.shadows.lg,
   },
-  logoText: {
-    fontSize: 36,
+  wordmarkChar: {
+    fontSize: 40,
     fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -1,
-  },
-  brandName: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: theme.colors.primary,
-    letterSpacing: -1,
-    marginBottom: theme.spacing.sm,
+    letterSpacing: -0.5,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
     color: theme.colors.textPrimary,
     marginBottom: theme.spacing.xs,
   },
   subtitle: {
-    fontSize: 16,
+    fontSize: 15,
     color: theme.colors.textSecondary,
   },
   form: {
@@ -179,8 +205,21 @@ const styles = StyleSheet.create({
     right: 16,
     top: 42,
   },
-  button: {
+  gradientButton: {
+    borderRadius: theme.borderRadius.md,
     marginTop: theme.spacing.sm,
+    ...theme.shadows.md,
+  },
+  gradientButtonInner: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gradientButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    letterSpacing: 0.3,
   },
   footer: {
     flexDirection: 'row',
