@@ -21,15 +21,19 @@ const NAV_DAILY = [
 ];
 
 const NAV_PORTFOLIO = [
-  { href: "/dashboard/properties", icon: "home"     as const, fr: "Propriétés", en: "Properties" },
-  { href: "/dashboard/tenants",    icon: "users"    as const, fr: "Locataires", en: "Tenants" },
-  { href: "/dashboard/leases",     icon: "document" as const, fr: "Baux",       en: "Leases" },
-  { href: "/dashboard/applicants", icon: "users"    as const, fr: "Candidats",  en: "Applicants" },
+  { href: "/dashboard/properties",    icon: "home"     as const, fr: "Propriétés",       en: "Properties" },
+  { href: "/dashboard/tenants",       icon: "users"    as const, fr: "Locataires",       en: "Tenants" },
+  { href: "/dashboard/leases",        icon: "document" as const, fr: "Baux",             en: "Leases" },
+  { href: "/dashboard/applicants",    icon: "users"    as const, fr: "Candidats",        en: "Applicants" },
+  { href: "/dashboard/vacancy",       icon: "home"     as const, fr: "Logements vacants", en: "Vacancy" },
+  { href: "/dashboard/inspections",   icon: "document" as const, fr: "Inspections",      en: "Inspections" },
 ];
 
 const NAV_FINANCES = [
   { href: "/dashboard/expenses",    icon: "dollar"    as const, fr: "Finances",        en: "Finances" },
-  { href: "/dashboard/insights",    icon: "chart-bar" as const, fr: "Analytiques",    en: "Analytics" },
+  { href: "/dashboard/insights",    icon: "chart-bar" as const, fr: "Analytiques",     en: "Analytics" },
+  { href: "/dashboard/mortgage",    icon: "building"  as const, fr: "Hypothèques",     en: "Mortgages" },
+  { href: "/dashboard/insurance",   icon: "shield"    as const, fr: "Assurances",      en: "Insurance" },
   { href: "/dashboard/automations", icon: "zap"       as const, fr: "Automatisations", en: "Automations" },
 ];
 

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Icon } from "@/lib/icons";
 import { useLanguage } from "@/lib/LanguageContext";
 import { getUser, getInitials, logout } from "@/lib/auth";
+import { api } from "@/lib/api";
 
 interface Props {
   onMenuClick: () => void;
@@ -15,10 +16,17 @@ export default function DashboardHeader({ onMenuClick }: Props) {
   const initials = getInitials(user);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   // Read localStorage only on the client to avoid SSR hydration mismatch
   useEffect(() => {
     setUser(getUser());
+    // Load unread count
+    if (typeof window !== "undefined" && localStorage.getItem("domely_token")) {
+      api.getNotifications()
+        .then(notifs => setUnreadCount(notifs.filter((n: any) => !n.is_read).length))
+        .catch(() => {});
+    }
   }, []);
 
   useEffect(() => {
@@ -50,6 +58,22 @@ export default function DashboardHeader({ onMenuClick }: Props) {
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {/* Notification bell */}
+      <Link
+        href="/dashboard/notifications"
+        className="relative p-2 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-teal-600 transition-colors"
+        aria-label="Notifications"
+      >
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+        {unreadCount > 0 && (
+          <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+            {unreadCount > 9 ? "9+" : unreadCount}
+          </span>
+        )}
+      </Link>
 
       {/* Lang toggle */}
       <button
