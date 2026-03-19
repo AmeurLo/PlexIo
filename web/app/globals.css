@@ -1,0 +1,160 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-primary: #1E7A6E;
+  --color-primary-dark: #144F54;
+  --color-primary-light: #E3F5F2;
+  --color-accent: #3FAF86;
+
+  /* Lunera-inspired neutral system */
+  --text-primary:   #1c1c1c;
+  --text-secondary: #6d6d6d;   /* warmer than gray-400, matches Lunera */
+  --text-muted:     #9e9e9e;
+  --border-subtle:  #e3e3e3;   /* cleaner card borders */
+  --bg-section:     #fafafa;   /* alternating section bg */
+  --bg-card:        #ffffff;
+
+  /* Card shadow — 2-layer soft lift (Lunera pattern) */
+  --shadow-card:    0 1px 3px rgba(0,0,0,0.04), 0 8px 32px rgba(0,0,0,0.06);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.06), 0 16px 48px rgba(0,0,0,0.10);
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Enable Geist OpenType features for cleaner rendering */
+  font-feature-settings: "cv09" on, "cv03" on, "cv04" on, "cv11" on;
+}
+
+body {
+  background: #ffffff;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+}
+
+/* Heading tightness — Lunera uses -0.03em across all heading levels */
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+/* Section subtitle baseline */
+.section-sub {
+  color: var(--text-secondary);
+  font-size: 17px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #1E7A6E; border-radius: 3px; }
+
+/* Selection */
+::selection {
+  background: #C7EBE5;
+  color: #144F54;
+}
+
+/* Grid dot background pattern */
+.bg-dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(30,122,110,0.08) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+/* Glassmorphism — Lunera uses 60% white, blur(12px) for a lighter frost */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+}
+
+/* Gradient text */
+.text-gradient {
+  background: linear-gradient(135deg, #144F54 0%, #1E7A6E 45%, #3FAF86 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Brand name "Domely" — matches logo typography */
+.brand-name {
+  font-family: var(--font-brand), 'Nunito', system-ui, sans-serif;
+  font-weight: 800;
+  background: linear-gradient(to right, #0A3245 0%, #185F62 50%, #35AC7A 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.01em;
+}
+
+/* Brand name on dark backgrounds (footer) */
+.brand-name-light {
+  font-family: var(--font-brand), 'Nunito', system-ui, sans-serif;
+  font-weight: 800;
+  background: linear-gradient(to right, #5FD4AA 0%, #9EECD4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  letter-spacing: -0.01em;
+}
+
+/* Feature card hover — gentle lift + teal tint shadow */
+.feature-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.feature-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-card-hover);
+  border-color: #d0d0d0;
+}
+
+/* ── Dark mode ───────────────────────────────────────────────────────────── */
+.dark {
+  --text-primary:   #f0f4f4;
+  --text-secondary: #9e9e9e;
+  --text-muted:     #6d6d6d;
+  --border-subtle:  #2a2a2a;
+  --bg-section:     #0d1214;
+  --bg-card:        #111a1c;
+  --shadow-card:    0 1px 3px rgba(0,0,0,0.24), 0 8px 32px rgba(0,0,0,0.28);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.32), 0 16px 48px rgba(0,0,0,0.36);
+}
+
+.dark body {
+  background: #0b1215;
+  color: var(--text-primary);
+}
+
+.dark ::-webkit-scrollbar-track { background: #111a1a; }
+.dark ::-webkit-scrollbar-thumb { background: #1E7A6E; }
+
+.dark .glass {
+  background: rgba(11, 20, 22, 0.80);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
+}
+
+.dark .bg-dot-grid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(63,175,134,0.04) 1px, transparent 0);
+}
+
+.dark .text-gradient {
+  background: linear-gradient(135deg, #3FAF86 0%, #5FD4AA 50%, #9EECD4 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.dark .feature-card:hover {
+  box-shadow: var(--shadow-card-hover);
+  border-color: #3a3a3a;
+}
+

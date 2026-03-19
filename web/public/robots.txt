@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+
+Disallow: /dashboard/
+Disallow: /login
+Disallow: /forgot-password
+Disallow: /reset-password
+Disallow: /cancel
+Disallow: /success
+Disallow: /api/
+
+Sitemap: https://domely.ca/sitemap.xml

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 105">
+  <defs>
+    <linearGradient id="fg" x1="0%" y1="100%" x2="80%" y2="0%">
+      <stop offset="0%"   stop-color="#0A3248"/>
+      <stop offset="48%"  stop-color="#1A7068"/>
+      <stop offset="100%" stop-color="#3AAF80"/>
+    </linearGradient>
+  </defs>
+  <path fill-rule="evenodd" fill="url(#fg)"
+    d="M14,26 L27,15 C48,2 83,17 89,49 C93,65 86,80 76,89
+       C63,100 45,105 27,93 L14,83 Z
+       M29,29 C67,29 73,42 73,54 C73,68 65,80 29,80 Z"/>
+  <path fill-rule="evenodd" fill="url(#fg)"
+    d="M55,21 A33,33 0 1,0 55,87 A33,33 0 1,0 55,21 Z
+       M55,37 A17,17 0 1,0 55,71 A17,17 0 1,0 55,37 Z"/>
+  <polygon points="14,26 27,15 27,44 14,44"  fill="rgba(0,0,0,0.24)"/>
+  <polygon points="14,44 27,44 27,65 14,65"  fill="rgba(0,0,0,0.20)"/>
+  <polygon points="27,15 52,3  63,19 40,24"  fill="rgba(255,255,255,0.13)"/>
+</svg>

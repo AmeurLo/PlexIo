@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 105">
+  <defs>
+    <linearGradient id="grad" x1="0%" y1="100%" x2="80%" y2="0%">
+      <stop offset="0%"   stop-color="#0A3248"/>
+      <stop offset="48%"  stop-color="#1A7068"/>
+      <stop offset="100%" stop-color="#3AAF80"/>
+    </linearGradient>
+  </defs>
+
+  <!-- D letterform — evenodd punches the counter (inner hole) -->
+  <path fill-rule="evenodd" fill="url(#grad)"
+    d="M14,26 L27,15 C48,2 83,17 89,49 C93,65 86,80 76,89
+       C63,100 45,105 27,93 L14,83 Z
+       M29,29 C67,29 73,42 73,54 C73,68 65,80 29,80 Z"/>
+
+  <!-- O ring — evenodd creates the ring (outer circle minus inner circle) -->
+  <path fill-rule="evenodd" fill="url(#grad)"
+    d="M55,21 A33,33 0 1,0 55,87 A33,33 0 1,0 55,21 Z
+       M55,37 A17,17 0 1,0 55,71 A17,17 0 1,0 55,37 Z"/>
+
+  <!-- ── Low-poly facet overlays ──────────────────────────────── -->
+
+  <!-- TOP / lit side (bright highlights) -->
+  <polygon points="27,15 52,3  63,19 40,24"  fill="rgba(255,255,255,0.13)"/>
+  <polygon points="52,3  80,18 72,28 63,17"  fill="rgba(255,255,255,0.09)"/>
+  <polygon points="80,18 89,44 78,43 72,28"  fill="rgba(255,255,255,0.05)"/>
+
+  <!-- LEFT BAR — darkest, in shadow -->
+  <polygon points="14,26 27,15 27,44 14,44"  fill="rgba(0,0,0,0.24)"/>
+  <polygon points="14,44 27,44 27,65 14,65"  fill="rgba(0,0,0,0.20)"/>
+  <polygon points="14,65 27,65 27,93 14,83"  fill="rgba(0,0,0,0.17)"/>
+
+  <!-- RIGHT / bottom shadow -->
+  <polygon points="89,57 88,76 77,71 82,54"  fill="rgba(0,0,0,0.13)"/>
+  <polygon points="77,71 88,76 72,90 63,84"  fill="rgba(0,0,0,0.10)"/>
+
+  <!-- CENTRE upper facets -->
+  <polygon points="40,24 63,17 66,36 46,42"  fill="rgba(255,255,255,0.07)"/>
+
+  <!-- CENTRE lower facets -->
+  <polygon points="46,63 66,57 64,77 44,79"  fill="rgba(0,0,0,0.09)"/>
+</svg>
