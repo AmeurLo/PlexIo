@@ -98,8 +98,8 @@ export default function MissionPage() {
             </span>
             <h1 className="text-[44px] lg:text-[64px] font-bold text-gray-900 dark:text-white leading-[1.05] tracking-tight mb-6 max-w-3xl">
               {lang === "fr"
-                ? <>Chaque propriétaire mérite de gérer <span className="text-gradient">comme un pro.</span></>
-                : <>Every landlord deserves to manage <span className="text-gradient">like a pro.</span></>
+                ? <>Bâtir un patrimoine ne devrait pas être <span className="text-gradient">aussi compliqué.</span></>
+                : <>Building wealth <span className="text-gradient">shouldn't be this hard.</span></>
               }
             </h1>
             <p className="text-[18px] max-w-2xl leading-relaxed mb-10" style={{ color: "var(--text-secondary)" }}>
