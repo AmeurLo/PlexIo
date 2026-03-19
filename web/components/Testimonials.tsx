@@ -151,7 +151,10 @@ function TestimonialCard({ tc, t }: { tc: typeof TESTIMONIALS[0]; t: (v: { fr: s
         <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${tc.color} flex items-center justify-center text-white text-[12px] font-bold flex-shrink-0`}>
           {tc.initials}
         </div>
-        <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{t(tc.role)}</p>
+        <div>
+          <p className="text-[13px] font-semibold text-gray-900 dark:text-white">{tc.name}</p>
+          <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>{t(tc.role)}</p>
+        </div>
       </div>
     </div>
   );
