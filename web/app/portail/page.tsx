@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
 import { Icon } from "@/lib/icons";
@@ -17,8 +16,11 @@ const T = {
     { icon: "chat" as const,        fr: "Messagerie avec votre proprio", en: "Message your landlord" },
   ],
   appTitle:  { fr: "Accédez à votre espace",            en: "Access your space" },
-  appSub:    { fr: "Votre portail locataire est disponible directement dans votre navigateur. Gratuit, sans abonnement.", en: "Your tenant portal is available right in your browser. Free, no subscription." },
+  appSub:    { fr: "Disponible sur le web et sur votre téléphone. Gratuit, sans abonnement.", en: "Available on web and on your phone. Free, no subscription." },
   accessWeb: { fr: "Accéder au portail web",            en: "Access web portal" },
+  appStore:  { fr: "Télécharger sur l'App Store",       en: "Download on the App Store" },
+  googlePlay:{ fr: "Disponible sur Google Play",        en: "Get it on Google Play" },
+  orWeb:     { fr: "ou accédez directement depuis votre navigateur",      en: "or access directly from your browser" },
   inviteTitle: { fr: "Vous n'avez pas encore été invité ?", en: "Haven't been invited yet?" },
   inviteSub:   { fr: "Demandez à votre propriétaire de vous envoyer une invitation Domely.", en: "Ask your landlord to send you a Domely invitation." },
   landlordCta: { fr: "Vous êtes propriétaire ?",       en: "Are you a landlord?" },
@@ -106,11 +108,43 @@ function PortailContent() {
               </p>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 flex-shrink-0">
+            <div className="flex flex-col gap-3 flex-shrink-0">
+              {/* App Store button */}
+              <a href="https://apps.apple.com/app/domely/id6746778641" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 bg-black text-white px-5 py-3 rounded-xl hover:bg-gray-900 transition-colors w-full sm:w-auto">
+                {/* Apple logo */}
+                <svg className="w-6 h-6 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11"/>
+                </svg>
+                <div className="text-left">
+                  <div className="text-[10px] text-gray-300 leading-none mb-0.5">{t(T.appStore)}</div>
+                  <div className="text-[16px] font-semibold leading-tight">App Store</div>
+                </div>
+              </a>
+
+              {/* Google Play button */}
+              <a href="https://play.google.com/store/apps/details?id=com.domely.app" target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-3 bg-black text-white px-5 py-3 rounded-xl hover:bg-gray-900 transition-colors w-full sm:w-auto">
+                {/* Play Store logo */}
+                <svg className="w-6 h-6 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3.18 23.76c.28.16.6.2.9.1L15 12 8.1.14a1.07 1.07 0 00-.92.1L3.18 2.24a2.14 2.14 0 00-1.07 1.85v17.82c0 .76.4 1.45 1.07 1.85zM16.5 10.59L5.72 1.02l9.3 9.28 1.48.29zM5.72 22.98l10.78-9.57-1.48.29-9.3 9.28zM20.82 10.15l-2.73-1.56-1.84 1.83 1.84 1.83 2.75-1.57c.79-.45.79-1.53-.02-2.1v.57"/>
+                </svg>
+                <div className="text-left">
+                  <div className="text-[10px] text-gray-300 leading-none mb-0.5">{t(T.googlePlay)}</div>
+                  <div className="text-[16px] font-semibold leading-tight">Google Play</div>
+                </div>
+              </a>
+
+              {/* Divider + web link */}
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex-1 h-px bg-white/20" />
+                <span className="text-[11px] text-white/50 whitespace-nowrap">{t(T.orWeb)}</span>
+                <div className="flex-1 h-px bg-white/20" />
+              </div>
               <Link href="/portail/login"
-                className="flex items-center gap-3 bg-white text-gray-900 px-6 py-3.5 rounded-xl hover:bg-gray-50 transition-colors font-semibold text-[15px]">
-                <svg className="w-5 h-5 text-teal-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" />
+                className="flex items-center justify-center gap-2 bg-white/15 hover:bg-white/25 text-white px-5 py-3 rounded-xl transition-colors font-semibold text-[14px] border border-white/20">
+                <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9" />
                 </svg>
                 {t(T.accessWeb)}
               </Link>
