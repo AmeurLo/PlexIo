@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
   switch (event.type) {
     case "checkout.session.completed": {
-      const session = event.data.object as Stripe.CheckoutSession;
+      const session = event.data.object as Stripe.Checkout.Session;
       const email   = (session.customer_email || session.metadata?.email || "").toLowerCase();
       const plan    = session.metadata?.plan || "pro";
       console.log("[Stripe] New subscription:", session.id, "→", email, plan);
