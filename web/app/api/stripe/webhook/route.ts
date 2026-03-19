@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2024-06-20",
+  apiVersion: "2026-02-25.clover",
 });
 
 const API_URL      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
@@ -38,7 +38,7 @@ async function sendPaymentFailedEmail(email: string, name?: string) {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${RESEND_KEY}` },
       body: JSON.stringify({
-        from: "Domely <facturation@domely.app>",
+        from: "Domely <facturation@domely.ca>",
         to: email,
         subject: "Problème de paiement — votre abonnement Domely",
         text: `Bonjour${name ? " " + name : ""},\n\nNous n'avons pas pu traiter votre paiement pour votre abonnement Domely.\n\nVeuillez mettre à jour votre moyen de paiement en vous connectant à votre compte.\n\nSi vous avez des questions, contactez-nous à support@domely.app.\n\nL'équipe Domely`,
