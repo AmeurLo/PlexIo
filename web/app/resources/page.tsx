@@ -87,7 +87,7 @@ const ARTICLES = [
 ];
 
 export default function ResourcesPage() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const featured = ARTICLES[0];
   const rest = ARTICLES.slice(1);
 
@@ -105,10 +105,9 @@ export default function ResourcesPage() {
               ✦ {t({ fr: "Ressources", en: "Resources" })}
             </span>
             <h1 className="text-[42px] lg:text-[58px] font-bold text-gray-900 dark:text-white leading-[1.05] tracking-tight mb-5">
-              {t({
-                fr: <>Tout ce qu'il faut savoir pour <span className="text-gradient">réussir.</span></>,
-                en: <>Everything you need to know to <span className="text-gradient">succeed.</span></>,
-              })}
+              {lang === "fr"
+                ? <>Tout ce qu'il faut savoir pour <span className="text-gradient">réussir.</span></>
+                : <>Everything you need to know to <span className="text-gradient">succeed.</span></>}
             </h1>
             <p className="text-[17px] max-w-xl mx-auto" style={{ color: "var(--text-secondary)" }}>
               {t({
@@ -199,7 +198,7 @@ export default function ResourcesPage() {
         <section className="py-20 bg-white dark:bg-gray-950">
           <div className="max-w-[1200px] mx-auto px-6 text-center">
             <h2 className="text-[32px] font-bold text-gray-900 dark:text-white mb-4">
-              {t({ fr: <>Prêt à mettre tout ça en pratique ?</>, en: <>Ready to put this into practice?</> })}
+              {lang === "fr" ? <>Prêt à mettre tout ça en pratique ?</> : <>Ready to put this into practice?</>}
             </h2>
             <p className="text-[16px] mb-8" style={{ color: "var(--text-secondary)" }}>
               {t({ fr: "Domely automatise tout ce que vous venez de lire.", en: "Domely automates everything you just read." })}

@@ -79,7 +79,7 @@ const VALUES = [
 ];
 
 export default function MissionPage() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
 
   return (
     <>
@@ -97,10 +97,10 @@ export default function MissionPage() {
               ✦ {t({ fr: "Qui nous sommes", en: "Who we are" })}
             </span>
             <h1 className="text-[44px] lg:text-[64px] font-bold text-gray-900 dark:text-white leading-[1.05] tracking-tight mb-6 max-w-3xl">
-              {t({
-                fr: <>Chaque propriétaire mérite de gérer <span className="text-gradient">comme un pro.</span></>,
-                en: <>Every landlord deserves to manage <span className="text-gradient">like a pro.</span></>,
-              })}
+              {lang === "fr"
+                ? <>Chaque propriétaire mérite de gérer <span className="text-gradient">comme un pro.</span></>
+                : <>Every landlord deserves to manage <span className="text-gradient">like a pro.</span></>
+              }
             </h1>
             <p className="text-[18px] max-w-2xl leading-relaxed mb-10" style={{ color: "var(--text-secondary)" }}>
               {t({

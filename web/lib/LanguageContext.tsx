@@ -6,7 +6,7 @@ import type { Lang } from "./translations";
 interface LanguageContextType {
   lang: Lang;
   setLang: (l: Lang) => void;
-  t: (val: { fr: ReactNode; en: ReactNode }) => ReactNode;
+  t: (val: { fr: string; en: string }) => string;
 }
 
 const LanguageContext = createContext<LanguageContextType>({
@@ -30,7 +30,7 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     setLangState(l);
   };
 
-  const t = (val: { fr: ReactNode; en: ReactNode }) => val[lang];
+  const t = (val: { fr: string; en: string }) => val[lang];
 
   return (
     <LanguageContext.Provider value={{ lang, setLang, t }}>
