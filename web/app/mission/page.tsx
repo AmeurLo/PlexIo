@@ -234,10 +234,10 @@ export default function MissionPage() {
         <section className="py-20" style={{ background: "var(--bg-section)" }}>
           <div className="max-w-[1200px] mx-auto px-6 text-center">
             <h2 className="text-[32px] lg:text-[44px] font-bold text-gray-900 dark:text-white mb-4">
-              {t({
-                fr: <>Rejoignez les propriétaires qui gèrent <span className="text-gradient">mieux.</span></>,
-                en: <>Join the landlords who manage <span className="text-gradient">better.</span></>,
-              })}
+              {lang === "fr"
+                ? <>Rejoignez les propriétaires qui gèrent <span className="text-gradient">mieux.</span></>
+                : <>Join the landlords who manage <span className="text-gradient">better.</span></>
+              }
             </h2>
             <p className="text-[17px] mb-8 max-w-lg mx-auto" style={{ color: "var(--text-secondary)" }}>
               {t({
