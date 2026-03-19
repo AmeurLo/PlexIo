@@ -1,23 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: "2026-02-25.clover",
-});
-
-const PRICE_IDS: Record<string, Record<string, string>> = {
-  pro: {
-    monthly: process.env.STRIPE_PRICE_PRO_MONTHLY!,
-    yearly:  process.env.STRIPE_PRICE_PRO_YEARLY!,
-  },
-  team: {
-    monthly: process.env.STRIPE_PRICE_TEAM_MONTHLY!,
-    yearly:  process.env.STRIPE_PRICE_TEAM_YEARLY!,
-  },
-};
-
 export async function POST(req: NextRequest) {
   try {
+    const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || "", {
+      apiVersion: "2026-02-25.clover",
+    });
+
+    const PRICE_IDS: Record<string, Record<string, string>> = {
+      pro: {
+        monthly: process.env.STRIPE_PRICE_PRO_MONTHLY || "",
+        yearly:  process.env.STRIPE_PRICE_PRO_YEARLY || "",
+      },
+      team: {
+        monthly: process.env.STRIPE_PRICE_TEAM_MONTHLY || "",
+        yearly:  process.env.STRIPE_PRICE_TEAM_YEARLY || "",
+      },
+    };
+
     const { plan, billing = "monthly", email } = await req.json();
 
     const priceId = PRICE_IDS[plan]?.[billing];
