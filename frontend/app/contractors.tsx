@@ -1,12 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, Modal, KeyboardAvoidingView, Platform, Linking,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, theme } from '../src/components';
+import { api } from '../src/services/api';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 type Trade = 'plumber' | 'electrician' | 'hvac' | 'painter' | 'carpenter' | 'locksmith' | 'cleaner' | 'general' | 'roofer' | 'exterminator';
 
@@ -18,7 +22,7 @@ interface Contractor {
   phone: string;
   email: string;
   rating: number;
-  lastUsed: string;
+  last_used: string;
   notes: string;
   preferred: boolean;
 }
@@ -36,59 +40,100 @@ const TRADE_CONFIG: Record<Trade, { icon: string; color: string; label: string }
   exterminator: { icon: 'bug-outline',           color: '#DC2626', label: 'Extermination' },
 };
 
-const MOCK_CONTRACTORS: Contractor[] = [
-  { id: '1', name: 'Mario Plante', company: 'Plomberie Plante Inc.', trade: 'plumber', phone: '514-555-0111', email: 'mario@plomberieplante.com', rating: 5, lastUsed: '2026-02-15', notes: 'Disponible les weekends. Urgences 24/7.', preferred: true },
-  { id: '2', name: 'Jean-Claude Électro', company: 'JC Électrique', trade: 'electrician', phone: '514-555-0222', email: 'jc@jcelectrique.ca', rating: 4, lastUsed: '2025-11-08', notes: 'Certifié RBQ. Bon prix.', preferred: true },
-  { id: '3', name: 'Ahmed Benali', company: 'Peinture Pro MTL', trade: 'painter', phone: '514-555-0333', email: 'ahmed@peinturepro.ca', rating: 5, lastUsed: '2026-01-20', notes: 'Excellent travail, propre.', preferred: false },
-  { id: '4', name: 'Sylvie Ménard', company: 'CleanMax Montréal', trade: 'cleaner', phone: '438-555-0444', email: 'sylvie@cleanmax.ca', rating: 4, lastUsed: '2026-03-01', notes: 'Nettoyage régulier parties communes.', preferred: true },
-  { id: '5', name: 'Robert Couture', company: 'Serrures Express', trade: 'locksmith', phone: '514-555-0555', email: '', rating: 4, lastUsed: '2025-09-14', notes: '', preferred: false },
-];
-
 const blank = (): Omit<Contractor, 'id'> => ({
   name: '', company: '', trade: 'general', phone: '', email: '',
-  rating: 5, lastUsed: '', notes: '', preferred: false,
+  rating: 5, last_used: '', notes: '', preferred: false,
 });
 
+// ─── Component ───────────────────────────────────────────────────────────────
+
 export default function ContractorsScreen() {
-  const [contractors, setContractors] = useState<Contractor[]>(MOCK_CONTRACTORS);
-  const [filterTrade, setFilterTrade] = useState<Trade | 'all'>('all');
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(blank());
-  const [editId, setEditId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [contractors, setContractors] = useState<Contractor[]>([]);
+  const [filterTrade, setFilterTrade]  = useState<Trade | 'all'>('all');
+  const [search,      setSearch]       = useState('');
+  const [showModal,   setShowModal]    = useState(false);
+  const [form,        setForm]         = useState(blank());
+  const [editId,      setEditId]       = useState<string | null>(null);
+  const [loading,     setLoading]      = useState(true);
+  const [refreshing,  setRefreshing]   = useState(false);
+  const [saving,      setSaving]       = useState(false);
 
-  const filtered = contractors.filter(c => {
-    const matchTrade = filterTrade === 'all' || c.trade === filterTrade;
-    const matchSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.company.toLowerCase().includes(search.toLowerCase());
-    return matchTrade && matchSearch;
-  });
-  const preferred = filtered.filter(c => c.preferred);
-  const others = filtered.filter(c => !c.preferred);
+  useFocusEffect(useCallback(() => {
+    loadContractors();
+  }, []));
 
-  const openAdd = () => { setForm(blank()); setEditId(null); setShowModal(true); };
-  const openEdit = (c: Contractor) => { setForm({ ...c }); setEditId(c.id); setShowModal(true); };
+  const loadContractors = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const data = await api.getContractors();
+      setContractors(data as Contractor[]);
+    } catch {
+      Alert.alert('Erreur', 'Impossible de charger les fournisseurs.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
-  const save = () => {
+  const openAdd  = () => { setForm(blank()); setEditId(null); setShowModal(true); };
+  const openEdit = (c: Contractor) => {
+    setForm({ name: c.name, company: c.company, trade: c.trade, phone: c.phone,
+              email: c.email, rating: c.rating, last_used: c.last_used,
+              notes: c.notes, preferred: c.preferred });
+    setEditId(c.id);
+    setShowModal(true);
+  };
+
+  const save = async () => {
     if (!form.name.trim() || !form.phone.trim()) {
       Alert.alert('Erreur', 'Nom et téléphone requis.'); return;
     }
-    if (editId) {
-      setContractors(cs => cs.map(c => c.id === editId ? { ...form, id: editId } : c));
-    } else {
-      setContractors(cs => [...cs, { ...form, id: Date.now().toString() }]);
+    setSaving(true);
+    try {
+      if (editId) {
+        await api.updateContractor(editId, form);
+        setContractors(cs => cs.map(c => c.id === editId ? { ...form, id: editId } : c));
+      } else {
+        const created = await api.createContractor(form);
+        setContractors(cs => [...cs, created as Contractor]);
+      }
+      setShowModal(false);
+    } catch {
+      Alert.alert('Erreur', 'Impossible de sauvegarder.');
+    } finally {
+      setSaving(false);
     }
-    setShowModal(false);
   };
 
   const del = (id: string) => {
     Alert.alert('Supprimer', 'Retirer ce fournisseur?', [
       { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => setContractors(cs => cs.filter(c => c.id !== id)) },
+      {
+        text: 'Supprimer', style: 'destructive',
+        onPress: async () => {
+          try {
+            await api.deleteContractor(id);
+            setContractors(cs => cs.filter(c => c.id !== id));
+          } catch {
+            Alert.alert('Erreur', 'Impossible de supprimer.');
+          }
+        }
+      },
     ]);
   };
 
+  const filtered = contractors.filter(c => {
+    const matchTrade  = filterTrade === 'all' || c.trade === filterTrade;
+    const matchSearch = !search || c.name.toLowerCase().includes(search.toLowerCase())
+                        || (c.company || '').toLowerCase().includes(search.toLowerCase());
+    return matchTrade && matchSearch;
+  });
+  const preferred = filtered.filter(c => c.preferred);
+  const others    = filtered.filter(c => !c.preferred);
+
   const renderCard = (c: Contractor) => {
-    const cfg = TRADE_CONFIG[c.trade];
+    const cfg = TRADE_CONFIG[c.trade] ?? TRADE_CONFIG.general;
     return (
       <Card key={c.id} style={styles.contractorCard}>
         <View style={styles.cardTop}>
@@ -100,7 +145,7 @@ export default function ContractorsScreen() {
               <Text style={styles.contractorName}>{c.name}</Text>
               {c.preferred && <Ionicons name="star" size={14} color="#F59E0B" />}
             </View>
-            <Text style={styles.companyName}>{c.company}</Text>
+            {c.company ? <Text style={styles.companyName}>{c.company}</Text> : null}
             <View style={[styles.tradeBadge, { backgroundColor: cfg.color + '18' }]}>
               <Text style={[styles.tradeBadgeText, { color: cfg.color }]}>{cfg.label}</Text>
             </View>
@@ -148,42 +193,79 @@ export default function ContractorsScreen() {
       {/* Search */}
       <View style={styles.searchBar}>
         <Ionicons name="search-outline" size={16} color={theme.colors.textTertiary} />
-        <TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Rechercher..." placeholderTextColor={theme.colors.textTertiary} />
+        <TextInput
+          style={styles.searchInput}
+          value={search}
+          onChangeText={setSearch}
+          placeholder="Rechercher..."
+          placeholderTextColor={theme.colors.textTertiary}
+        />
       </View>
 
       {/* Trade filter chips */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        <TouchableOpacity style={[styles.filterChip, filterTrade === 'all' && styles.filterChipActive]} onPress={() => setFilterTrade('all')}>
-          <Text style={[styles.filterChipText, filterTrade === 'all' && styles.filterChipTextActive]}>Tous</Text>
+        <TouchableOpacity
+          style={[styles.filterChip, filterTrade === 'all' && styles.filterChipActive]}
+          onPress={() => setFilterTrade('all')}
+        >
+          <Text style={[styles.filterChipText, filterTrade === 'all' && styles.filterChipTextActive]}>
+            Tous {contractors.length > 0 ? `(${contractors.length})` : ''}
+          </Text>
         </TouchableOpacity>
-        {(Object.keys(TRADE_CONFIG) as Trade[]).map(t => (
-          <TouchableOpacity key={t} style={[styles.filterChip, filterTrade === t && styles.filterChipActive]} onPress={() => setFilterTrade(t)}>
-            <Text style={[styles.filterChipText, filterTrade === t && styles.filterChipTextActive]}>{TRADE_CONFIG[t].label}</Text>
-          </TouchableOpacity>
-        ))}
+        {(Object.keys(TRADE_CONFIG) as Trade[]).map(tradeKey => {
+          const count = contractors.filter(c => c.trade === tradeKey).length;
+          if (count === 0) return null;
+          const isActive = filterTrade === tradeKey;
+          return (
+            <TouchableOpacity
+              key={tradeKey}
+              style={[styles.filterChip, isActive && styles.filterChipActive]}
+              onPress={() => setFilterTrade(tradeKey)}
+            >
+              <Ionicons name={TRADE_CONFIG[tradeKey].icon as any} size={13} color={isActive ? '#fff' : TRADE_CONFIG[tradeKey].color} />
+              <Text style={[styles.filterChipText, isActive && styles.filterChipTextActive]}>
+                {TRADE_CONFIG[tradeKey].label} ({count})
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {preferred.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>⭐ Préférés</Text>
-            {preferred.map(renderCard)}
-          </>
-        )}
-        {others.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>Autres</Text>
-            {others.map(renderCard)}
-          </>
-        )}
-        {filtered.length === 0 && (
-          <View style={styles.empty}>
-            <Ionicons name="people-outline" size={48} color={theme.colors.textTertiary} />
-            <Text style={styles.emptyText}>Aucun fournisseur trouvé</Text>
-          </View>
-        )}
-        <View style={{ height: 40 }} />
-      </ScrollView>
+      {loading ? (
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      ) : (
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => loadContractors(true)} tintColor={theme.colors.primary} />
+          }
+        >
+          {preferred.length > 0 && (
+            <>
+              <Text style={styles.sectionLabel}>⭐ Préférés</Text>
+              {preferred.map(renderCard)}
+            </>
+          )}
+          {others.length > 0 && (
+            <>
+              {preferred.length > 0 && <Text style={styles.sectionLabel}>Autres</Text>}
+              {others.map(renderCard)}
+            </>
+          )}
+          {filtered.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons name="people-outline" size={48} color={theme.colors.textTertiary} />
+              <Text style={styles.emptyText}>
+                {contractors.length === 0 ? 'Aucun fournisseur — ajoutez-en un!' : 'Aucun résultat'}
+              </Text>
+            </View>
+          )}
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      )}
 
       {/* Add/Edit Modal */}
       <Modal visible={showModal} animationType="slide" transparent>
@@ -197,11 +279,11 @@ export default function ContractorsScreen() {
             </View>
             <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {[
-                { label: 'Nom *', key: 'name', placeholder: 'Mario Plante' },
-                { label: 'Entreprise', key: 'company', placeholder: 'Plomberie Plante Inc.' },
-                { label: 'Téléphone *', key: 'phone', placeholder: '514-555-0000', kbd: 'phone-pad' },
-                { label: 'Courriel', key: 'email', placeholder: 'mario@exemple.com', kbd: 'email-address' },
-                { label: 'Notes', key: 'notes', placeholder: 'Disponible weekends, urgences...' },
+                { label: 'Nom *',      key: 'name',     placeholder: 'Mario Plante',             kbd: 'default' },
+                { label: 'Entreprise', key: 'company',  placeholder: 'Plomberie Plante Inc.',     kbd: 'default' },
+                { label: 'Téléphone *',key: 'phone',    placeholder: '514-555-0000',              kbd: 'phone-pad' },
+                { label: 'Courriel',   key: 'email',    placeholder: 'mario@exemple.com',         kbd: 'email-address' },
+                { label: 'Notes',      key: 'notes',    placeholder: 'Disponible weekends, 24/7…', kbd: 'default' },
               ].map(f => (
                 <View key={f.key} style={styles.formGroup}>
                   <Text style={styles.label}>{f.label}</Text>
@@ -211,11 +293,12 @@ export default function ContractorsScreen() {
                     onChangeText={v => setForm(prev => ({ ...prev, [f.key]: v }))}
                     placeholder={f.placeholder}
                     placeholderTextColor={theme.colors.textTertiary}
-                    keyboardType={(f.kbd as any) || 'default'}
+                    keyboardType={f.kbd as any}
                     autoCapitalize={f.key === 'email' ? 'none' : 'words'}
                   />
                 </View>
               ))}
+              {/* Trade picker */}
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Spécialité</Text>
                 <View style={styles.tradeGrid}>
@@ -231,6 +314,7 @@ export default function ContractorsScreen() {
                   ))}
                 </View>
               </View>
+              {/* Preferred toggle */}
               <View style={styles.preferredRow}>
                 <Text style={styles.label}>Marquer comme préféré ⭐</Text>
                 <TouchableOpacity
@@ -242,8 +326,11 @@ export default function ContractorsScreen() {
                   </Text>
                 </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.saveBtn} onPress={save}>
-                <Text style={styles.saveBtnText}>{editId ? 'Enregistrer' : 'Ajouter'}</Text>
+              <TouchableOpacity style={styles.saveBtn} onPress={save} disabled={saving}>
+                {saving
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.saveBtnText}>{editId ? 'Enregistrer' : 'Ajouter'}</Text>
+                }
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -252,6 +339,8 @@ export default function ContractorsScreen() {
     </SafeAreaView>
   );
 }
+
+// ─── Styles ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
@@ -262,10 +351,11 @@ const styles = StyleSheet.create({
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: 8, margin: theme.spacing.md, backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.md, paddingHorizontal: 12, borderWidth: 1, borderColor: theme.colors.borderLight },
   searchInput: { flex: 1, paddingVertical: 10, fontSize: 14, color: theme.colors.textPrimary },
   filterRow: { paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.sm, gap: 8 },
-  filterChip: { paddingHorizontal: 14, paddingVertical: 7, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.borderLight },
+  filterChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: theme.borderRadius.full, backgroundColor: theme.colors.borderLight, flexShrink: 0 },
   filterChipActive: { backgroundColor: theme.colors.primary },
   filterChipText: { fontSize: 13, fontWeight: '500', color: theme.colors.textSecondary },
   filterChipTextActive: { color: '#fff', fontWeight: '700' },
+  loadingWrap: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { padding: theme.spacing.md },
   sectionLabel: { fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   contractorCard: { marginBottom: theme.spacing.sm },

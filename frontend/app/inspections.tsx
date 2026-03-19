@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, Modal, KeyboardAvoidingView, Platform,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Card, theme } from '../src/components';
+import { api } from '../src/services/api';
 
 type InspectionType = 'move_in' | 'move_out' | 'routine';
 type ItemStatus = 'good' | 'fair' | 'poor' | 'na';
@@ -17,7 +19,7 @@ interface CheckItem {
   label: string;
   status: ItemStatus;
   notes: string;
-  photoCount: number;
+  photo_count: number;
 }
 
 interface Inspection {
@@ -27,53 +29,67 @@ interface Inspection {
   tenant: string;
   date: string;
   status: 'draft' | 'completed' | 'signed';
-  itemsDone: number;
-  totalItems: number;
+  items_done: number;
+  total_items: number;
 }
 
 const TYPE_CONFIG: Record<InspectionType, { label: string; color: string; icon: string }> = {
-  move_in:  { label: 'Entrée',      color: theme.colors.success, icon: 'enter-outline' },
-  move_out: { label: 'Sortie',      color: theme.colors.error,   icon: 'exit-outline' },
-  routine:  { label: 'Périodique',  color: theme.colors.info,    icon: 'clipboard-outline' },
+  move_in:  { label: 'Entrée',     color: theme.colors.success, icon: 'enter-outline' },
+  move_out: { label: 'Sortie',     color: theme.colors.error,   icon: 'exit-outline' },
+  routine:  { label: 'Périodique', color: theme.colors.info,    icon: 'clipboard-outline' },
 };
 
 const STATUS_CONFIG: Record<ItemStatus, { label: string; color: string }> = {
-  good: { label: 'Bon état', color: theme.colors.success },
+  good: { label: 'Bon état',      color: theme.colors.success },
   fair: { label: 'Usure normale', color: theme.colors.warning },
-  poor: { label: 'Endommagé', color: theme.colors.error },
-  na:   { label: 'N/A', color: theme.colors.textTertiary },
+  poor: { label: 'Endommagé',     color: theme.colors.error },
+  na:   { label: 'N/A',           color: theme.colors.textTertiary },
 };
 
 const DEFAULT_ITEMS: Omit<CheckItem, 'id'>[] = [
-  { label: 'Planchers', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Murs et plafonds', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Portes et serrures', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Fenêtres', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Cuisine — armoires', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Cuisine — électroménagers', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Salle de bain', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Plomberie', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Électricité / prises', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Chauffage', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Propreté générale', status: 'good', notes: '', photoCount: 0 },
-  { label: 'Balcon / extérieur', status: 'na', notes: '', photoCount: 0 },
-];
-
-const MOCK_INSPECTIONS: Inspection[] = [
-  { id: '1', type: 'move_in',  unit: 'Logement 2 — 123 Rosemont', tenant: 'Sophie Lavoie',    date: '2025-07-01', status: 'signed', itemsDone: 12, totalItems: 12 },
-  { id: '2', type: 'move_out', unit: 'Logement 3 — 123 Rosemont', tenant: 'Marc Beaulieu',    date: '2025-06-30', status: 'completed', itemsDone: 12, totalItems: 12 },
-  { id: '3', type: 'routine',  unit: 'Logement 1 — 123 Rosemont', tenant: 'Michael John',  date: '2025-12-15', status: 'signed', itemsDone: 12, totalItems: 12 },
+  { label: 'Planchers',                  status: 'good', notes: '', photo_count: 0 },
+  { label: 'Murs et plafonds',           status: 'good', notes: '', photo_count: 0 },
+  { label: 'Portes et serrures',         status: 'good', notes: '', photo_count: 0 },
+  { label: 'Fenêtres',                   status: 'good', notes: '', photo_count: 0 },
+  { label: 'Cuisine — armoires',         status: 'good', notes: '', photo_count: 0 },
+  { label: 'Cuisine — électroménagers',  status: 'good', notes: '', photo_count: 0 },
+  { label: 'Salle de bain',             status: 'good', notes: '', photo_count: 0 },
+  { label: 'Plomberie',                  status: 'good', notes: '', photo_count: 0 },
+  { label: 'Électricité / prises',       status: 'good', notes: '', photo_count: 0 },
+  { label: 'Chauffage',                  status: 'good', notes: '', photo_count: 0 },
+  { label: 'Propreté générale',          status: 'good', notes: '', photo_count: 0 },
+  { label: 'Balcon / extérieur',         status: 'na',   notes: '', photo_count: 0 },
 ];
 
 export default function InspectionsScreen() {
-  const [inspections, setInspections] = useState<Inspection[]>(MOCK_INSPECTIONS);
+  const [inspections, setInspections] = useState<Inspection[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [inspType, setInspType] = useState<InspectionType>('move_in');
   const [inspUnit, setInspUnit] = useState('');
   const [inspTenant, setInspTenant] = useState('');
   const [items, setItems] = useState<CheckItem[]>([]);
-  const [generating, setGenerating] = useState(false);
+
+  useFocusEffect(useCallback(() => {
+    loadInspections();
+  }, []));
+
+  const loadInspections = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const data = await api.getInspections();
+      setInspections(data as Inspection[]);
+    } catch {
+      Alert.alert('Erreur', 'Impossible de charger les inspections.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   const startNew = () => {
     setInspUnit(''); setInspTenant(''); setInspType('move_in');
@@ -93,31 +109,67 @@ export default function InspectionsScreen() {
   const addPhoto = async (id: string) => {
     const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
     if (!result.canceled) {
-      updateItem(id, 'photoCount', (items.find(i => i.id === id)?.photoCount ?? 0) + 1);
+      updateItem(id, 'photo_count', (items.find(i => i.id === id)?.photo_count ?? 0) + 1);
     }
   };
 
+  const deleteInspection = (insp: Inspection) => {
+    Alert.alert('Supprimer', `Supprimer l'inspection du ${insp.date} ?`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: async () => {
+        try {
+          await api.deleteInspection(insp.id);
+          setInspections(prev => prev.filter(i => i.id !== insp.id));
+        } catch {
+          Alert.alert('Erreur', 'Impossible de supprimer.');
+        }
+      }},
+    ]);
+  };
+
   const finalize = async () => {
-    setGenerating(true);
-    await new Promise(r => setTimeout(r, 1800));
-    setGenerating(false);
-    setShowDetail(false);
-    const newInsp: Inspection = {
-      id: Date.now().toString(),
-      type: inspType,
-      unit: inspUnit || 'Logement sélectionné',
-      tenant: inspTenant || 'Locataire',
-      date: new Date().toISOString().slice(0, 10),
-      status: 'completed',
-      itemsDone: items.length,
-      totalItems: items.length,
-    };
-    setInspections(prev => [newInsp, ...prev]);
-    Alert.alert('Inspection complétée', 'Le rapport PDF a été généré et peut être envoyé au locataire.');
+    setSaving(true);
+    try {
+      const itemsDone = items.filter(i => i.status !== 'na').length;
+      const created = await api.createInspection({
+        type: inspType,
+        unit: inspUnit || 'Logement sélectionné',
+        tenant: inspTenant || 'Locataire',
+        date: new Date().toISOString().slice(0, 10),
+        status: 'completed',
+        items: items,
+        items_done: itemsDone,
+        total_items: items.length,
+      });
+      setInspections(prev => [created as Inspection, ...prev]);
+      setShowDetail(false);
+      Alert.alert('Inspection complétée', 'Le rapport a été sauvegardé.');
+    } catch {
+      Alert.alert('Erreur', 'Impossible de sauvegarder l\'inspection.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const goodCount = items.filter(i => i.status === 'good').length;
   const poorCount = items.filter(i => i.status === 'poor').length;
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Inspections</Text>
+          <View style={{ width: 36 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -131,7 +183,11 @@ export default function InspectionsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadInspections(true)} tintColor={theme.colors.primary} />}
+      >
         {/* Stats */}
         <View style={styles.statsRow}>
           {(['move_in', 'move_out', 'routine'] as InspectionType[]).map(t => {
@@ -148,39 +204,47 @@ export default function InspectionsScreen() {
         </View>
 
         <Text style={styles.sectionTitle}>Historique</Text>
-        {inspections.map(insp => {
-          const cfg = TYPE_CONFIG[insp.type];
-          return (
-            <TouchableOpacity key={insp.id} activeOpacity={0.8} onPress={() => Alert.alert('Rapport', `Ouvrir le rapport PDF de l'inspection du ${insp.date}?`)}>
-              <Card style={styles.inspCard}>
-                <View style={styles.inspTop}>
-                  <View style={[styles.typeIcon, { backgroundColor: cfg.color + '18' }]}>
-                    <Ionicons name={cfg.icon as any} size={20} color={cfg.color} />
+
+        {inspections.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <Ionicons name="clipboard-outline" size={32} color={theme.colors.textTertiary} />
+            <Text style={styles.emptyText}>Aucune inspection — appuyez sur + pour commencer</Text>
+          </Card>
+        ) : (
+          inspections.map(insp => {
+            const cfg = TYPE_CONFIG[insp.type];
+            return (
+              <TouchableOpacity key={insp.id} activeOpacity={0.8} onLongPress={() => deleteInspection(insp)}>
+                <Card style={styles.inspCard}>
+                  <View style={styles.inspTop}>
+                    <View style={[styles.typeIcon, { backgroundColor: cfg.color + '18' }]}>
+                      <Ionicons name={cfg.icon as any} size={20} color={cfg.color} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.inspUnit}>{insp.unit}</Text>
+                      <Text style={styles.inspTenant}>{insp.tenant} · {insp.date}</Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: insp.status === 'signed' ? theme.colors.success + '20' : theme.colors.info + '20' }]}>
+                      <Text style={[styles.statusText, { color: insp.status === 'signed' ? theme.colors.success : theme.colors.info }]}>
+                        {insp.status === 'signed' ? 'Signé' : 'Complété'}
+                      </Text>
+                    </View>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.inspUnit}>{insp.unit}</Text>
-                    <Text style={styles.inspTenant}>{insp.tenant} · {insp.date}</Text>
+                  <View style={styles.inspBottom}>
+                    <View style={[styles.typePill, { backgroundColor: cfg.color + '18' }]}>
+                      <Text style={[styles.typePillText, { color: cfg.color }]}>{cfg.label}</Text>
+                    </View>
+                    <Text style={styles.itemsCount}>{insp.items_done}/{insp.total_items} éléments ✓</Text>
+                    <TouchableOpacity style={styles.pdfBtn} onPress={() => Alert.alert('PDF', 'Fonction bientôt disponible.')}>
+                      <Ionicons name="document-outline" size={14} color={theme.colors.primary} />
+                      <Text style={styles.pdfBtnText}>PDF</Text>
+                    </TouchableOpacity>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: insp.status === 'signed' ? theme.colors.success + '20' : theme.colors.info + '20' }]}>
-                    <Text style={[styles.statusText, { color: insp.status === 'signed' ? theme.colors.success : theme.colors.info }]}>
-                      {insp.status === 'signed' ? 'Signé' : 'Complété'}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.inspBottom}>
-                  <View style={[styles.typePill, { backgroundColor: cfg.color + '18' }]}>
-                    <Text style={[styles.typePillText, { color: cfg.color }]}>{cfg.label}</Text>
-                  </View>
-                  <Text style={styles.itemsCount}>{insp.itemsDone}/{insp.totalItems} éléments ✓</Text>
-                  <TouchableOpacity style={styles.pdfBtn} onPress={() => Alert.alert('PDF', 'Téléchargement du rapport...')}>
-                    <Ionicons name="document-outline" size={14} color={theme.colors.primary} />
-                    <Text style={styles.pdfBtnText}>PDF</Text>
-                  </TouchableOpacity>
-                </View>
-              </Card>
-            </TouchableOpacity>
-          );
-        })}
+                </Card>
+              </TouchableOpacity>
+            );
+          })
+        )}
         <View style={{ height: 40 }} />
       </ScrollView>
 
@@ -260,18 +324,17 @@ export default function InspectionsScreen() {
                     placeholderTextColor={theme.colors.textTertiary}
                   />
                   <TouchableOpacity style={styles.cameraBtn} onPress={() => addPhoto(item.id)}>
-                    <Ionicons name={item.photoCount > 0 ? 'images' : 'camera-outline'} size={18} color={item.photoCount > 0 ? theme.colors.success : theme.colors.primary} />
-                    {item.photoCount > 0 && <Text style={styles.photoCount}>{item.photoCount}</Text>}
+                    <Ionicons name={item.photo_count > 0 ? 'images' : 'camera-outline'} size={18} color={item.photo_count > 0 ? theme.colors.success : theme.colors.primary} />
+                    {item.photo_count > 0 && <Text style={styles.photoCount}>{item.photo_count}</Text>}
                   </TouchableOpacity>
                 </View>
               </Card>
             ))}
-            <TouchableOpacity style={[styles.startBtn, { marginTop: 8 }]} onPress={finalize} disabled={generating}>
-              {generating ? (
-                <Text style={styles.startBtnText}>Génération du rapport PDF…</Text>
-              ) : (
-                <Text style={styles.startBtnText}>Finaliser et générer le rapport</Text>
-              )}
+            <TouchableOpacity style={[styles.startBtn, { marginTop: 8 }]} onPress={finalize} disabled={saving}>
+              {saving
+                ? <ActivityIndicator color="#fff" />
+                : <Text style={styles.startBtnText}>Finaliser et sauvegarder</Text>
+              }
             </TouchableOpacity>
             <View style={{ height: 40 }} />
           </ScrollView>
@@ -283,6 +346,7 @@ export default function InspectionsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', padding: theme.spacing.md, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { flex: 1, fontSize: 20, fontWeight: '700', color: theme.colors.textPrimary, marginLeft: 4 },
@@ -295,6 +359,8 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 22, fontWeight: '800' },
   statLabel: { fontSize: 11, color: theme.colors.textSecondary, textAlign: 'center' },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.textPrimary, marginBottom: theme.spacing.sm },
+  emptyCard: { alignItems: 'center', paddingVertical: 32, gap: 12 },
+  emptyText: { fontSize: 13, color: theme.colors.textSecondary, textAlign: 'center' },
   inspCard: { marginBottom: theme.spacing.sm },
   inspTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 8 },
   typeIcon: { width: 40, height: 40, borderRadius: 10, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },

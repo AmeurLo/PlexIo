@@ -33,6 +33,8 @@
     "expo-image-picker": "~17.0.10",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.11",
+    "expo-notifications": "^0.29.14",
+    "expo-print": "~14.0.3",
     "expo-router": "~6.0.22",
     "expo-sharing": "~14.0.8",
     "expo-splash-screen": "~31.0.13",

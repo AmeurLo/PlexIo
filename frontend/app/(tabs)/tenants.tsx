@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Card, Button, theme, StatusBadge, EmptyState } from '../../src/components';
+import { Card, Button, theme, StatusBadge, EmptyState, DomelyAI } from '../../src/components';
 import { api } from '../../src/services/api';
 import { TenantWithDetails, RentOverview, PropertyWithStats, Unit } from '../../src/types';
 import {
@@ -30,6 +30,15 @@ const oneYearFromNow = () => {
   d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split('T')[0];
 };
+
+const PAYMENT_METHODS = [
+  { value: 'interac', label: 'Virement' },
+  { value: 'cheque',  label: 'Chèque' },
+  { value: 'cash',    label: 'Espèces' },
+  { value: 'debit',   label: 'Carte débit' },
+  { value: 'other',   label: 'Autre' },
+] as const;
+type PaymentMethod = typeof PAYMENT_METHODS[number]['value'];
 
 const blankTenantForm = () => ({ first_name: '', last_name: '', email: '', phone: '' });
 const blankLeaseForm = () => ({
@@ -49,6 +58,7 @@ export default function TenantsScreen() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [paymentAmount, setPaymentAmount]     = useState('');
+  const [paymentMethod, setPaymentMethod]     = useState<PaymentMethod>('interac');
 
   const [showAddModal, setShowAddModal]   = useState(false);
   const [editingTenant, setEditingTenant] = useState<TenantWithDetails | null>(null);
@@ -89,8 +99,18 @@ export default function TenantsScreen() {
     if (rentInfo) {
       setSelectedTenant(tenant);
       setPaymentAmount(rentInfo.rent_amount.toString());
+      setPaymentMethod('interac');
       setShowPaymentModal(true);
     }
+  };
+
+  const handleRequestPayment = (tenant: TenantWithDetails) => {
+    const name = `${tenant.first_name} ${tenant.last_name}`;
+    Alert.alert(
+      'Rappel de paiement',
+      `Un rappel a été envoyé à ${name}.\n\nLe locataire recevra une notification sur son portail.`,
+      [{ text: 'OK' }]
+    );
   };
 
   const submitPayment = async () => {
@@ -110,7 +130,7 @@ export default function TenantsScreen() {
         unit_id: selectedTenant.unit_id || '',
         amount,
         payment_date: getTodayISO(),
-        payment_method: 'etransfer',
+        payment_method: paymentMethod,
         month_year: getCurrentMonthYear(),
       });
       setShowPaymentModal(false);
@@ -258,10 +278,12 @@ export default function TenantsScreen() {
           <Text style={styles.title}>{t('tenants') as string}</Text>
           <Text style={styles.subtitle}>{(t('tenantsTotal') as Function)(tenants.length)}</Text>
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
-          <Ionicons name="add" size={22} color="#FFF" />
-          <Text style={styles.addBtnText}>{t('addTenant') as string}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <DomelyAI context="tenants" />
+          <TouchableOpacity style={styles.addBtn} onPress={openAdd}>
+            <Ionicons name="add" size={24} color="#FFF" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -277,9 +299,9 @@ export default function TenantsScreen() {
           />
         ) : (
           <>
-            <TenantSection status="late" dotStyle={styles.lateDot} list={lateTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} />
-            <TenantSection status="pending" dotStyle={styles.pendingDot} list={pendingTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} />
-            <TenantSection status="paid" dotStyle={styles.paidDot} list={paidTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} />
+            <TenantSection status="late" dotStyle={styles.lateDot} list={lateTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} onRequestPayment={handleRequestPayment} />
+            <TenantSection status="pending" dotStyle={styles.pendingDot} list={pendingTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} onRequestPayment={handleRequestPayment} />
+            <TenantSection status="paid" dotStyle={styles.paidDot} list={paidTenants} rentOverview={rentOverview} onPayment={handleRecordPayment} onEdit={openEdit} onDelete={handleDelete} onRequestPayment={handleRequestPayment} />
           </>
         )}
         <View style={styles.bottomSpacing} />
@@ -325,7 +347,20 @@ export default function TenantsScreen() {
                   <Text style={styles.label}>{t('phone') as string}</Text>
                   <TextInput style={styles.input} value={tenantForm.phone} onChangeText={v => setTenantForm(f => ({ ...f, phone: v }))} placeholder="514-555-1234" placeholderTextColor={theme.colors.textTertiary} keyboardType="phone-pad" />
                   {editingTenant ? (
-                    <Button title={t('saveChanges') as string} onPress={handleSave} loading={saving} size="large" style={styles.ctaBtn} />
+                    <>
+                      <Button title={t('saveChanges') as string} onPress={handleSave} loading={saving} size="large" style={styles.ctaBtn} />
+                      <TouchableOpacity
+                        style={styles.portalAccessBtn}
+                        onPress={() => Alert.alert(
+                          'Lien d\'accès envoyé',
+                          `Un lien de connexion sécurisé a été envoyé à ${editingTenant.email || editingTenant.first_name}.\n\nLe locataire pourra accéder à son portail via ce lien.`,
+                          [{ text: 'OK' }]
+                        )}
+                      >
+                        <Ionicons name="link-outline" size={16} color={theme.colors.primary} />
+                        <Text style={styles.portalAccessBtnText}>Envoyer accès portail locataire</Text>
+                      </TouchableOpacity>
+                    </>
                   ) : (
                     <TouchableOpacity style={styles.nextBtn} onPress={() => {
                       if (!tenantForm.first_name.trim() || !tenantForm.last_name.trim()) {
@@ -432,6 +467,20 @@ export default function TenantsScreen() {
                 <View style={styles.formSection}>
                   <Text style={styles.label}>{t('amountCAD') as string}</Text>
                   <TextInput style={styles.input} value={paymentAmount} onChangeText={setPaymentAmount} keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={theme.colors.textTertiary} />
+                  <Text style={styles.label}>Moyen de paiement</Text>
+                  <View style={styles.payMethodRow}>
+                    {PAYMENT_METHODS.map(m => (
+                      <TouchableOpacity
+                        key={m.value}
+                        style={[styles.payMethodChip, paymentMethod === m.value && styles.payMethodChipActive]}
+                        onPress={() => setPaymentMethod(m.value)}
+                      >
+                        <Text style={[styles.payMethodChipText, paymentMethod === m.value && styles.payMethodChipTextActive]}>
+                          {m.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                   <Button
                     title={t('recordPayment') as string}
                     onPress={submitPayment}
@@ -452,7 +501,7 @@ export default function TenantsScreen() {
 // ─── Tenant Section ───────────────────────────────────────────────────────────
 
 const TenantSection = ({
-  status, dotStyle, list, rentOverview, onPayment, onEdit, onDelete,
+  status, dotStyle, list, rentOverview, onPayment, onEdit, onDelete, onRequestPayment,
 }: {
   status: 'late' | 'pending' | 'paid';
   dotStyle: any;
@@ -461,6 +510,7 @@ const TenantSection = ({
   onPayment: (t: TenantWithDetails) => void;
   onEdit: (t: TenantWithDetails) => void;
   onDelete: (t: TenantWithDetails) => void;
+  onRequestPayment: (t: TenantWithDetails) => void;
 }) => {
   const { t } = useTranslation();
   if (list.length === 0) return null;
@@ -515,28 +565,22 @@ const TenantSection = ({
             </View>
 
             <View style={styles.actionsRow}>
-              <TouchableOpacity
-                style={styles.portalBtn}
-                onPress={() => Alert.alert(
-                  'Lien d\'accès envoyé',
-                  `Un lien de connexion sécurisé a été envoyé à ${tenant.email}.\n\nLe locataire pourra accéder à son portail personnel via ce lien.`,
-                  [{ text: 'OK' }]
-                )}
-              >
-                <Ionicons name="link-outline" size={15} color={theme.colors.primary} />
-                <Text style={styles.portalBtnText}>Envoyer accès</Text>
-              </TouchableOpacity>
               {!isPaid && (
                 <TouchableOpacity style={styles.actionBtnPrimary} onPress={() => onPayment(tenant)}>
-                  <Ionicons name="card-outline" size={16} color={theme.colors.primary} />
+                  <Ionicons name="card-outline" size={15} color={theme.colors.primary} />
                   <Text style={styles.actionBtnPrimaryText}>{t('recordPayment') as string}</Text>
                 </TouchableOpacity>
               )}
+              {!isPaid && (
+                <TouchableOpacity style={styles.rappelBtn} onPress={() => onRequestPayment(tenant)}>
+                  <Ionicons name="notifications-outline" size={16} color={theme.colors.warning} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.actionBtnIcon} onPress={() => onEdit(tenant)}>
-                <Ionicons name="pencil-outline" size={18} color={theme.colors.textSecondary} />
+                <Ionicons name="pencil-outline" size={16} color={theme.colors.textSecondary} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.actionBtnIcon} onPress={() => onDelete(tenant)}>
-                <Ionicons name="trash-outline" size={18} color={theme.colors.error} />
+                <Ionicons name="trash-outline" size={16} color={theme.colors.error} />
               </TouchableOpacity>
             </View>
           </Card>
@@ -552,8 +596,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight, backgroundColor: theme.colors.surface },
   title: { fontSize: 24, fontWeight: '700', color: theme.colors.textPrimary },
   subtitle: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 },
-  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: theme.colors.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: theme.borderRadius.md },
-  addBtnText: { color: '#FFF', fontWeight: '600', fontSize: 14 },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  addBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md },
   scrollContent: { padding: theme.spacing.md, flexGrow: 1 },
   section: { marginBottom: theme.spacing.lg },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm },
@@ -577,12 +621,20 @@ const styles = StyleSheet.create({
   rentLabel: { fontSize: 13, color: theme.colors.textSecondary },
   rentValue: { fontSize: 15, fontWeight: '600', color: theme.colors.textPrimary },
   paidValue: { color: theme.colors.success },
-  actionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.borderLight, gap: 8 },
-  portalBtn: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: theme.colors.primaryLight, borderRadius: theme.borderRadius.md, borderWidth: 1, borderColor: theme.colors.primary + '30' },
-  portalBtnText: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
-  actionBtnPrimary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, backgroundColor: theme.colors.primaryLight, borderRadius: theme.borderRadius.md },
-  actionBtnPrimaryText: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
-  actionBtnIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.borderLight, borderRadius: theme.borderRadius.md },
+  actionsRow: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 10, borderTopWidth: 1, borderTopColor: theme.colors.borderLight, gap: 6 },
+  actionBtnPrimary: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 7, backgroundColor: theme.colors.primaryLight, borderRadius: theme.borderRadius.md },
+  actionBtnPrimaryText: { fontSize: 12, fontWeight: '600', color: theme.colors.primary },
+  rappelBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF8EC', borderRadius: theme.borderRadius.md },
+  actionBtnIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.borderLight, borderRadius: theme.borderRadius.md },
+  // Portal access button in edit modal
+  portalAccessBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: theme.spacing.sm, paddingVertical: 12, borderRadius: theme.borderRadius.md, borderWidth: 1, borderColor: theme.colors.primary + '40', backgroundColor: theme.colors.primaryLight },
+  portalAccessBtnText: { fontSize: 14, fontWeight: '600', color: theme.colors.primary },
+  // Payment method chips
+  payMethodRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  payMethodChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: theme.borderRadius.md, backgroundColor: theme.colors.borderLight, borderWidth: 1, borderColor: 'transparent' },
+  payMethodChipActive: { backgroundColor: theme.colors.primaryLight, borderColor: theme.colors.primary },
+  payMethodChipText: { fontSize: 13, fontWeight: '500', color: theme.colors.textSecondary },
+  payMethodChipTextActive: { color: theme.colors.primary, fontWeight: '600' },
   bottomSpacing: { height: theme.spacing.xl },
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },

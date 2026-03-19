@@ -6,17 +6,152 @@ import {
   ScrollView,
   TouchableOpacity,
   RefreshControl,
-  Linking,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, theme } from '../src/components';
 import { formatCurrency } from '../src/utils/format';
+import { api } from '../src/services/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
 type BedType = 'studio' | '1br' | '2br' | '3br' | '4br+';
+type CityKey =
+  // Grand Montréal
+  | 'montreal' | 'laval' | 'longueuil' | 'brossard' | 'terrebonne'
+  | 'repentigny' | 'saint-jerome' | 'vaudreuil' | 'blainville'
+  | 'dollard-des-ormeaux' | 'mirabel' | 'mascouche' | 'lachute'
+  // Montérégie
+  | 'saint-jean' | 'granby' | 'saint-hyacinthe' | 'sorel-tracy'
+  | 'chateauguay' | 'boucherville' | 'la-prairie' | 'saint-jean-baptiste'
+  | 'salaberry-de-valleyfield' | 'sainte-julie' | 'beloeil'
+  // Région Québec
+  | 'quebec' | 'levis' | 'thetford-mines' | 'saint-georges' | 'sainte-marie'
+  // Outaouais
+  | 'gatineau' | 'aylmer'
+  // Estrie
+  | 'sherbrooke' | 'magog'
+  // Mauricie
+  | 'trois-rivieres' | 'shawinigan' | 'la-tuque'
+  // Saguenay–Lac-Saint-Jean
+  | 'saguenay' | 'alma' | 'roberval'
+  // Centre-du-Québec / Lanaudière
+  | 'drummondville' | 'victoriaville' | 'joliette'
+  // Bas-Saint-Laurent / Côte-Nord
+  | 'rimouski' | 'riviere-du-loup' | 'baie-comeau' | 'matane'
+  // Abitibi-Témiscamingue
+  | 'rouyn-noranda' | 'val-dor' | 'amos'
+  // Nord / Gaspésie
+  | 'sept-iles' | 'gaspe';
+
+interface SCHLCity {
+  label: string;
+  vacancyRate: number;
+  avgRents: Record<BedType, number>;
+  trend: number; // YoY % change
+}
+
+// ─── SCHL Market Data (Rapport annuel 2024) ───────────────────────────────────
+
+const SCHL_DATA: Record<CityKey, SCHLCity> = {
+  // ── Grand Montréal ──────────────────────────────────────────────────────────
+  montreal:      { label: 'Montréal',          vacancyRate: 2.2, trend: 5.8,  avgRents: { studio: 1180, '1br': 1420, '2br': 1650, '3br': 1950, '4br+': 2400 } },
+  laval:         { label: 'Laval',              vacancyRate: 1.5, trend: 6.1,  avgRents: { studio: 1050, '1br': 1250, '2br': 1480, '3br': 1780, '4br+': 2100 } },
+  longueuil:     { label: 'Longueuil',          vacancyRate: 1.9, trend: 4.8,  avgRents: { studio:  980, '1br': 1180, '2br': 1380, '3br': 1650, '4br+': 1950 } },
+  brossard:      { label: 'Brossard',           vacancyRate: 1.6, trend: 5.3,  avgRents: { studio: 1020, '1br': 1220, '2br': 1430, '3br': 1720, '4br+': 2050 } },
+  terrebonne:    { label: 'Terrebonne',         vacancyRate: 1.4, trend: 5.6,  avgRents: { studio:  960, '1br': 1150, '2br': 1360, '3br': 1640, '4br+': 1920 } },
+  repentigny:    { label: 'Repentigny',         vacancyRate: 1.3, trend: 5.2,  avgRents: { studio:  940, '1br': 1120, '2br': 1330, '3br': 1600, '4br+': 1880 } },
+  'saint-jerome':{ label: 'Saint-Jérôme',      vacancyRate: 1.7, trend: 4.9,  avgRents: { studio:  900, '1br': 1060, '2br': 1260, '3br': 1520, '4br+': 1780 } },
+  vaudreuil:     { label: 'Vaudreuil-Dorion',  vacancyRate: 1.2, trend: 6.3,  avgRents: { studio: 1010, '1br': 1210, '2br': 1420, '3br': 1710, '4br+': 2000 } },
+  blainville:    { label: 'Blainville',         vacancyRate: 1.1, trend: 6.0,  avgRents: { studio:  990, '1br': 1180, '2br': 1390, '3br': 1680, '4br+': 1980 } },
+  'dollard-des-ormeaux': { label: 'DDO',        vacancyRate: 1.4, trend: 5.5,  avgRents: { studio: 1100, '1br': 1310, '2br': 1550, '3br': 1850, '4br+': 2200 } },
+  mirabel:       { label: 'Mirabel',            vacancyRate: 1.0, trend: 6.8,  avgRents: { studio:  980, '1br': 1160, '2br': 1380, '3br': 1660, '4br+': 1960 } },
+  mascouche:     { label: 'Mascouche',          vacancyRate: 1.2, trend: 5.8,  avgRents: { studio:  960, '1br': 1140, '2br': 1360, '3br': 1630, '4br+': 1920 } },
+  lachute:       { label: 'Lachute',            vacancyRate: 2.8, trend: 3.2,  avgRents: { studio:  750, '1br':  890, '2br': 1060, '3br': 1280, '4br+': 1500 } },
+  // ── Montérégie ──────────────────────────────────────────────────────────────
+  'saint-jean':  { label: 'Saint-Jean-s.-R.',  vacancyRate: 2.0, trend: 4.1,  avgRents: { studio:  870, '1br': 1030, '2br': 1240, '3br': 1490, '4br+': 1740 } },
+  granby:        { label: 'Granby',             vacancyRate: 2.2, trend: 3.5,  avgRents: { studio:  810, '1br':  960, '2br': 1150, '3br': 1390, '4br+': 1620 } },
+  'saint-hyacinthe': { label: 'Saint-Hyacinthe', vacancyRate: 2.6, trend: 3.0, avgRents: { studio: 780, '1br':  920, '2br': 1100, '3br': 1310, '4br+': 1550 } },
+  'sorel-tracy': { label: 'Sorel-Tracy',        vacancyRate: 3.4, trend: 2.6,  avgRents: { studio:  720, '1br':  850, '2br': 1010, '3br': 1220, '4br+': 1430 } },
+  chateauguay:   { label: 'Châteauguay',        vacancyRate: 1.7, trend: 5.0,  avgRents: { studio: 1000, '1br': 1190, '2br': 1400, '3br': 1690, '4br+': 2000 } },
+  boucherville:  { label: 'Boucherville',       vacancyRate: 1.3, trend: 5.5,  avgRents: { studio: 1040, '1br': 1230, '2br': 1460, '3br': 1750, '4br+': 2080 } },
+  'la-prairie':  { label: 'La Prairie',         vacancyRate: 1.4, trend: 5.3,  avgRents: { studio: 1020, '1br': 1210, '2br': 1440, '3br': 1720, '4br+': 2050 } },
+  'saint-jean-baptiste': { label: 'St-Jean-Baptiste', vacancyRate: 2.5, trend: 3.1, avgRents: { studio: 760, '1br': 900, '2br': 1070, '3br': 1290, '4br+': 1510 } },
+  'salaberry-de-valleyfield': { label: 'Valleyfield', vacancyRate: 3.0, trend: 2.7, avgRents: { studio: 740, '1br': 880, '2br': 1050, '3br': 1260, '4br+': 1480 } },
+  'sainte-julie': { label: 'Sainte-Julie',      vacancyRate: 1.3, trend: 5.6,  avgRents: { studio: 1040, '1br': 1240, '2br': 1460, '3br': 1750, '4br+': 2060 } },
+  beloeil:       { label: 'Beloeil',            vacancyRate: 1.6, trend: 5.1,  avgRents: { studio:  980, '1br': 1170, '2br': 1390, '3br': 1670, '4br+': 1970 } },
+  // ── Région Québec ───────────────────────────────────────────────────────────
+  quebec:        { label: 'Québec',             vacancyRate: 1.8, trend: 4.2,  avgRents: { studio:  940, '1br': 1100, '2br': 1310, '3br': 1560, '4br+': 1900 } },
+  levis:         { label: 'Lévis',              vacancyRate: 1.6, trend: 5.1,  avgRents: { studio:  970, '1br': 1140, '2br': 1330, '3br': 1590, '4br+': 1880 } },
+  'thetford-mines': { label: 'Thetford Mines',  vacancyRate: 5.1, trend: 1.2,  avgRents: { studio:  600, '1br':  710, '2br':  840, '3br': 1010, '4br+': 1180 } },
+  'saint-georges': { label: 'Saint-Georges',    vacancyRate: 2.8, trend: 2.8,  avgRents: { studio:  680, '1br':  810, '2br':  960, '3br': 1150, '4br+': 1360 } },
+  'sainte-marie': { label: 'Sainte-Marie',      vacancyRate: 2.4, trend: 3.0,  avgRents: { studio:  700, '1br':  830, '2br':  990, '3br': 1190, '4br+': 1400 } },
+  // ── Outaouais ────────────────────────────────────────────────────────────────
+  gatineau:      { label: 'Gatineau',           vacancyRate: 2.8, trend: 4.5,  avgRents: { studio: 1050, '1br': 1220, '2br': 1480, '3br': 1750, '4br+': 2050 } },
+  aylmer:        { label: 'Aylmer',             vacancyRate: 2.3, trend: 4.2,  avgRents: { studio: 1020, '1br': 1200, '2br': 1450, '3br': 1720, '4br+': 2020 } },
+  // ── Estrie ──────────────────────────────────────────────────────────────────
+  sherbrooke:    { label: 'Sherbrooke',         vacancyRate: 2.1, trend: 3.8,  avgRents: { studio:  820, '1br':  970, '2br': 1180, '3br': 1420, '4br+': 1700 } },
+  magog:         { label: 'Magog',              vacancyRate: 2.5, trend: 3.2,  avgRents: { studio:  790, '1br':  940, '2br': 1120, '3br': 1350, '4br+': 1580 } },
+  // ── Mauricie ─────────────────────────────────────────────────────────────────
+  'trois-rivieres': { label: 'Trois-Rivières',  vacancyRate: 2.4, trend: 3.2,  avgRents: { studio:  780, '1br':  920, '2br': 1100, '3br': 1320, '4br+': 1580 } },
+  shawinigan:    { label: 'Shawinigan',         vacancyRate: 3.8, trend: 2.1,  avgRents: { studio:  650, '1br':  780, '2br':  930, '3br': 1110, '4br+': 1310 } },
+  'la-tuque':    { label: 'La Tuque',           vacancyRate: 5.5, trend: 0.8,  avgRents: { studio:  580, '1br':  690, '2br':  820, '3br':  990, '4br+': 1150 } },
+  // ── Saguenay–Lac-Saint-Jean ──────────────────────────────────────────────────
+  saguenay:      { label: 'Saguenay',           vacancyRate: 3.5, trend: 2.8,  avgRents: { studio:  700, '1br':  830, '2br':  980, '3br': 1180, '4br+': 1400 } },
+  alma:          { label: 'Alma',               vacancyRate: 4.0, trend: 1.9,  avgRents: { studio:  620, '1br':  740, '2br':  880, '3br': 1050, '4br+': 1240 } },
+  roberval:      { label: 'Roberval',           vacancyRate: 4.8, trend: 1.4,  avgRents: { studio:  590, '1br':  700, '2br':  830, '3br':  990, '4br+': 1160 } },
+  // ── Centre-du-Québec / Lanaudière ────────────────────────────────────────────
+  drummondville: { label: 'Drummondville',      vacancyRate: 2.9, trend: 2.9,  avgRents: { studio:  740, '1br':  880, '2br': 1050, '3br': 1260, '4br+': 1490 } },
+  victoriaville: { label: 'Victoriaville',      vacancyRate: 3.1, trend: 2.4,  avgRents: { studio:  700, '1br':  830, '2br':  990, '3br': 1190, '4br+': 1400 } },
+  joliette:      { label: 'Joliette',           vacancyRate: 2.3, trend: 3.4,  avgRents: { studio:  800, '1br':  950, '2br': 1130, '3br': 1360, '4br+': 1590 } },
+  // ── Bas-Saint-Laurent ───────────────────────────────────────────────────────
+  rimouski:      { label: 'Rimouski',           vacancyRate: 2.7, trend: 2.4,  avgRents: { studio:  720, '1br':  850, '2br': 1010, '3br': 1220, '4br+': 1430 } },
+  'riviere-du-loup': { label: 'Rivière-du-Loup', vacancyRate: 3.3, trend: 2.0, avgRents: { studio:  680, '1br':  810, '2br':  960, '3br': 1150, '4br+': 1350 } },
+  matane:        { label: 'Matane',             vacancyRate: 4.2, trend: 1.5,  avgRents: { studio:  620, '1br':  730, '2br':  870, '3br': 1040, '4br+': 1220 } },
+  // ── Côte-Nord ───────────────────────────────────────────────────────────────
+  'baie-comeau': { label: 'Baie-Comeau',        vacancyRate: 3.7, trend: 1.7,  avgRents: { studio:  660, '1br':  780, '2br':  930, '3br': 1110, '4br+': 1310 } },
+  // ── Abitibi-Témiscamingue ────────────────────────────────────────────────────
+  'rouyn-noranda':{ label: 'Rouyn-Noranda',    vacancyRate: 4.1, trend: 1.8,  avgRents: { studio:  680, '1br':  800, '2br':  950, '3br': 1140, '4br+': 1330 } },
+  'val-dor':     { label: "Val-d'Or",           vacancyRate: 3.6, trend: 1.5,  avgRents: { studio:  650, '1br':  770, '2br':  920, '3br': 1100, '4br+': 1290 } },
+  amos:          { label: 'Amos',               vacancyRate: 4.5, trend: 1.2,  avgRents: { studio:  620, '1br':  730, '2br':  870, '3br': 1040, '4br+': 1220 } },
+  // ── Nord / Gaspésie ──────────────────────────────────────────────────────────
+  'sept-iles':   { label: 'Sept-Îles',          vacancyRate: 3.2, trend: 1.9,  avgRents: { studio:  700, '1br':  820, '2br':  970, '3br': 1160, '4br+': 1350 } },
+  gaspe:         { label: 'Gaspé',              vacancyRate: 4.4, trend: 1.3,  avgRents: { studio:  600, '1br':  710, '2br':  840, '3br': 1010, '4br+': 1180 } },
+};
+
+// Grouped by region
+const CITIES: CityKey[] = [
+  // Grand Montréal
+  'montreal', 'laval', 'longueuil', 'brossard', 'terrebonne',
+  'repentigny', 'saint-jerome', 'vaudreuil', 'blainville',
+  'dollard-des-ormeaux', 'mirabel', 'mascouche', 'lachute',
+  // Montérégie
+  'saint-jean', 'granby', 'saint-hyacinthe', 'sorel-tracy',
+  'chateauguay', 'boucherville', 'la-prairie', 'saint-jean-baptiste',
+  'salaberry-de-valleyfield', 'sainte-julie', 'beloeil',
+  // Région Québec
+  'quebec', 'levis', 'thetford-mines', 'saint-georges', 'sainte-marie',
+  // Outaouais
+  'gatineau', 'aylmer',
+  // Estrie
+  'sherbrooke', 'magog',
+  // Mauricie
+  'trois-rivieres', 'shawinigan', 'la-tuque',
+  // Saguenay–LSJ
+  'saguenay', 'alma', 'roberval',
+  // Centre-QC / Lanaudière
+  'drummondville', 'victoriaville', 'joliette',
+  // Bas-Saint-Laurent
+  'rimouski', 'riviere-du-loup', 'matane',
+  // Côte-Nord
+  'baie-comeau', 'sept-iles',
+  // Abitibi-Témiscamingue
+  'rouyn-noranda', 'val-dor', 'amos',
+  // Gaspésie / Nord
+  'gaspe',
+];
 
 interface MarketComp {
   id: string;
@@ -42,50 +177,14 @@ interface MyUnit {
   leaseEnd?: string;
 }
 
-// ─── Mock Data ──────────────────────────────────────────────────────────────
-
-const MY_UNITS: MyUnit[] = [
-  {
-    id: 'u1',
-    propertyName: 'Duplex St-Henri',
-    unitNumber: '101',
-    bedrooms: '2br',
-    sqft: 780,
-    currentRent: 1250,
-    tenantName: 'Michael John',
-    leaseEnd: '2025-06-30',
-  },
-  {
-    id: 'u2',
-    propertyName: 'Duplex St-Henri',
-    unitNumber: '201',
-    bedrooms: '2br',
-    sqft: 810,
-    currentRent: 1200,
-    tenantName: 'Jean-Paul Leblanc',
-    leaseEnd: '2025-08-31',
-  },
-  {
-    id: 'u3',
-    propertyName: 'Triplex Rosemont',
-    unitNumber: '1',
-    bedrooms: '3br',
-    sqft: 1050,
-    currentRent: 1480,
-    tenantName: 'Sophie Bernard',
-    leaseEnd: '2025-05-31',
-  },
-  {
-    id: 'u4',
-    propertyName: 'Triplex Rosemont',
-    unitNumber: '2',
-    bedrooms: '1br',
-    sqft: 560,
-    currentRent: 920,
-    tenantName: undefined,
-    leaseEnd: undefined,
-  },
-];
+// Map numeric bedrooms to BedType
+function toBedType(n: number): BedType {
+  if (n === 0) return 'studio';
+  if (n === 1) return '1br';
+  if (n === 2) return '2br';
+  if (n === 3) return '3br';
+  return '4br+';
+}
 
 const MARKET_COMPS: MarketComp[] = [
   // 2BR
@@ -104,12 +203,13 @@ const MARKET_COMPS: MarketComp[] = [
   { id: 'c11', address: '1560 Rue Beaubien', neighbourhood: 'Rosemont', bedrooms: '1br', sqft: 500, askingRent: 980, source: 'Kijiji', daysListed: 4, furnished: false, parking: false },
 ];
 
+// Quebec "pièces" notation (½ = bathroom)
 const BED_LABELS: Record<BedType, string> = {
-  studio: 'Studio',
-  '1br': '1 ch.',
-  '2br': '2 ch.',
-  '3br': '3 ch.',
-  '4br+': '4 ch.+',
+  studio: '1½',
+  '1br': '3½',
+  '2br': '4½',
+  '3br': '5½',
+  '4br+': '6½+',
 };
 
 const SOURCE_COLORS: Record<MarketComp['source'], string> = {
@@ -145,16 +245,38 @@ function getDelta(current: number, market: number): { pct: number; dir: 'above' 
 
 export default function MarketRentScreen() {
   const [selectedBed, setSelectedBed] = useState<BedType | 'all'>('all');
+  const [selectedCity, setSelectedCity] = useState<CityKey>('montreal');
+  const [myUnits, setMyUnits] = useState<MyUnit[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedUnit, setExpandedUnit] = useState<string | null>(null);
 
   useFocusEffect(useCallback(() => {
-    // In production: fetch real comps from API
+    loadUnits();
   }, []));
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
+  const loadUnits = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const data = await api.getUnitsSummary();
+      const mapped: MyUnit[] = (data as any[]).map(u => ({
+        id: u.id,
+        propertyName: u.property_name,
+        unitNumber: u.unit_number || '',
+        bedrooms: toBedType(u.bedrooms ?? 1),
+        sqft: u.sqft || 0,
+        currentRent: u.current_rent || 0,
+        tenantName: u.tenant_name || undefined,
+        leaseEnd: u.lease_end || undefined,
+      }));
+      setMyUnits(mapped);
+    } catch {
+      // Silently fail — screen still shows SCHL data
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   };
 
   const filteredComps = selectedBed === 'all'
@@ -162,8 +284,8 @@ export default function MarketRentScreen() {
     : MARKET_COMPS.filter(c => c.bedrooms === selectedBed);
 
   const filteredUnits = selectedBed === 'all'
-    ? MY_UNITS
-    : MY_UNITS.filter(u => u.bedrooms === selectedBed);
+    ? myUnits
+    : myUnits.filter(u => u.bedrooms === selectedBed);
 
   const stats = getMarketStats(filteredComps);
 
@@ -175,17 +297,69 @@ export default function MarketRentScreen() {
           <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Loyers du marché</Text>
-          <Text style={styles.headerSub}>Quartiers · Montréal</Text>
+          <Text style={styles.headerTitle}>Intelligence de marché</Text>
+          <Text style={styles.headerSub}>Données SCHL · {SCHL_DATA[selectedCity].label}</Text>
         </View>
         <View style={styles.backBtn} />
       </View>
 
       <ScrollView
         contentContainerStyle={styles.scrollContent}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadUnits(true)} tintColor={theme.colors.primary} />}
         showsVerticalScrollIndicator={false}
       >
+
+        {/* City selector */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterContent}>
+          {CITIES.map(city => (
+            <TouchableOpacity
+              key={city}
+              style={[styles.filterChip, selectedCity === city && styles.filterChipActive]}
+              onPress={() => setSelectedCity(city)}
+            >
+              <Text style={[styles.filterChipText, selectedCity === city && styles.filterChipTextActive]}>
+                {SCHL_DATA[city].label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* SCHL Data Card */}
+        {(() => {
+          const city = SCHL_DATA[selectedCity];
+          const BED_TYPES_DISPLAY: BedType[] = ['studio', '1br', '2br', '3br'];
+          return (
+            <Card style={styles.schlCard}>
+              <View style={styles.schlHeader}>
+                <View style={styles.schlHeaderLeft}>
+                  <Text style={styles.schlTitle}>Loyers moyens SCHL 2024</Text>
+                  <Text style={styles.schlSub}>{city.label} · Rapport annuel</Text>
+                </View>
+                <View style={styles.schlMeta}>
+                  <View style={styles.schlVacancy}>
+                    <Text style={styles.schlVacancyValue}>{city.vacancyRate} %</Text>
+                    <Text style={styles.schlVacancyLabel}>Inoccupation</Text>
+                  </View>
+                  <View style={[styles.schlTrend, { backgroundColor: city.trend > 0 ? '#E6F9F4' : '#FDE8E8' }]}>
+                    <Ionicons name={city.trend >= 0 ? 'trending-up' : 'trending-down'} size={12} color={city.trend >= 0 ? theme.colors.success : theme.colors.error} />
+                    <Text style={[styles.schlTrendText, { color: city.trend >= 0 ? theme.colors.success : theme.colors.error }]}>
+                      +{city.trend} %/an
+                    </Text>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.schlRentsRow}>
+                {BED_TYPES_DISPLAY.map(bed => (
+                  <View key={bed} style={[styles.schlRentItem, selectedBed === bed && { borderColor: theme.colors.primary, borderWidth: 1.5 }]}>
+                    <Text style={styles.schlBedLabel}>{BED_LABELS[bed]}</Text>
+                    <Text style={styles.schlRentValue}>{formatCurrency(city.avgRents[bed])}</Text>
+                    <Text style={styles.schlRentSub}>moy./mois</Text>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          );
+        })()}
 
         {/* Bedroom filter */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow} contentContainerStyle={styles.filterContent}>
@@ -237,7 +411,11 @@ export default function MarketRentScreen() {
         )}
 
         {/* My Units vs Market */}
-        {filteredUnits.length > 0 && (
+        {loading ? (
+          <View style={{ alignItems: 'center', paddingVertical: 24 }}>
+            <ActivityIndicator color={theme.colors.primary} />
+          </View>
+        ) : filteredUnits.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Mes logements</Text>
             {filteredUnits.map(unit => {
@@ -348,63 +526,32 @@ export default function MarketRentScreen() {
           </View>
         )}
 
-        {/* All Market Listings */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Annonces du marché</Text>
-            <TouchableOpacity onPress={() => Linking.openURL('https://www.kijiji.ca/v-appartement-condo/montreal-nord/c37l1700281')}>
-              <Text style={styles.viewAllLink}>Voir plus →</Text>
-            </TouchableOpacity>
+        {/* TAL / IPC Card */}
+        <Card style={styles.talInfoCard}>
+          <View style={styles.talInfoHeader}>
+            <Ionicons name="shield-checkmark-outline" size={16} color={theme.colors.primary} />
+            <Text style={styles.talInfoTitle}>Hausse de loyer · TAL 2025</Text>
           </View>
-
-          {filteredComps.length === 0 ? (
-            <Card style={styles.emptyCard}>
-              <Ionicons name="search-outline" size={28} color={theme.colors.textTertiary} />
-              <Text style={styles.emptyText}>Aucune annonce pour ce type</Text>
-            </Card>
-          ) : (
-            filteredComps.map(comp => (
-              <Card key={comp.id} style={styles.compCard}>
-                <View style={styles.compCardHeader}>
-                  <View style={styles.compCardLeft}>
-                    <View style={styles.compBedBadge}>
-                      <Text style={styles.compBedText}>{BED_LABELS[comp.bedrooms]}</Text>
-                    </View>
-                    <View style={[styles.sourcePill, { backgroundColor: SOURCE_COLORS[comp.source] + '15' }]}>
-                      <Text style={[styles.sourcePillText, { color: SOURCE_COLORS[comp.source] }]}>{comp.source}</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.compCardRent}>{formatCurrency(comp.askingRent)}<Text style={styles.perMonth}>/mois</Text></Text>
-                </View>
-
-                <Text style={styles.compCardAddress}>{comp.address}</Text>
-                <Text style={styles.compCardNeighbourhood}>{comp.neighbourhood}</Text>
-
-                <View style={styles.compCardFooter}>
-                  <View style={styles.compFeatures}>
-                    <Ionicons name="resize-outline" size={13} color={theme.colors.textTertiary} />
-                    <Text style={styles.compFeatureText}>{comp.sqft} pi²</Text>
-                    {comp.furnished && (
-                      <>
-                        <Text style={styles.compDot}>·</Text>
-                        <Ionicons name="bed-outline" size={13} color={theme.colors.textTertiary} />
-                        <Text style={styles.compFeatureText}>Meublé</Text>
-                      </>
-                    )}
-                    {comp.parking && (
-                      <>
-                        <Text style={styles.compDot}>·</Text>
-                        <Ionicons name="car-outline" size={13} color={theme.colors.textTertiary} />
-                        <Text style={styles.compFeatureText}>Stationnement</Text>
-                      </>
-                    )}
-                  </View>
-                  <Text style={styles.daysListed}>{comp.daysListed}j</Text>
-                </View>
-              </Card>
-            ))
-          )}
-        </View>
+          <View style={styles.talInfoRow}>
+            <View style={styles.talInfoItem}>
+              <Text style={styles.talInfoValue}>2,8 %</Text>
+              <Text style={styles.talInfoLabel}>IPC Québec{'\n'}(max. recommandé)</Text>
+            </View>
+            <View style={styles.talInfoDivider} />
+            <View style={styles.talInfoItem}>
+              <Text style={styles.talInfoValue}>3 mois</Text>
+              <Text style={styles.talInfoLabel}>Avis minimum{'\n'}avant renouvellement</Text>
+            </View>
+            <View style={styles.talInfoDivider} />
+            <View style={styles.talInfoItem}>
+              <Text style={styles.talInfoValue}>90 j</Text>
+              <Text style={styles.talInfoLabel}>Avis de{'\n'}non-renouvellement</Text>
+            </View>
+          </View>
+          <Text style={styles.talInfoNote}>
+            Toute hausse doit respecter les critères du TAL. Une hausse supérieure à 2,8 % (IPC 2025) doit être justifiée devant le Tribunal.
+          </Text>
+        </Card>
 
         {/* Disclaimer */}
         <Card style={styles.disclaimerCard}>
@@ -517,4 +664,33 @@ const styles = StyleSheet.create({
   disclaimerHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   disclaimerTitle: { fontSize: 13, fontWeight: '600', color: theme.colors.textSecondary },
   disclaimerText: { fontSize: 12, color: theme.colors.textTertiary, lineHeight: 18 },
+
+  // SCHL card
+  schlCard: { marginBottom: theme.spacing.md, backgroundColor: theme.colors.surface },
+  schlHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: theme.spacing.sm },
+  schlHeaderLeft: { flex: 1 },
+  schlTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.textPrimary },
+  schlSub: { fontSize: 11, color: theme.colors.textTertiary, marginTop: 2 },
+  schlMeta: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  schlVacancy: { alignItems: 'center' },
+  schlVacancyValue: { fontSize: 15, fontWeight: '800', color: theme.colors.textPrimary },
+  schlVacancyLabel: { fontSize: 9, color: theme.colors.textTertiary, textAlign: 'center' },
+  schlTrend: { flexDirection: 'row', alignItems: 'center', gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 8 },
+  schlTrendText: { fontSize: 11, fontWeight: '700' },
+  schlRentsRow: { flexDirection: 'row', gap: 6 },
+  schlRentItem: { flex: 1, alignItems: 'center', backgroundColor: theme.colors.background, borderRadius: 10, padding: 8, borderWidth: 1, borderColor: theme.colors.borderLight },
+  schlBedLabel: { fontSize: 14, fontWeight: '800', color: theme.colors.primary, marginBottom: 3 },
+  schlRentValue: { fontSize: 13, fontWeight: '700', color: theme.colors.textPrimary },
+  schlRentSub: { fontSize: 9, color: theme.colors.textTertiary, marginTop: 1 },
+
+  // TAL info card
+  talInfoCard: { marginBottom: theme.spacing.md, backgroundColor: theme.colors.primaryLight, borderWidth: 1, borderColor: theme.colors.primary + '30' },
+  talInfoHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: theme.spacing.sm },
+  talInfoTitle: { fontSize: 14, fontWeight: '700', color: theme.colors.primary },
+  talInfoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm },
+  talInfoItem: { flex: 1, alignItems: 'center' },
+  talInfoValue: { fontSize: 18, fontWeight: '800', color: theme.colors.primary },
+  talInfoLabel: { fontSize: 10, color: theme.colors.textSecondary, marginTop: 2, textAlign: 'center', lineHeight: 14 },
+  talInfoDivider: { width: 1, height: 38, backgroundColor: theme.colors.primary + '30' },
+  talInfoNote: { fontSize: 11, color: theme.colors.textSecondary, lineHeight: 16, fontStyle: 'italic' },
 });

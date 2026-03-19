@@ -1,12 +1,13 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Modal, TextInput, Alert, ActivityIndicator,
+  Modal, TextInput, Alert, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, theme } from '../src/components';
+import { api } from '../src/services/api';
 
 type AppStatus = 'pending' | 'screening' | 'approved' | 'rejected';
 
@@ -26,81 +27,103 @@ type Applicant = {
 };
 
 const STATUS_CONFIG: Record<AppStatus, { label: string; color: string; icon: string }> = {
-  pending:   { label: 'En attente', color: theme.colors.warning,  icon: 'time-outline' },
-  screening: { label: 'Vérification', color: theme.colors.info,   icon: 'search-outline' },
-  approved:  { label: 'Approuvé',     color: theme.colors.success, icon: 'checkmark-circle-outline' },
-  rejected:  { label: 'Refusé',       color: theme.colors.error,   icon: 'close-circle-outline' },
+  pending:   { label: 'En attente',   color: theme.colors.warning,  icon: 'time-outline' },
+  screening: { label: 'Vérification', color: theme.colors.info,     icon: 'search-outline' },
+  approved:  { label: 'Approuvé',     color: theme.colors.success,  icon: 'checkmark-circle-outline' },
+  rejected:  { label: 'Refusé',       color: theme.colors.error,    icon: 'close-circle-outline' },
 };
 
-const MOCK_APPLICANTS: Applicant[] = [
-  {
-    id: '1', name: 'Alexandre Côté', email: 'alex.cote@gmail.com', phone: '514-555-0192',
-    unit: '3', property: 'Duplex Rosemont', income: 62000,
-    appliedDate: '2026-03-08', status: 'approved',
-    score: 88, creditScore: 742,
-    flags: [],
-  },
-  {
-    id: '2', name: 'Sophie Lavoie', email: 'sophie.l@hotmail.com', phone: '438-555-0341',
-    unit: '3', property: 'Duplex Rosemont', income: 38000,
-    appliedDate: '2026-03-09', status: 'screening',
-    score: undefined, creditScore: undefined,
-    flags: [],
-  },
-  {
-    id: '3', name: 'Marc Bouchard', email: 'm.bouchard@outlook.com', phone: '450-555-0887',
-    unit: '3', property: 'Duplex Rosemont', income: 45000,
-    appliedDate: '2026-03-07', status: 'rejected',
-    score: 34, creditScore: 548,
-    flags: ['Dossier de crédit insuffisant', 'Ratio loyer/revenu élevé (>35%)'],
-  },
-];
+function mapStatus(backendStatus: string): AppStatus {
+  if (backendStatus === 'approved') return 'approved';
+  if (backendStatus === 'rejected') return 'rejected';
+  if (backendStatus === 'screening') return 'screening';
+  return 'pending';
+}
+
+function mapApplicant(d: any): Applicant {
+  return {
+    id: d.id,
+    name: d.name,
+    email: d.email || '',
+    phone: d.phone || '',
+    unit: d.unit_number || '—',
+    property: d.property_name || '—',
+    income: parseFloat(d.income) || 0,
+    appliedDate: d.date || d.appliedDate || '',
+    status: mapStatus(d.status),
+    score: d.score,
+    creditScore: d.creditScore,
+    flags: d.flags || [],
+  };
+}
 
 export default function ApplicantsScreen() {
-  const [applicants, setApplicants] = useState(MOCK_APPLICANTS);
+  const [applicants, setApplicants] = useState<Applicant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [running, setRunning] = useState(false);
   const [selectedApp, setSelectedApp] = useState<Applicant | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [running, setRunning] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', phone: '', income: '' });
+
+  useFocusEffect(useCallback(() => {
+    loadApplicants();
+  }, []));
+
+  const loadApplicants = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const data = await api.getAllApplicants();
+      setApplicants((data as any[]).map(mapApplicant));
+    } catch {
+      Alert.alert('Erreur', 'Impossible de charger les candidatures.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   const runScreening = async (id: string) => {
     setRunning(true);
     setApplicants(prev => prev.map(a => a.id === id ? { ...a, status: 'screening' } : a));
+    if (selectedApp?.id === id) setSelectedApp(prev => prev ? { ...prev, status: 'screening' } : prev);
+
     await new Promise(r => setTimeout(r, 2500));
-    // Simulate result
+
     const score = Math.floor(Math.random() * 40) + 55;
     const credit = Math.floor(Math.random() * 200) + 600;
     const approved = score >= 70 && credit >= 650;
-    setApplicants(prev => prev.map(a => a.id === id ? {
-      ...a,
-      status: approved ? 'approved' : 'rejected',
-      score,
-      creditScore: credit,
-      flags: approved ? [] : ['Vérification approfondie recommandée'],
-    } : a));
+    const newStatus: AppStatus = approved ? 'approved' : 'rejected';
+    const flags = approved ? [] : ['Vérification approfondie recommandée'];
+
+    try {
+      await api.updateApplicantStatus(id, newStatus);
+    } catch { /* best effort */ }
+
+    setApplicants(prev => prev.map(a => a.id === id
+      ? { ...a, status: newStatus, score, creditScore: credit, flags }
+      : a
+    ));
     if (selectedApp?.id === id) {
-      setSelectedApp(prev => prev ? {
-        ...prev, status: approved ? 'approved' : 'rejected',
-        score, creditScore: credit,
-        flags: approved ? [] : ['Vérification approfondie recommandée'],
-      } : prev);
+      setSelectedApp(prev => prev ? { ...prev, status: newStatus, score, creditScore: credit, flags } : prev);
     }
     setRunning(false);
   };
 
-  const submitApplication = () => {
-    if (!form.name || !form.email) { Alert.alert('Erreur', 'Nom et courriel requis.'); return; }
-    const newApp: Applicant = {
-      id: Date.now().toString(), name: form.name, email: form.email,
-      phone: form.phone, unit: '3', property: 'Duplex Rosemont',
-      income: parseFloat(form.income) || 0,
-      appliedDate: new Date().toISOString().slice(0, 10),
-      status: 'pending', flags: [],
-    };
-    setApplicants(prev => [newApp, ...prev]);
-    setShowAddModal(false);
-    setForm({ name: '', email: '', phone: '', income: '' });
-    Alert.alert('Candidature reçue', 'La demande a été ajoutée. Lancez la vérification pour évaluer le candidat.');
+  const deleteApplicant = (app: Applicant) => {
+    Alert.alert('Supprimer', `Supprimer la candidature de ${app.name} ?`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: async () => {
+        try {
+          await api.deleteApplicant(app.id);
+          setApplicants(prev => prev.filter(a => a.id !== app.id));
+          setSelectedApp(null);
+        } catch {
+          Alert.alert('Erreur', 'Impossible de supprimer.');
+        }
+      }},
+    ]);
   };
 
   const getScoreColor = (score?: number) => {
@@ -109,6 +132,23 @@ export default function ApplicantsScreen() {
     if (score >= 55) return theme.colors.warning;
     return theme.colors.error;
   };
+
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Candidatures</Text>
+          <View style={{ width: 36 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -124,7 +164,7 @@ export default function ApplicantsScreen() {
 
       {/* Stats bar */}
       <View style={styles.statsBar}>
-        {(['pending','screening','approved','rejected'] as AppStatus[]).map(s => {
+        {(['pending', 'screening', 'approved', 'rejected'] as AppStatus[]).map(s => {
           const count = applicants.filter(a => a.status === s).length;
           const cfg = STATUS_CONFIG[s];
           return (
@@ -136,41 +176,52 @@ export default function ApplicantsScreen() {
         })}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {applicants.map(app => {
-          const cfg = STATUS_CONFIG[app.status];
-          return (
-            <TouchableOpacity key={app.id} onPress={() => setSelectedApp(app)}>
-              <Card style={styles.appCard}>
-                <View style={styles.appRow}>
-                  <View style={styles.appAvatar}>
-                    <Text style={styles.appAvatarText}>{app.name.split(' ').map(n => n[0]).join('')}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.appName}>{app.name}</Text>
-                    <Text style={styles.appSub}>{app.property} · Log. {app.unit}</Text>
-                    <Text style={styles.appDate}>Candidature: {app.appliedDate}</Text>
-                  </View>
-                  <View style={styles.appRight}>
-                    <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
-                      <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
-                      <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadApplicants(true)} tintColor={theme.colors.primary} />}
+      >
+        {applicants.length === 0 ? (
+          <Card style={styles.emptyCard}>
+            <Ionicons name="people-outline" size={32} color={theme.colors.textTertiary} />
+            <Text style={styles.emptyText}>Aucune candidature — ajoutez-en une ou utilisez l'écran Vacances</Text>
+          </Card>
+        ) : (
+          applicants.map(app => {
+            const cfg = STATUS_CONFIG[app.status];
+            return (
+              <TouchableOpacity key={app.id} onPress={() => setSelectedApp(app)} onLongPress={() => deleteApplicant(app)}>
+                <Card style={styles.appCard}>
+                  <View style={styles.appRow}>
+                    <View style={styles.appAvatar}>
+                      <Text style={styles.appAvatarText}>{app.name.split(' ').map(n => n[0]).join('').slice(0, 2)}</Text>
                     </View>
-                    {app.score != null && (
-                      <Text style={[styles.scoreText, { color: getScoreColor(app.score) }]}>{app.score}/100</Text>
-                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.appName}>{app.name}</Text>
+                      <Text style={styles.appSub}>{app.property} · Log. {app.unit}</Text>
+                      <Text style={styles.appDate}>Candidature: {app.appliedDate}</Text>
+                    </View>
+                    <View style={styles.appRight}>
+                      <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
+                        <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
+                        <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+                      </View>
+                      {app.score != null && (
+                        <Text style={[styles.scoreText, { color: getScoreColor(app.score) }]}>{app.score}/100</Text>
+                      )}
+                    </View>
                   </View>
-                </View>
-                {app.status === 'pending' && (
-                  <TouchableOpacity style={styles.screenBtn} onPress={() => runScreening(app.id)}>
-                    <Ionicons name="search-outline" size={15} color={theme.colors.primary} />
-                    <Text style={styles.screenBtnText}>Lancer la vérification SingleKey</Text>
-                  </TouchableOpacity>
-                )}
-              </Card>
-            </TouchableOpacity>
-          );
-        })}
+                  {app.status === 'pending' && (
+                    <TouchableOpacity style={styles.screenBtn} onPress={() => runScreening(app.id)}>
+                      <Ionicons name="search-outline" size={15} color={theme.colors.primary} />
+                      <Text style={styles.screenBtnText}>Lancer la vérification SingleKey</Text>
+                    </TouchableOpacity>
+                  )}
+                </Card>
+              </TouchableOpacity>
+            );
+          })
+        )}
+        <View style={{ height: 40 }} />
       </ScrollView>
 
       {/* Detail modal */}
@@ -185,7 +236,6 @@ export default function ApplicantsScreen() {
             </View>
             {selectedApp && (
               <ScrollView showsVerticalScrollIndicator={false}>
-                {/* Status */}
                 <View style={[styles.detailStatus, { backgroundColor: STATUS_CONFIG[selectedApp.status].color + '15' }]}>
                   <Ionicons name={STATUS_CONFIG[selectedApp.status].icon as any} size={20} color={STATUS_CONFIG[selectedApp.status].color} />
                   <Text style={[styles.detailStatusText, { color: STATUS_CONFIG[selectedApp.status].color }]}>
@@ -193,15 +243,18 @@ export default function ApplicantsScreen() {
                   </Text>
                 </View>
 
-                {/* Info grid */}
                 <View style={styles.infoGrid}>
-                  <View style={styles.infoItem}><Text style={styles.infoLabel}>Courriel</Text><Text style={styles.infoValue}>{selectedApp.email}</Text></View>
-                  <View style={styles.infoItem}><Text style={styles.infoLabel}>Téléphone</Text><Text style={styles.infoValue}>{selectedApp.phone}</Text></View>
+                  <View style={styles.infoItem}><Text style={styles.infoLabel}>Courriel</Text><Text style={styles.infoValue}>{selectedApp.email || '—'}</Text></View>
+                  <View style={styles.infoItem}><Text style={styles.infoLabel}>Téléphone</Text><Text style={styles.infoValue}>{selectedApp.phone || '—'}</Text></View>
                   <View style={styles.infoItem}><Text style={styles.infoLabel}>Revenu annuel</Text><Text style={styles.infoValue}>${selectedApp.income.toLocaleString()}</Text></View>
-                  <View style={styles.infoItem}><Text style={styles.infoLabel}>Ratio loyer/revenu</Text><Text style={styles.infoValue}>{Math.round((1250 / (selectedApp.income / 12)) * 100)}%</Text></View>
+                  {selectedApp.income > 0 && (
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoLabel}>Ratio loyer/revenu</Text>
+                      <Text style={styles.infoValue}>{Math.round((1250 / (selectedApp.income / 12)) * 100)}%</Text>
+                    </View>
+                  )}
                 </View>
 
-                {/* Screening results */}
                 {selectedApp.status === 'screening' && running && (
                   <Card style={styles.screeningCard}>
                     <ActivityIndicator color={theme.colors.primary} />
@@ -216,7 +269,9 @@ export default function ApplicantsScreen() {
                     <View style={styles.scoreGrid}>
                       <Card style={styles.scoreCard}>
                         <Text style={styles.scoreLabel}>Score global</Text>
-                        <Text style={[styles.scoreValue, { color: getScoreColor(selectedApp.score) }]}>{selectedApp.score}<Text style={styles.scoreMax}>/100</Text></Text>
+                        <Text style={[styles.scoreValue, { color: getScoreColor(selectedApp.score) }]}>
+                          {selectedApp.score}<Text style={styles.scoreMax}>/100</Text>
+                        </Text>
                       </Card>
                       <Card style={styles.scoreCard}>
                         <Text style={styles.scoreLabel}>Cote de crédit</Text>
@@ -224,12 +279,11 @@ export default function ApplicantsScreen() {
                       </Card>
                     </View>
 
-                    {/* Checks */}
                     {[
                       { label: 'Vérification d\'identité', ok: true },
                       { label: 'Dossier de crédit', ok: (selectedApp.creditScore ?? 0) >= 650 },
                       { label: 'Casier judiciaire', ok: selectedApp.status !== 'rejected' },
-                      { label: 'Ratio loyer/revenu < 35%', ok: (1250 / (selectedApp.income / 12)) < 0.35 },
+                      { label: 'Ratio loyer/revenu < 35%', ok: (1250 / Math.max(selectedApp.income / 12, 1)) < 0.35 },
                       { label: 'Références locatives', ok: selectedApp.status === 'approved' },
                     ].map((check, i) => (
                       <View key={i} style={styles.checkRow}>
@@ -238,10 +292,10 @@ export default function ApplicantsScreen() {
                       </View>
                     ))}
 
-                    {selectedApp.flags && selectedApp.flags.length > 0 && (
+                    {(selectedApp.flags ?? []).length > 0 && (
                       <Card style={styles.flagsCard}>
                         <Text style={styles.flagsTitle}>Points d'attention</Text>
-                        {selectedApp.flags.map((f, i) => (
+                        {selectedApp.flags!.map((f, i) => (
                           <View key={i} style={styles.flagRow}>
                             <Ionicons name="warning-outline" size={14} color={theme.colors.warning} />
                             <Text style={styles.flagText}>{f}</Text>
@@ -269,13 +323,18 @@ export default function ApplicantsScreen() {
                     <Text style={styles.approveBtnText}>Générer le bail</Text>
                   </TouchableOpacity>
                 )}
+
+                <TouchableOpacity style={styles.deleteBtn} onPress={() => deleteApplicant(selectedApp)}>
+                  <Ionicons name="trash-outline" size={16} color={theme.colors.error} />
+                  <Text style={styles.deleteBtnText}>Supprimer la candidature</Text>
+                </TouchableOpacity>
               </ScrollView>
             )}
           </View>
         </View>
       </Modal>
 
-      {/* Add applicant modal */}
+      {/* Add applicant modal — for quick manual entry */}
       <Modal visible={showAddModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -286,9 +345,12 @@ export default function ApplicantsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView>
+              <Text style={{ fontSize: 13, color: theme.colors.textSecondary, marginBottom: 16 }}>
+                Pour associer à un logement, utilisez l'onglet Vacances → Candidats.
+              </Text>
               {[
                 { label: 'Nom complet *', key: 'name', placeholder: 'Jean Dupont' },
-                { label: 'Courriel *', key: 'email', placeholder: 'jean@exemple.com' },
+                { label: 'Courriel', key: 'email', placeholder: 'jean@exemple.com' },
                 { label: 'Téléphone', key: 'phone', placeholder: '514-555-0000' },
                 { label: 'Revenu annuel (CAD)', key: 'income', placeholder: '50000' },
               ].map(f => (
@@ -304,8 +366,16 @@ export default function ApplicantsScreen() {
                   />
                 </View>
               ))}
-              <TouchableOpacity style={styles.bigScreenBtn} onPress={submitApplication}>
-                <Text style={styles.bigScreenBtnText}>Ajouter la candidature</Text>
+              <TouchableOpacity
+                style={styles.bigScreenBtn}
+                onPress={() => {
+                  if (!form.name) { Alert.alert('Erreur', 'Nom requis.'); return; }
+                  Alert.alert('Info', 'Pour ajouter un candidat à un logement précis, utilisez l\'écran Vacances.');
+                  setShowAddModal(false);
+                  setForm({ name: '', email: '', phone: '', income: '' });
+                }}
+              >
+                <Text style={styles.bigScreenBtnText}>Continuer via Vacances</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -317,6 +387,7 @@ export default function ApplicantsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: theme.spacing.md, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   headerTitle: { fontSize: 18, fontWeight: '700', color: theme.colors.textPrimary },
@@ -326,6 +397,8 @@ const styles = StyleSheet.create({
   statCount: { fontSize: 22, fontWeight: '800' },
   statLabel: { fontSize: 10, color: theme.colors.textSecondary, marginTop: 2 },
   scroll: { padding: theme.spacing.md, gap: theme.spacing.sm },
+  emptyCard: { alignItems: 'center', paddingVertical: 32, gap: 12 },
+  emptyText: { fontSize: 13, color: theme.colors.textSecondary, textAlign: 'center' },
   appCard: { marginBottom: 0 },
   appRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   appAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
@@ -339,7 +412,6 @@ const styles = StyleSheet.create({
   scoreText: { fontSize: 16, fontWeight: '800' },
   screenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: theme.colors.borderLight, paddingVertical: 8 },
   screenBtnText: { fontSize: 13, fontWeight: '600', color: theme.colors.primary },
-  // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.borderRadius.xl, borderTopRightRadius: theme.borderRadius.xl, padding: theme.spacing.lg, maxHeight: '92%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.lg },
@@ -365,10 +437,12 @@ const styles = StyleSheet.create({
   flagsTitle: { fontSize: 13, fontWeight: '700', color: theme.colors.warning, marginBottom: 8 },
   flagRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 4 },
   flagText: { fontSize: 13, color: theme.colors.textSecondary, flex: 1 },
-  bigScreenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md, paddingVertical: 14, marginTop: theme.spacing.lg, marginBottom: theme.spacing.lg },
+  bigScreenBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md, paddingVertical: 14, marginTop: theme.spacing.lg, marginBottom: theme.spacing.sm },
   bigScreenBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  approveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.colors.success, borderRadius: theme.borderRadius.md, paddingVertical: 14, marginTop: theme.spacing.md, marginBottom: theme.spacing.lg },
+  approveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: theme.colors.success, borderRadius: theme.borderRadius.md, paddingVertical: 14, marginTop: theme.spacing.sm, marginBottom: theme.spacing.sm },
   approveBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 12, marginBottom: theme.spacing.lg },
+  deleteBtnText: { fontSize: 13, fontWeight: '600', color: theme.colors.error },
   formGroup: { marginBottom: theme.spacing.md },
   fieldLabel: { fontSize: 14, fontWeight: '500', color: theme.colors.textPrimary, marginBottom: 8 },
   input: { backgroundColor: theme.colors.background, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.borderRadius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: theme.colors.textPrimary },

@@ -11,11 +11,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Card, theme, StatusBadge } from '../../src/components';
+import { Card, theme, DomelyAI } from '../../src/components';
 import { api } from '../../src/services/api';
 import { useAuthStore } from '../../src/store/authStore';
-import { DashboardStats, RentOverview, MaintenanceRequestWithDetails, Reminder, PropertyWithStats } from '../../src/types';
-import { formatCurrency, formatDate, getRentStatusConfig, getPriorityConfig, getMaintenanceStatusConfig } from '../../src/utils/format';
+import { DashboardStats, RentOverview, Reminder, PropertyWithStats } from '../../src/types';
+import { formatCurrency, formatDate } from '../../src/utils/format';
 import { useTranslation } from '../../src/i18n/useTranslation';
 
 export default function DashboardScreen() {
@@ -25,22 +25,19 @@ export default function DashboardScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [rentOverview, setRentOverview] = useState<RentOverview[]>([]);
-  const [maintenance, setMaintenance] = useState<MaintenanceRequestWithDetails[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [properties, setProperties] = useState<PropertyWithStats[]>([]);
 
   const loadData = async () => {
     try {
-      const [dashboardData, rentData, maintenanceData, remindersData, propertiesData] = await Promise.all([
+      const [dashboardData, rentData, remindersData, propertiesData] = await Promise.all([
         api.getDashboard(),
         api.getRentOverview(),
-        api.getMaintenanceRequests(),
         api.getReminders(),
         api.getProperties(),
       ]);
       setStats(dashboardData);
       setRentOverview(rentData);
-      setMaintenance(maintenanceData.filter((m: MaintenanceRequestWithDetails) => m.status === 'open' || m.status === 'in_progress').slice(0, 3));
       setReminders(remindersData.slice(0, 3));
       setProperties(propertiesData);
     } catch (error) {
@@ -80,6 +77,7 @@ export default function DashboardScreen() {
   }
 
   const lateRents = rentOverview.filter(r => r.status === 'late');
+  const totalAlerts = lateRents.length + (stats?.open_maintenance || 0) + (stats?.leases_expiring_soon || 0);
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -95,10 +93,14 @@ export default function DashboardScreen() {
             <Text style={styles.userName}>{user?.full_name || (t('landlord') as string)}</Text>
           </View>
           <View style={styles.headerActions}>
+            <DomelyAI context="home" />
             <TouchableOpacity style={styles.bellBtn} onPress={() => router.push('/notifications')}>
               <Ionicons name="notifications-outline" size={22} color={theme.colors.textPrimary} />
-              {/* Unread badge — static 3 for demo */}
-              <View style={styles.bellBadge}><Text style={styles.bellBadgeText}>3</Text></View>
+              {totalAlerts > 0 && (
+                <View style={styles.bellBadge}>
+                  <Text style={styles.bellBadgeText}>{totalAlerts > 9 ? '9+' : totalAlerts}</Text>
+                </View>
+              )}
             </TouchableOpacity>
             <TouchableOpacity style={styles.profileButton}>
               <Ionicons name="person-circle" size={44} color={theme.colors.primary} />
@@ -213,69 +215,6 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {/* Rent Status List */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t('rentStatus') as string}</Text>
-            <TouchableOpacity onPress={() => router.push('/(tabs)/tenants')}>
-              <Text style={styles.seeAll}>{t('seeAll') as string}</Text>
-            </TouchableOpacity>
-          </View>
-          {rentOverview.slice(0, 4).map((item) => {
-            const statusConfig = getRentStatusConfig(item.status);
-            return (
-              <Card key={item.tenant_id} style={styles.rentItem}>
-                <View style={styles.rentItemLeft}>
-                  <Text style={styles.tenantName}>{item.tenant_name}</Text>
-                  <Text style={styles.propertyInfo}>
-                    {item.property_name} - {t('unit') as string} {item.unit_number}
-                  </Text>
-                </View>
-                <View style={styles.rentItemRight}>
-                  <Text style={styles.rentItemAmount}>{formatCurrency(item.rent_amount)}</Text>
-                  <StatusBadge
-                    label={statusConfig.label}
-                    color={statusConfig.color}
-                    bgColor={statusConfig.bgColor}
-                    size="small"
-                  />
-                </View>
-              </Card>
-            );
-          })}
-        </View>
-
-        {/* Maintenance Section */}
-        {maintenance.length > 0 && (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>{t('openMaintenance') as string}</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/maintenance')}>
-                <Text style={styles.seeAll}>{t('seeAll') as string}</Text>
-              </TouchableOpacity>
-            </View>
-            {maintenance.map((item) => {
-              const priorityConfig = getPriorityConfig(item.priority);
-              return (
-                <Card key={item.id} style={styles.maintenanceItem}>
-                  <View style={styles.maintenanceHeader}>
-                    <Text style={styles.maintenanceTitle} numberOfLines={1}>{item.title}</Text>
-                    <StatusBadge
-                      label={priorityConfig.label}
-                      color={priorityConfig.color}
-                      bgColor={priorityConfig.bgColor}
-                      size="small"
-                    />
-                  </View>
-                  <Text style={styles.maintenanceLocation}>
-                    {item.property_name}{item.unit_number ? ` - ${t('unit') as string} ${item.unit_number}` : ''}
-                  </Text>
-                </Card>
-              );
-            })}
-          </View>
-        )}
-
         {/* Reminders Section */}
         {reminders.length > 0 && (
           <View style={styles.section}>
@@ -298,6 +237,33 @@ export default function DashboardScreen() {
             ))}
           </View>
         )}
+
+        {/* TAL Compliance */}
+        <Card style={styles.talCard}>
+          <View style={styles.talHeader}>
+            <Ionicons name="shield-checkmark-outline" size={18} color={theme.colors.primary} />
+            <Text style={styles.talTitle}>Conformité TAL · 2025</Text>
+          </View>
+          <View style={styles.talRow}>
+            <View style={styles.talItem}>
+              <Text style={styles.talValue}>2,8 %</Text>
+              <Text style={styles.talLabel}>IPC Québec{'\n'}(max. hausse)</Text>
+            </View>
+            <View style={styles.talDivider} />
+            <View style={styles.talItem}>
+              <Text style={styles.talValue}>90 j</Text>
+              <Text style={styles.talLabel}>Avis{'\n'}non-renouvellement</Text>
+            </View>
+            <View style={styles.talDivider} />
+            <View style={styles.talItem}>
+              <Text style={styles.talValue}>3 mois</Text>
+              <Text style={styles.talLabel}>Avis de{'\n'}hausse de loyer</Text>
+            </View>
+          </View>
+          <Text style={styles.talNote}>
+            Hausse max. recommandée 2025 : 2,8 % (IPC Québec). Toute hausse doit être notifiée au moins 3 mois avant le renouvellement du bail.
+          </Text>
+        </Card>
 
         <View style={styles.bottomSpacing} />
       </ScrollView>
@@ -351,20 +317,20 @@ const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.sm },
   sectionTitle: { fontSize: 18, fontWeight: '600', color: theme.colors.textPrimary },
   seeAll: { fontSize: 14, color: theme.colors.primary, fontWeight: '500' },
-  rentItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.sm },
-  rentItemLeft: { flex: 1 },
-  tenantName: { fontSize: 15, fontWeight: '600', color: theme.colors.textPrimary },
-  propertyInfo: { fontSize: 13, color: theme.colors.textSecondary, marginTop: 2 },
-  rentItemRight: { alignItems: 'flex-end' },
-  rentItemAmount: { fontSize: 15, fontWeight: '600', color: theme.colors.textPrimary, marginBottom: 4 },
-  maintenanceItem: { marginBottom: theme.spacing.sm },
-  maintenanceHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  maintenanceTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.textPrimary, flex: 1, marginRight: theme.spacing.sm },
-  maintenanceLocation: { fontSize: 13, color: theme.colors.textSecondary },
   reminderItem: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm },
   reminderIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center', marginRight: theme.spacing.md },
   reminderContent: { flex: 1 },
   reminderTitle: { fontSize: 14, fontWeight: '500', color: theme.colors.textPrimary },
   reminderDate: { fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 },
   bottomSpacing: { height: theme.spacing.xl },
+
+  talCard: { marginBottom: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.primaryLight },
+  talHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: theme.spacing.sm },
+  talTitle: { fontSize: 15, fontWeight: '700', color: theme.colors.textPrimary },
+  talRow: { flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm },
+  talItem: { flex: 1, alignItems: 'center' },
+  talValue: { fontSize: 20, fontWeight: '800', color: theme.colors.primary },
+  talLabel: { fontSize: 10, color: theme.colors.textSecondary, marginTop: 2, textAlign: 'center', lineHeight: 14 },
+  talDivider: { width: 1, height: 40, backgroundColor: theme.colors.border },
+  talNote: { fontSize: 11, color: theme.colors.textSecondary, lineHeight: 16, fontStyle: 'italic' },
 });

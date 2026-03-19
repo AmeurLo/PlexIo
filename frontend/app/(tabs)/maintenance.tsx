@@ -12,11 +12,14 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Card, Button, theme, StatusBadge, EmptyState } from '../../src/components';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { Card, Button, theme, StatusBadge, EmptyState, DomelyAI } from '../../src/components';
 import { api } from '../../src/services/api';
 import { MaintenanceRequestWithDetails, PropertyWithStats } from '../../src/types';
 import { formatRelativeDate, getPriorityConfig, getMaintenanceStatusConfig } from '../../src/utils/format';
@@ -41,6 +44,45 @@ export default function MaintenanceScreen() {
     priority: 'medium',
     reported_by: '',
   });
+  const [formPhotos, setFormPhotos] = useState<string[]>([]);
+
+  const pickPhoto = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission requise', 'Autorisez l\'accès à votre galerie pour ajouter des photos.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.7,
+      selectionLimit: 4,
+    });
+    if (!result.canceled) {
+      const newUris = result.assets.map(a => a.uri);
+      setFormPhotos(prev => [...prev, ...newUris].slice(0, 4));
+    }
+  };
+
+  const takePhoto = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission requise', 'Autorisez l\'accès à votre caméra pour prendre une photo.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+    if (!result.canceled) {
+      setFormPhotos(prev => [...prev, result.assets[0].uri].slice(0, 4));
+    }
+  };
+
+  const showPhotoOptions = () => {
+    Alert.alert('Ajouter une photo', '', [
+      { text: 'Prendre une photo', onPress: takePhoto },
+      { text: 'Choisir depuis la galerie', onPress: pickPhoto },
+      { text: 'Annuler', style: 'cancel' },
+    ]);
+  };
 
   const loadData = async () => {
     try {
@@ -73,15 +115,29 @@ export default function MaintenanceScreen() {
     }
     setAddingRequest(true);
     try {
+      // Convert photo URIs to base64 strings before uploading
+      const photoBase64: string[] = [];
+      for (const uri of formPhotos) {
+        try {
+          const b64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
+          const ext = uri.split('.').pop()?.toLowerCase() || 'jpg';
+          const mimeType = ext === 'png' ? 'image/png' : 'image/jpeg';
+          photoBase64.push(`data:${mimeType};base64,${b64}`);
+        } catch {
+          // Skip photos that fail to encode
+        }
+      }
       await api.createMaintenanceRequest({
         property_id:  formData.property_id,
         title:        formData.title,
         description:  formData.description,
         priority:     formData.priority,
         reported_by:  formData.reported_by || undefined,
+        photos:       photoBase64.length > 0 ? photoBase64 : undefined,
       });
       setShowAddModal(false);
       setFormData({ property_id: '', title: '', description: '', priority: 'medium', reported_by: '' });
+      setFormPhotos([]);
       loadData();
       Alert.alert(t('success') as string, t('requestCreated') as string);
     } catch (error: any) {
@@ -126,10 +182,16 @@ export default function MaintenanceScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
-        <Text style={styles.title}>{t('maintenance') as string}</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-          <Ionicons name="add" size={24} color={theme.colors.textInverse} />
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+          <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
         </TouchableOpacity>
+        <Text style={styles.title}>{t('maintenance') as string}</Text>
+        <View style={styles.headerRight}>
+          <DomelyAI context="maintenance" />
+          <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+            <Ionicons name="add" size={24} color={theme.colors.textInverse} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.statsBar}>
@@ -245,6 +307,31 @@ export default function MaintenanceScreen() {
                 <Text style={styles.label}>{t('reportedByLabel') as string}</Text>
                 <TextInput style={styles.input} value={formData.reported_by} onChangeText={(text) => setFormData({ ...formData, reported_by: text })} placeholder={t('reportedByPlaceholder') as string} placeholderTextColor={theme.colors.textTertiary} />
               </View>
+
+              {/* Photos */}
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>Photos <Text style={{ color: theme.colors.textTertiary, fontWeight: '400' }}>(max 4)</Text></Text>
+                <View style={styles.photosRow}>
+                  {formPhotos.map((uri, i) => (
+                    <View key={i} style={styles.photoThumb}>
+                      <Image source={{ uri }} style={styles.photoThumbImg} />
+                      <TouchableOpacity
+                        style={styles.photoRemoveBtn}
+                        onPress={() => setFormPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                      >
+                        <Ionicons name="close-circle" size={18} color={theme.colors.error} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  {formPhotos.length < 4 && (
+                    <TouchableOpacity style={styles.photoAddBtn} onPress={showPhotoOptions}>
+                      <Ionicons name="camera-outline" size={26} color={theme.colors.primary} />
+                      <Text style={styles.photoAddText}>Ajouter</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
               <Button title={t('createRequest') as string} onPress={handleAddRequest} loading={addingRequest} size="large" style={styles.submitButton} />
             </ScrollView>
           </View>
@@ -279,8 +366,10 @@ export default function MaintenanceScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: theme.spacing.md, backgroundColor: theme.colors.surface },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: theme.spacing.sm, paddingVertical: 10, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
+  backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 24, fontWeight: '700', color: theme.colors.textPrimary },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   addButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
   statsBar: { flexDirection: 'row', backgroundColor: theme.colors.surface, paddingHorizontal: theme.spacing.md, paddingBottom: theme.spacing.md, gap: theme.spacing.lg },
   statItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -305,6 +394,12 @@ const styles = StyleSheet.create({
   requestTime: { fontSize: 12, color: theme.colors.textTertiary },
   reportedBy: { fontSize: 12, color: theme.colors.textTertiary, marginTop: theme.spacing.sm },
   bottomSpacing: { height: theme.spacing.xl },
+  photosRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 4 },
+  photoThumb: { width: 76, height: 76, borderRadius: 10, position: 'relative' },
+  photoThumbImg: { width: 76, height: 76, borderRadius: 10, backgroundColor: theme.colors.borderLight },
+  photoRemoveBtn: { position: 'absolute', top: -6, right: -6, backgroundColor: '#fff', borderRadius: 10 },
+  photoAddBtn: { width: 76, height: 76, borderRadius: 10, borderWidth: 1.5, borderColor: theme.colors.border, borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', gap: 4, backgroundColor: theme.colors.background },
+  photoAddText: { fontSize: 11, color: theme.colors.primary, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalContent: { backgroundColor: theme.colors.surface, borderTopLeftRadius: theme.borderRadius.xl, borderTopRightRadius: theme.borderRadius.xl, padding: theme.spacing.lg, maxHeight: '90%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: theme.spacing.lg },

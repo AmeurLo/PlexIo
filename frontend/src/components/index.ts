@@ -6,3 +6,5 @@ export { EmptyState } from './EmptyState';
 export { theme } from './theme';
 export { AddressAutocomplete } from './AddressAutocomplete';
 export type { AddressSuggestion } from './AddressAutocomplete';
+export { default as DomelyAI } from './DomelyAI';
+export type { AIContext } from './DomelyAI';

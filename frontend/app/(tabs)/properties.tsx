@@ -16,7 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Card, Button, theme, EmptyState, AddressAutocomplete, AddressSuggestion } from '../../src/components';
+import { Card, Button, theme, EmptyState, AddressAutocomplete, AddressSuggestion, DomelyAI } from '../../src/components';
 import { api } from '../../src/services/api';
 import { PropertyWithStats, Unit, EXPENSE_CATEGORIES, HealthScoreResponse } from '../../src/types';
 import { formatCurrency, getPropertyTypeLabel } from '../../src/utils/format';
@@ -185,9 +185,12 @@ export default function PropertiesScreen() {
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>{t('tabPortfolio') as string}</Text>
-        <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
-          <Ionicons name="add" size={24} color={theme.colors.textInverse} />
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <DomelyAI context="portfolio" />
+          <TouchableOpacity style={styles.addButton} onPress={() => setShowAddModal(true)}>
+            <Ionicons name="add" size={24} color={theme.colors.textInverse} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -516,7 +519,8 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight, backgroundColor: theme.colors.surface },
   title: { fontSize: 24, fontWeight: '700', color: theme.colors.textPrimary },
-  addButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
+  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  addButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: theme.colors.primary, alignItems: 'center', justifyContent: 'center' },
   scrollContent: { padding: theme.spacing.md, flexGrow: 1 },
   propertyCard: { marginBottom: theme.spacing.sm },
   propertyHeader: { flexDirection: 'row', alignItems: 'flex-start' },

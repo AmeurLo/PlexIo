@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { theme } from '../src/components';
+import { api } from '../src/services/api';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface Message {
@@ -24,40 +25,6 @@ interface Message {
   status?: 'sent' | 'delivered' | 'read';
 }
 
-// ─── Mock message threads per conversation ─────────────────────────────────────
-const MOCK_THREADS: Record<string, Message[]> = {
-  c1: [
-    { id: 'm1', text: 'Bonjour, le robinet de la salle de bain coule depuis hier soir.', time: '9h14', isMe: false },
-    { id: 'm2', text: 'Bonjour Michael, merci de me prévenir. Est-ce que c\'est un filet constant ou juste en gouttes?', time: '9h22', isMe: true, status: 'read' },
-    { id: 'm3', text: 'En gouttes, mais ça s\'aggrave. Il y a aussi une petite tache d\'humidité sous le lavabo.', time: '9h25', isMe: false },
-    { id: 'm4', text: 'D\'accord, je contacte mon plombier maintenant. Je vous confirme l\'heure d\'ici 30 minutes.', time: '9h28', isMe: true, status: 'read' },
-    { id: 'm5', text: 'Mon plombier peut passer demain matin entre 9h et 11h. Ça vous convient?', time: '9h45', isMe: true, status: 'delivered' },
-    { id: 'm6', text: 'Merci pour la réponse, je vais attendre le plombier demain.', time: '9h52', isMe: false },
-  ],
-  c2: [
-    { id: 'm1', text: 'Bonjour, j\'ai vu qu\'il me manque 50$ sur le loyer d\'avril. Désolée!', time: 'hier 14h', isMe: false },
-    { id: 'm2', text: 'Pas de souci Sarah, vous pouvez faire le solde quand vous voulez ce mois-ci.', time: 'hier 14h30', isMe: true, status: 'read' },
-    { id: 'm3', text: 'Parfait, je vous envoie le chèque ce soir.', time: 'hier 15h00', isMe: false },
-  ],
-  c3: [
-    { id: 'm1', text: 'Bonjour, le bail se renouvelle en juin. Avez-vous reçu mon avis?', time: 'lun 10h', isMe: false },
-    { id: 'm2', text: 'Oui David, je l\'ai bien reçu. Pas d\'augmentation prévue pour cette année.', time: 'lun 11h', isMe: true, status: 'read' },
-    { id: 'm3', text: 'Super, merci! Je signe dans les prochains jours.', time: 'lun 11h15', isMe: false },
-    { id: 'm4', text: 'D\'accord, je règle ça cette semaine.', time: 'lun 16h', isMe: true, status: 'read' },
-  ],
-  c4: [
-    { id: 'm1', text: 'Bonjour, il y a un courant d\'air important qui entre par la fenêtre du salon depuis les dernières pluies.', time: 'dim 17h', isMe: false },
-    { id: 'm2', text: 'Bonjour Émilie, je vais passer voir ça cette semaine. Êtes-vous disponible mercredi après-midi?', time: 'dim 18h', isMe: true, status: 'delivered' },
-    { id: 'm3', text: 'Est-ce que vous pouvez regarder la fenêtre du salon?', time: 'dim 18h30', isMe: false },
-  ],
-  c5: [
-    { id: 'm1', text: 'Marc, votre bail expire le 31 mai. Souhaitez-vous renouveler?', time: '12 mars 9h', isMe: true, status: 'read' },
-    { id: 'm2', text: 'Oui absolument, je compte rester encore au moins 2 ans.', time: '12 mars 10h', isMe: false },
-    { id: 'm3', text: 'Parfait! J\'ai préparé le document de renouvellement. Je vous l\'envoie pour signature ce soir.', time: '12 mars 10h15', isMe: true, status: 'read' },
-    { id: 'm4', text: 'Vous : Le renouvellement est prêt pour signature.', time: '12 mars 19h', isMe: true, status: 'delivered' },
-  ],
-};
-
 const QUICK_REPLIES = [
   'Je regarde ça dès que possible.',
   'Merci de me prévenir!',
@@ -65,10 +32,36 @@ const QUICK_REPLIES = [
   'Un technicien passera cette semaine.',
 ];
 
+// ─── Maintenance AI Detection ─────────────────────────────────────────────────
+const MAINTENANCE_KEYWORDS = [
+  'robinet', 'fuite', 'humidité', 'dégât', 'eau chaude', 'chauffage',
+  'toilette', 'plombier', 'moisissure', 'électricité', 'radiateur',
+  "courant d'air", 'chauffe-eau', 'canalisation', 'infiltration',
+  'tache', 'fenêtre', 'brûleur', 'serrure', 'verrou',
+  'punaise', 'cafard', 'souris', 'coquerelle', 'odeur',
+];
+
+const hasMaintenance = (text: string): boolean => {
+  const lower = text.toLowerCase();
+  return MAINTENANCE_KEYWORDS.some(kw => lower.includes(kw));
+};
+
+const extractProblem = (text: string): string => {
+  const lower = text.toLowerCase();
+  if (lower.includes('robinet') || lower.includes('fuite') || lower.includes('plombier') || lower.includes('canalisation')) return 'Plomberie';
+  if (lower.includes('humidité') || lower.includes('moisissure') || lower.includes('tache') || lower.includes('dégât') || lower.includes('infiltration')) return "Humidité / Dégât d'eau";
+  if (lower.includes('chauffage') || lower.includes('radiateur') || lower.includes('chauffe-eau') || lower.includes('brûleur')) return 'Chauffage';
+  if (lower.includes('électricité')) return 'Électricité';
+  if (lower.includes('fenêtre') || lower.includes("courant d'air")) return 'Fenêtre / Isolation';
+  if (lower.includes('serrure') || lower.includes('verrou')) return 'Serrurerie';
+  if (lower.includes('punaise') || lower.includes('cafard') || lower.includes('souris') || lower.includes('coquerelle')) return 'Extermination';
+  return 'Entretien général';
+};
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ChatScreen() {
   const params = useLocalSearchParams<{
-    id: string;
+    tenantId: string;
     tenantName: string;
     tenantInitials: string;
     avatarColor: string;
@@ -77,7 +70,7 @@ export default function ChatScreen() {
   }>();
 
   const {
-    id = 'c1',
+    tenantId = '',
     tenantName = 'Locataire',
     tenantInitials = 'LO',
     avatarColor = theme.colors.primary,
@@ -87,10 +80,52 @@ export default function ChatScreen() {
 
   const online = isOnline === '1';
 
-  const [messages, setMessages] = useState<Message[]>(MOCK_THREADS[id] ?? []);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [showQuickReplies, setShowQuickReplies] = useState(false);
+  const [dismissedSuggestions, setDismissedSuggestions] = useState<Set<string>>(new Set());
   const listRef = useRef<FlatList>(null);
+
+  // Format ISO date to display time string
+  const formatMsgTime = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getHours()}h${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  // Load message history from backend
+  useEffect(() => {
+    if (!tenantId) return;
+    api.getMessages(tenantId)
+      .then(data => {
+        const formatted: Message[] = data.map((m: any) => ({
+          id: m.id,
+          text: m.content,
+          time: formatMsgTime(m.created_at),
+          isMe: m.sender_type === 'landlord',
+          status: m.sender_type === 'landlord' ? 'delivered' : undefined,
+        }));
+        setMessages(formatted);
+      })
+      .catch(() => null);
+  }, [tenantId]);
+
+  // Poll for new messages every 15s
+  useEffect(() => {
+    if (!tenantId) return;
+    const interval = setInterval(() => {
+      api.getMessages(tenantId).then(data => {
+        const formatted: Message[] = data.map((m: any) => ({
+          id: m.id,
+          text: m.content,
+          time: formatMsgTime(m.created_at),
+          isMe: m.sender_type === 'landlord',
+          status: m.sender_type === 'landlord' ? 'delivered' : undefined,
+        }));
+        setMessages(formatted);
+      }).catch(() => null);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [tenantId]);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -98,15 +133,15 @@ export default function ChatScreen() {
     return () => clearTimeout(t);
   }, [messages]);
 
-  const sendMessage = (text: string = inputText) => {
+  const sendMessage = async (text: string = inputText) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    if (!trimmed || !tenantId) return;
 
     const now = new Date();
     const timeStr = `${now.getHours()}h${String(now.getMinutes()).padStart(2, '0')}`;
 
     const newMsg: Message = {
-      id: `m${Date.now()}`,
+      id: `tmp-${Date.now()}`,
       text: trimmed,
       time: timeStr,
       isMe: true,
@@ -117,43 +152,82 @@ export default function ChatScreen() {
     setInputText('');
     setShowQuickReplies(false);
 
-    // Simulate "delivered" after 1s
-    setTimeout(() => {
-      setMessages(prev => prev.map(m => m.id === newMsg.id ? { ...m, status: 'delivered' } : m));
-    }, 1000);
+    try {
+      const saved = await api.sendMessage(tenantId, trimmed, 'landlord');
+      // Replace temp message with server response
+      setMessages(prev => prev.map(m =>
+        m.id === newMsg.id ? { ...m, id: saved.id, status: 'delivered' } : m
+      ));
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== newMsg.id));
+      Alert.alert('Erreur', "Le message n'a pas pu être envoyé.");
+    }
   };
 
   const renderMessage = ({ item, index }: { item: Message; index: number }) => {
     const prevMsg = messages[index - 1];
     const showAvatar = !item.isMe && (!prevMsg || prevMsg.isMe);
+    const showSuggestion = !item.isMe && hasMaintenance(item.text) && !dismissedSuggestions.has(item.id);
 
     return (
-      <View style={[styles.msgRow, item.isMe ? styles.msgRowMe : styles.msgRowThem]}>
-        {/* Tenant avatar placeholder */}
-        {!item.isMe && (
-          <View style={[styles.msgAvatar, showAvatar ? { backgroundColor: avatarColor } : styles.msgAvatarHidden]}>
-            {showAvatar && <Text style={styles.msgAvatarText}>{tenantInitials.slice(0, 1)}</Text>}
-          </View>
-        )}
+      <View>
+        <View style={[styles.msgRow, item.isMe ? styles.msgRowMe : styles.msgRowThem]}>
+          {/* Tenant avatar placeholder */}
+          {!item.isMe && (
+            <View style={[styles.msgAvatar, showAvatar ? { backgroundColor: avatarColor } : styles.msgAvatarHidden]}>
+              {showAvatar && <Text style={styles.msgAvatarText}>{tenantInitials.slice(0, 1)}</Text>}
+            </View>
+          )}
 
-        <View style={styles.msgContent}>
-          <View style={[styles.bubble, item.isMe ? styles.bubbleMe : styles.bubbleThem]}>
-            <Text style={[styles.bubbleText, item.isMe ? styles.bubbleTextMe : styles.bubbleTextThem]}>
-              {item.text}
-            </Text>
-          </View>
-          <View style={[styles.msgMeta, item.isMe ? styles.msgMetaMe : styles.msgMetaThem]}>
-            <Text style={styles.msgTime}>{item.time}</Text>
-            {item.isMe && item.status && (
-              <Ionicons
-                name={item.status === 'read' ? 'checkmark-done' : 'checkmark'}
-                size={13}
-                color={item.status === 'read' ? theme.colors.primary : theme.colors.textTertiary}
-                style={{ marginLeft: 4 }}
-              />
-            )}
+          <View style={styles.msgContent}>
+            <View style={[styles.bubble, item.isMe ? styles.bubbleMe : styles.bubbleThem]}>
+              <Text style={[styles.bubbleText, item.isMe ? styles.bubbleTextMe : styles.bubbleTextThem]}>
+                {item.text}
+              </Text>
+            </View>
+            <View style={[styles.msgMeta, item.isMe ? styles.msgMetaMe : styles.msgMetaThem]}>
+              <Text style={styles.msgTime}>{item.time}</Text>
+              {item.isMe && item.status && (
+                <Ionicons
+                  name={item.status === 'read' ? 'checkmark-done' : 'checkmark'}
+                  size={13}
+                  color={item.status === 'read' ? theme.colors.primary : theme.colors.textTertiary}
+                  style={{ marginLeft: 4 }}
+                />
+              )}
+            </View>
           </View>
         </View>
+
+        {showSuggestion && (
+          <View style={styles.suggestionBanner}>
+            <View style={styles.suggestionHeader}>
+              <View style={styles.suggestionIconWrap}>
+                <Ionicons name="sparkles" size={13} color={theme.colors.primary} />
+              </View>
+              <Text style={styles.suggestionLabel}>Domely IA</Text>
+              <Text style={styles.suggestionProblem}> · {extractProblem(item.text)} détecté</Text>
+            </View>
+            <Text style={styles.suggestionBody}>
+              Ce message semble signaler un problème de maintenance. Voulez-vous créer un ticket?
+            </Text>
+            <View style={styles.suggestionActions}>
+              <TouchableOpacity
+                style={styles.suggestionBtnPrimary}
+                onPress={() => router.push('/(tabs)/maintenance')}
+              >
+                <Ionicons name="construct-outline" size={13} color="#FFF" />
+                <Text style={styles.suggestionBtnPrimaryText}>Ouvrir ticket</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.suggestionBtnIgnore}
+                onPress={() => setDismissedSuggestions(prev => new Set([...prev, item.id]))}
+              >
+                <Text style={styles.suggestionBtnIgnoreText}>Ignorer</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
       </View>
     );
   };
@@ -346,4 +420,41 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   sendBtnDisabled: { backgroundColor: theme.colors.borderLight },
+
+  // AI Maintenance suggestion banner
+  suggestionBanner: {
+    marginHorizontal: theme.spacing.md,
+    marginBottom: 10,
+    marginTop: 2,
+    backgroundColor: theme.colors.primaryLight,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.primary + '30',
+  },
+  suggestionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
+  suggestionIconWrap: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: theme.colors.primary + '20',
+    alignItems: 'center', justifyContent: 'center',
+    marginRight: 6,
+  },
+  suggestionLabel: { fontSize: 12, fontWeight: '700', color: theme.colors.primary },
+  suggestionProblem: { fontSize: 12, fontWeight: '500', color: theme.colors.primary },
+  suggestionBody: { fontSize: 12, color: theme.colors.textSecondary, lineHeight: 17, marginBottom: 10 },
+  suggestionActions: { flexDirection: 'row', gap: 8 },
+  suggestionBtnPrimary: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: theme.colors.primary,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 8,
+  },
+  suggestionBtnPrimaryText: { fontSize: 12, fontWeight: '700', color: '#FFF' },
+  suggestionBtnIgnore: {
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    borderWidth: 1, borderColor: theme.colors.border,
+  },
+  suggestionBtnIgnoreText: { fontSize: 12, fontWeight: '500', color: theme.colors.textSecondary },
 });

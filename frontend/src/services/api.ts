@@ -15,8 +15,12 @@ import {
   HealthScoreResponse,
   UnitTimeline,
 } from '../types';
+import { useAuthStore } from '../store/authStore';
 
 const BASE_URL = process.env.EXPO_PUBLIC_BACKEND_URL || '';
+if (!process.env.EXPO_PUBLIC_BACKEND_URL) {
+  console.warn('[Domely] EXPO_PUBLIC_BACKEND_URL is not set. API calls will fail.');
+}
 
 class ApiService {
   private client: AxiosInstance;
@@ -41,10 +45,10 @@ class ApiService {
     // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
-      (error: AxiosError) => {
+      async (error: AxiosError) => {
         if (error.response?.status === 401) {
-          // Handle unauthorized - could trigger logout
-          console.log('Unauthorized request');
+          // Token expired or invalid — trigger full logout (clears store + AsyncStorage)
+          await useAuthStore.getState().logout();
         }
         return Promise.reject(error);
       }
@@ -184,6 +188,21 @@ class ApiService {
     await this.client.delete(`/tenants/${id}`);
   }
 
+  async getTenantPayments(tenantId: string): Promise<any[]> {
+    const response = await this.client.get(`/tenants/${tenantId}/payments`);
+    return response.data;
+  }
+
+  async getTenantMaintenance(tenantId: string): Promise<any[]> {
+    const response = await this.client.get(`/tenants/${tenantId}/maintenance`);
+    return response.data;
+  }
+
+  async getTenantDocuments(tenantId: string): Promise<any[]> {
+    const response = await this.client.get(`/tenants/${tenantId}/documents`);
+    return response.data;
+  }
+
   // Leases
   async getLeases(activeOnly: boolean = true): Promise<LeaseWithDetails[]> {
     const response = await this.client.get('/leases', { params: { active_only: activeOnly } });
@@ -271,6 +290,7 @@ class ApiService {
     description: string;
     priority?: string;
     reported_by?: string;
+    photos?: string[];
   }): Promise<MaintenanceRequestWithDetails> {
     const response = await this.client.post('/maintenance', data);
     return response.data;
@@ -395,11 +415,268 @@ class ApiService {
     return response.data;
   }
 
+  // AI Chat
+  async aiChat(messages: { role: 'user' | 'assistant'; content: string }[], context?: string): Promise<{ response: string }> {
+    const response = await this.client.post('/ai/chat', { messages, context });
+    return response.data;
+  }
+
+  // Messaging
+  async getConversations(): Promise<any[]> {
+    const response = await this.client.get('/messages/conversations');
+    return response.data;
+  }
+
+  async getMessages(tenantId: string): Promise<any[]> {
+    const response = await this.client.get(`/messages/${tenantId}`);
+    return response.data;
+  }
+
+  async sendMessage(tenantId: string, content: string, senderType: 'landlord' | 'tenant' = 'landlord'): Promise<any> {
+    const response = await this.client.post('/messages', {
+      tenant_id: tenantId,
+      content,
+      sender_type: senderType,
+    });
+    return response.data;
+  }
+
+  async markMessagesRead(tenantId: string): Promise<void> {
+    await this.client.put(`/messages/${tenantId}/read`);
+  }
+
+  async getAutomations(): Promise<{ automation_id: string; is_enabled: boolean; delay_days?: number }[]> {
+    const response = await this.client.get('/automations');
+    return response.data;
+  }
+
+  async saveAutomations(settings: { automation_id: string; is_enabled: boolean; delay_days?: number | null }[]): Promise<void> {
+    await this.client.put('/automations', { settings });
+  }
+
+  async getNotifications(): Promise<any[]> {
+    const response = await this.client.get('/notifications');
+    return response.data;
+  }
+
+  async markNotificationRead(notificationId: string): Promise<void> {
+    await this.client.post('/notifications/read-one', { notification_id: notificationId });
+  }
+
+  async markAllNotificationsRead(ids: string[]): Promise<void> {
+    await this.client.post('/notifications/read-all', { ids });
+  }
+
+  async getNotificationPrefs(): Promise<Record<string, boolean>> {
+    const response = await this.client.get('/notification-prefs');
+    return response.data;
+  }
+
+  async saveNotificationPrefs(prefs: Record<string, boolean>): Promise<void> {
+    await this.client.put('/notification-prefs', prefs);
+  }
+
+  async getVacantUnits(): Promise<any[]> {
+    const response = await this.client.get('/vacant-units');
+    return response.data;
+  }
+
+  async toggleListing(unitId: string): Promise<{ listing_active: boolean }> {
+    const response = await this.client.post(`/units/${unitId}/toggle-listing`);
+    return response.data;
+  }
+
+  async getApplicants(unitId: string): Promise<any[]> {
+    const response = await this.client.get('/applicants', { params: { unit_id: unitId } });
+    return response.data;
+  }
+
+  async addApplicant(data: { unit_id: string; name: string; email?: string; phone: string; income?: string; message?: string }): Promise<any> {
+    const response = await this.client.post('/applicants', data);
+    return response.data;
+  }
+
+  async updateApplicantStatus(id: string, status: string): Promise<void> {
+    await this.client.put(`/applicants/${id}`, { status });
+  }
+
+  async deleteApplicant(id: string): Promise<void> {
+    await this.client.delete(`/applicants/${id}`);
+  }
+
+  async getContractors(): Promise<any[]> {
+    const response = await this.client.get('/contractors');
+    return response.data;
+  }
+
+  async createContractor(data: any): Promise<any> {
+    const response = await this.client.post('/contractors', data);
+    return response.data;
+  }
+
+  async updateContractor(id: string, data: any): Promise<void> {
+    await this.client.put(`/contractors/${id}`, data);
+  }
+
+  async deleteContractor(id: string): Promise<void> {
+    await this.client.delete(`/contractors/${id}`);
+  }
+
+  async getTeam(): Promise<any[]> {
+    const response = await this.client.get('/team');
+    return response.data;
+  }
+
+  async addTeamMember(data: any): Promise<any> {
+    const response = await this.client.post('/team', data);
+    return response.data;
+  }
+
+  async updateTeamMember(id: string, data: any): Promise<void> {
+    await this.client.put(`/team/${id}`, data);
+  }
+
+  async deleteTeamMember(id: string): Promise<void> {
+    await this.client.delete(`/team/${id}`);
+  }
+
   // Demo data
   async seedDemoData(): Promise<{ message: string; seeded: boolean; data?: any }> {
     const response = await this.client.post('/seed-demo-data');
     return response.data;
   }
+
+  // Mortgages
+  async getMortgages(): Promise<any[]> {
+    const response = await this.client.get('/mortgages');
+    return response.data;
+  }
+  async createMortgage(data: any): Promise<any> {
+    const response = await this.client.post('/mortgages', data);
+    return response.data;
+  }
+  async updateMortgage(id: string, data: any): Promise<void> {
+    await this.client.put(`/mortgages/${id}`, data);
+  }
+  async deleteMortgage(id: string): Promise<void> {
+    await this.client.delete(`/mortgages/${id}`);
+  }
+
+  // Insurance
+  async getInsurance(): Promise<any[]> {
+    const response = await this.client.get('/insurance');
+    return response.data;
+  }
+  async createInsurance(data: any): Promise<any> {
+    const response = await this.client.post('/insurance', data);
+    return response.data;
+  }
+  async updateInsurance(id: string, data: any): Promise<void> {
+    await this.client.put(`/insurance/${id}`, data);
+  }
+  async deleteInsurance(id: string): Promise<void> {
+    await this.client.delete(`/insurance/${id}`);
+  }
+
+  // Inspections
+  async getInspections(): Promise<any[]> {
+    const response = await this.client.get('/inspections');
+    return response.data;
+  }
+  async createInspection(data: any): Promise<any> {
+    const response = await this.client.post('/inspections', data);
+    return response.data;
+  }
+  async deleteInspection(id: string): Promise<void> {
+    await this.client.delete(`/inspections/${id}`);
+  }
+
+  // Units summary (market-rent comparison)
+  async getUnitsSummary(): Promise<any[]> {
+    const response = await this.client.get('/units-summary');
+    return response.data;
+  }
+
+  // All applicants (pipeline view)
+  async getAllApplicants(): Promise<any[]> {
+    const response = await this.client.get('/applicants');
+    return response.data;
+  }
+  async updateApplicantStatus(id: string, status: string): Promise<void> {
+    await this.client.put(`/applicants/${id}`, { status });
+  }
+  async deleteApplicant(id: string): Promise<void> {
+    await this.client.delete(`/applicants/${id}`);
+  }
+
+  async registerPushToken(token: string): Promise<void> {
+    await this.client.post('/push-token', { token });
+  }
 }
 
 export const api = new ApiService();
+
+// ─── Tenant Portal API (separate token management) ────────────────────────────
+
+const TENANT_TOKEN_KEY = 'tenant_token';
+
+function tenantClient(token: string) {
+  return axios.create({
+    baseURL: `${BASE_URL}/api`,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    timeout: 15000,
+  });
+}
+
+export const tenantApi = {
+  /** Request OTP — no auth needed */
+  async requestCode(email: string): Promise<{ ok: boolean; dev_code?: string; message?: string }> {
+    const res = await axios.post(`${BASE_URL}/api/auth/tenant/request-code`, { email });
+    return res.data;
+  },
+
+  /** Verify OTP — returns token + profile */
+  async verifyCode(email: string, code: string): Promise<{ access_token: string; profile: any }> {
+    const res = await axios.post(`${BASE_URL}/api/auth/tenant/verify-code`, { email, code });
+    await AsyncStorage.setItem(TENANT_TOKEN_KEY, res.data.access_token);
+    return res.data;
+  },
+
+  async getStoredToken(): Promise<string | null> {
+    return AsyncStorage.getItem(TENANT_TOKEN_KEY);
+  },
+
+  async logout() {
+    await AsyncStorage.removeItem(TENANT_TOKEN_KEY);
+  },
+
+  async getProfile(token: string): Promise<any> {
+    const res = await tenantClient(token).get('/tenant/profile');
+    return res.data;
+  },
+
+  async getPayments(token: string): Promise<any[]> {
+    const res = await tenantClient(token).get('/tenant/payments');
+    return res.data;
+  },
+
+  async getMaintenance(token: string): Promise<any[]> {
+    const res = await tenantClient(token).get('/tenant/maintenance');
+    return res.data;
+  },
+
+  async submitMaintenance(token: string, data: { title: string; description?: string; category: string; urgency: string }): Promise<any> {
+    const res = await tenantClient(token).post('/tenant/maintenance', data);
+    return res.data;
+  },
+
+  async getMessages(token: string): Promise<any[]> {
+    const res = await tenantClient(token).get('/tenant/messages');
+    return res.data;
+  },
+
+  async sendMessage(token: string, content: string): Promise<any> {
+    const res = await tenantClient(token).post('/tenant/messages', { content });
+    return res.data;
+  },
+};

@@ -1,49 +1,38 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, Modal, KeyboardAvoidingView, Platform,
-  ActivityIndicator,
+  ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, router } from 'expo-router';
-import { useFocusEffect } from 'expo-router';
+import { useLocalSearchParams, router, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Card, theme } from '../src/components';
 import { api } from '../src/services/api';
-import { formatCurrency, formatDate } from '../src/utils/format';
+import { formatCurrency } from '../src/utils/format';
 
 type Tab = 'messages' | 'maintenance' | 'payments' | 'documents';
 
 const TABS: { key: Tab; icon: string; label: string }[] = [
-  { key: 'messages', icon: 'chatbubble-outline', label: 'Messages' },
-  { key: 'maintenance', icon: 'construct-outline', label: 'Travaux' },
-  { key: 'payments', icon: 'card-outline', label: 'Paiements' },
-  { key: 'documents', icon: 'folder-outline', label: 'Documents' },
+  { key: 'messages',    icon: 'chatbubble-outline',  label: 'Messages' },
+  { key: 'maintenance', icon: 'construct-outline',   label: 'Travaux' },
+  { key: 'payments',    icon: 'card-outline',        label: 'Paiements' },
+  { key: 'documents',   icon: 'folder-outline',      label: 'Documents' },
 ];
 
-const MOCK_MESSAGES = [
-  { id: '1', from: 'landlord', text: 'Bonjour, votre bail est renouvelé jusqu\'au 30 juin 2026.', date: '2026-02-15T10:00:00', read: true },
-  { id: '2', from: 'tenant', text: 'Merci! Est-ce que je peux obtenir une copie signée?', date: '2026-02-15T10:45:00', read: true },
-  { id: '3', from: 'landlord', text: 'Bien sûr, je vous l\'envoie dans les documents.', date: '2026-02-15T11:00:00', read: true },
-  { id: '4', from: 'tenant', text: 'Le robinet de la cuisine coule depuis hier soir.', date: '2026-03-09T08:30:00', read: false },
-];
+const DOC_COLORS: Record<string, string> = {
+  lease:   '#2563EB',
+  receipt: '#10B981',
+  notice:  '#F59E0B',
+  releve31:'#8B5CF6',
+};
 
-const MOCK_PAYMENTS = [
-  { id: '1', month: 'Mars 2026', amount: 1250, status: 'paid', date: '2026-03-01', method: 'Virement' },
-  { id: '2', month: 'Février 2026', amount: 1250, status: 'paid', date: '2026-02-01', method: 'Virement' },
-  { id: '3', month: 'Janvier 2026', amount: 1250, status: 'paid', date: '2026-01-02', method: 'Carte débit' },
-  { id: '4', month: 'Décembre 2025', amount: 1250, status: 'paid', date: '2025-12-01', method: 'Virement' },
-];
-
-const MOCK_DOCS = [
-  { id: '1', name: 'Bail — Logement 2', type: 'lease', date: '2025-07-01', icon: 'document-text-outline', color: theme.colors.primary },
-  { id: '2', name: 'Relevé 31 — 2025', type: 'releve31', date: '2026-02-28', icon: 'receipt-outline', color: '#8B5CF6' },
-  { id: '3', name: 'Reçu — Janvier 2026', type: 'receipt', date: '2026-01-02', icon: 'checkmark-circle-outline', color: theme.colors.success },
-  { id: '4', name: 'Reçu — Février 2026', type: 'receipt', date: '2026-02-01', icon: 'checkmark-circle-outline', color: theme.colors.success },
-  { id: '5', name: 'Reçu — Mars 2026', type: 'receipt', date: '2026-03-01', icon: 'checkmark-circle-outline', color: theme.colors.success },
-  { id: '6', name: 'Avis de renouvellement', type: 'notice', date: '2026-01-15', icon: 'mail-outline', color: theme.colors.warning },
-];
+const STATUS_LABELS: Record<string, { label: string; color: string }> = {
+  open:       { label: 'Ouvert',    color: theme.colors.warning },
+  in_progress:{ label: 'En cours',  color: theme.colors.info    },
+  closed:     { label: 'Terminé',   color: theme.colors.success },
+};
 
 export default function TenantPortalScreen() {
   const { tenantId, tenantName, unitNumber, rent } = useLocalSearchParams<{
@@ -51,30 +40,106 @@ export default function TenantPortalScreen() {
   }>();
 
   const [activeTab, setActiveTab] = useState<Tab>('messages');
-  const [messages, setMessages] = useState(MOCK_MESSAGES);
-  const [newMessage, setNewMessage] = useState('');
-  const [showPayModal, setShowPayModal] = useState(false);
-  const [processingPayment, setProcessingPayment] = useState(false);
-  const [paymentSuccess, setPaymentSuccess] = useState(false);
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCVV, setCardCVV] = useState('');
-  const [cardName, setCardName] = useState('');
+
+  // Messages state
+  const [messages, setMessages]       = useState<any[]>([]);
+  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [refreshMessages, setRefreshMessages] = useState(false);
+  const [newMessage, setNewMessage]   = useState('');
+
+  // Payments state
+  const [payments, setPayments]       = useState<any[]>([]);
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [paymentsLoaded, setPaymentsLoaded]   = useState(false);
+
+  // Maintenance state
+  const [tickets, setTickets]         = useState<any[]>([]);
+  const [loadingTickets, setLoadingTickets]   = useState(false);
+  const [ticketsLoaded, setTicketsLoaded]     = useState(false);
   const [showMaintenanceModal, setShowMaintenanceModal] = useState(false);
   const [maintenanceForm, setMaintenanceForm] = useState({ title: '', description: '', hasPhoto: false });
 
-  const unreadCount = messages.filter(m => !m.read && m.from === 'tenant').length;
+  // Documents state
+  const [documents, setDocuments]     = useState<any[]>([]);
+  const [loadingDocs, setLoadingDocs] = useState(false);
+  const [docsLoaded, setDocsLoaded]   = useState(false);
 
-  const sendMessage = () => {
-    if (!newMessage.trim()) return;
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      from: 'landlord',
-      text: newMessage.trim(),
-      date: new Date().toISOString(),
-      read: true,
-    }]);
+  // Stripe payment mock
+  const [showPayModal, setShowPayModal]       = useState(false);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess]   = useState(false);
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCVV, setCardCVV]       = useState('');
+  const [cardName, setCardName]     = useState('');
+
+  const unreadCount = messages.filter(m => !m.read && m.from !== 'landlord').length;
+
+  // Load messages on focus
+  useFocusEffect(useCallback(() => {
+    loadMessages();
+  }, []));
+
+  // Lazy-load tab data on first open
+  useEffect(() => {
+    if (activeTab === 'payments' && !paymentsLoaded) loadPayments();
+    if (activeTab === 'maintenance' && !ticketsLoaded) loadTickets();
+    if (activeTab === 'documents' && !docsLoaded) loadDocs();
+  }, [activeTab]);
+
+  const loadMessages = async (isRefresh = false) => {
+    if (!tenantId) return;
+    if (isRefresh) setRefreshMessages(true);
+    else setLoadingMessages(true);
+    try {
+      const data = await api.getMessages(tenantId);
+      setMessages(data);
+    } catch { /* keep empty */ }
+    finally { setLoadingMessages(false); setRefreshMessages(false); }
+  };
+
+  const loadPayments = async () => {
+    if (!tenantId) return;
+    setLoadingPayments(true);
+    try {
+      const data = await api.getTenantPayments(tenantId);
+      setPayments(data);
+      setPaymentsLoaded(true);
+    } catch { setPayments([]); }
+    finally { setLoadingPayments(false); }
+  };
+
+  const loadTickets = async () => {
+    if (!tenantId) return;
+    setLoadingTickets(true);
+    try {
+      const data = await api.getTenantMaintenance(tenantId);
+      setTickets(data);
+      setTicketsLoaded(true);
+    } catch { setTickets([]); }
+    finally { setLoadingTickets(false); }
+  };
+
+  const loadDocs = async () => {
+    if (!tenantId) return;
+    setLoadingDocs(true);
+    try {
+      const data = await api.getTenantDocuments(tenantId);
+      setDocuments(data);
+      setDocsLoaded(true);
+    } catch { setDocuments([]); }
+    finally { setLoadingDocs(false); }
+  };
+
+  const sendMessage = async () => {
+    const text = newMessage.trim();
+    if (!text || !tenantId) return;
+    const optimistic = { id: Date.now().toString(), from: 'landlord', text, date: new Date().toISOString(), read: true };
+    setMessages(prev => [...prev, optimistic]);
     setNewMessage('');
+    try {
+      await api.sendMessage(tenantId, text, 'landlord');
+    } catch { /* best effort */ }
   };
 
   const handleAddPhoto = async () => {
@@ -84,7 +149,7 @@ export default function TenantPortalScreen() {
 
   const submitMaintenance = () => {
     if (!maintenanceForm.title.trim()) { Alert.alert('Erreur', 'Veuillez décrire le problème.'); return; }
-    Alert.alert('Demande envoyée', 'Le propriétaire a été notifié de votre demande d\'entretien.');
+    Alert.alert('Demande envoyée', 'Le propriétaire a été notifié.');
     setShowMaintenanceModal(false);
     setMaintenanceForm({ title: '', description: '', hasPhoto: false });
   };
@@ -95,48 +160,52 @@ export default function TenantPortalScreen() {
     setShowPayModal(true);
   };
 
-  const formatCardNumber = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 16);
-    return digits.replace(/(.{4})/g, '$1 ').trim();
-  };
-
-  const formatExpiry = (value: string) => {
-    const digits = value.replace(/\D/g, '').slice(0, 4);
-    if (digits.length >= 3) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-    return digits;
-  };
+  const formatCardNumber = (v: string) => v.replace(/\D/g, '').slice(0, 16).replace(/(.{4})/g, '$1 ').trim();
+  const formatExpiry = (v: string) => { const d = v.replace(/\D/g, '').slice(0, 4); return d.length >= 3 ? `${d.slice(0,2)}/${d.slice(2)}` : d; };
 
   const submitPayment = async () => {
-    if (!cardName.trim() || cardNumber.replace(/\s/g, '').length < 16 || cardExpiry.length < 5 || cardCVV.length < 3) {
-      Alert.alert('Informations manquantes', 'Veuillez remplir tous les champs de carte.');
+    if (!cardName.trim() || cardNumber.replace(/\s/g,'').length < 16 || cardExpiry.length < 5 || cardCVV.length < 3) {
+      Alert.alert('Informations manquantes', 'Veuillez remplir tous les champs.');
       return;
     }
     setProcessingPayment(true);
-    // Simulate Stripe processing delay
     await new Promise(r => setTimeout(r, 2200));
     setProcessingPayment(false);
     setPaymentSuccess(true);
   };
 
+  // ── Renders ────────────────────────────────────────────────────────────────
+
   const renderMessages = () => (
     <View style={{ flex: 1 }}>
-      <ScrollView style={styles.messageList} contentContainerStyle={{ padding: theme.spacing.md, gap: 10 }}>
-        {messages.map(msg => (
-          <View key={msg.id} style={[styles.messageBubbleWrap, msg.from === 'landlord' ? styles.bubbleRight : styles.bubbleLeft]}>
-            {msg.from === 'tenant' && (
-              <View style={styles.avatarCircle}>
-                <Text style={styles.avatarText}>{tenantName?.[0] ?? 'T'}</Text>
+      {loadingMessages ? (
+        <View style={styles.centerLoader}><ActivityIndicator color={theme.colors.primary} /></View>
+      ) : (
+        <ScrollView
+          style={styles.messageList}
+          contentContainerStyle={{ padding: theme.spacing.md, gap: 10 }}
+          refreshControl={<RefreshControl refreshing={refreshMessages} onRefresh={() => loadMessages(true)} tintColor={theme.colors.primary} />}
+        >
+          {messages.length === 0 && (
+            <Text style={styles.emptyText}>Aucun message — envoyez le premier !</Text>
+          )}
+          {messages.map(msg => (
+            <View key={msg.id} style={[styles.messageBubbleWrap, msg.from === 'landlord' ? styles.bubbleRight : styles.bubbleLeft]}>
+              {msg.from !== 'landlord' && (
+                <View style={styles.avatarCircle}>
+                  <Text style={styles.avatarText}>{tenantName?.[0] ?? 'T'}</Text>
+                </View>
+              )}
+              <View style={[styles.bubble, msg.from === 'landlord' ? styles.bubbleLandlord : styles.bubbleTenant]}>
+                <Text style={[styles.bubbleText, msg.from === 'landlord' && { color: '#fff' }]}>{msg.text || msg.content}</Text>
+                <Text style={[styles.bubbleTime, msg.from === 'landlord' && { color: 'rgba(255,255,255,0.7)' }]}>
+                  {new Date(msg.date || msg.created_at || Date.now()).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })}
+                </Text>
               </View>
-            )}
-            <View style={[styles.bubble, msg.from === 'landlord' ? styles.bubbleLandlord : styles.bubbleTenant]}>
-              <Text style={[styles.bubbleText, msg.from === 'landlord' && { color: '#fff' }]}>{msg.text}</Text>
-              <Text style={[styles.bubbleTime, msg.from === 'landlord' && { color: 'rgba(255,255,255,0.7)' }]}>
-                {new Date(msg.date).toLocaleTimeString('fr-CA', { hour: '2-digit', minute: '2-digit' })}
-              </Text>
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      )}
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.messageInputRow}>
           <TextInput
@@ -155,52 +224,84 @@ export default function TenantPortalScreen() {
     </View>
   );
 
-  const renderMaintenance = () => (
-    <ScrollView contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.md }}>
-      <TouchableOpacity style={styles.newRequestBtn} onPress={() => setShowMaintenanceModal(true)}>
-        <Ionicons name="add-circle-outline" size={20} color={theme.colors.primary} />
-        <Text style={styles.newRequestText}>Nouvelle demande d'entretien</Text>
-      </TouchableOpacity>
+  const renderMaintenance = () => {
+    const open   = tickets.filter(t => t.status === 'open' || t.status === 'in_progress');
+    const closed = tickets.filter(t => t.status === 'closed');
+    return (
+      <ScrollView contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.md }}
+        refreshControl={<RefreshControl refreshing={loadingTickets && ticketsLoaded} onRefresh={loadTickets} tintColor={theme.colors.primary} />}
+      >
+        <TouchableOpacity style={styles.newRequestBtn} onPress={() => setShowMaintenanceModal(true)}>
+          <Ionicons name="add-circle-outline" size={20} color={theme.colors.primary} />
+          <Text style={styles.newRequestText}>Nouvelle demande d'entretien</Text>
+        </TouchableOpacity>
 
-      <Text style={styles.sectionTitle}>Demandes en cours</Text>
-      <Card style={styles.maintenanceCard}>
-        <View style={styles.maintenanceRow}>
-          <View style={[styles.priorityDot, { backgroundColor: theme.colors.error }]} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.maintenanceTitle}>Robinet qui coule — cuisine</Text>
-            <Text style={styles.maintenanceMeta}>Signalé le 9 mars 2026 · En attente</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: theme.colors.warning + '20' }]}>
-            <Text style={[styles.statusBadgeText, { color: theme.colors.warning }]}>Ouvert</Text>
-          </View>
-        </View>
-      </Card>
+        {loadingTickets ? (
+          <View style={styles.centerLoader}><ActivityIndicator color={theme.colors.primary} /></View>
+        ) : (
+          <>
+            <Text style={styles.sectionTitle}>En cours ({open.length})</Text>
+            {open.length === 0 ? (
+              <Card><Text style={styles.emptyText}>Aucune demande ouverte</Text></Card>
+            ) : open.map(t => {
+              const s = STATUS_LABELS[t.status] ?? { label: t.status, color: theme.colors.textSecondary };
+              return (
+                <Card key={t.id} style={styles.maintenanceCard}>
+                  <View style={styles.maintenanceRow}>
+                    <View style={[styles.priorityDot, { backgroundColor: t.urgency === 'urgent' ? theme.colors.error : theme.colors.warning }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.maintenanceTitle}>{t.title}</Text>
+                      <Text style={styles.maintenanceMeta}>
+                        {t.created_at ? `Signalé le ${t.created_at.slice(0,10)}` : ''}{t.category ? ` · ${t.category}` : ''}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: s.color + '20' }]}>
+                      <Text style={[styles.statusBadgeText, { color: s.color }]}>{s.label}</Text>
+                    </View>
+                  </View>
+                </Card>
+              );
+            })}
 
-      <Text style={styles.sectionTitle}>Historique</Text>
-      <Card style={styles.maintenanceCard}>
-        <View style={styles.maintenanceRow}>
-          <View style={[styles.priorityDot, { backgroundColor: theme.colors.success }]} />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.maintenanceTitle}>Remplacement serrure — porte entrée</Text>
-            <Text style={styles.maintenanceMeta}>Résolu le 15 jan. 2026 · 3 jours</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: theme.colors.success + '20' }]}>
-            <Text style={[styles.statusBadgeText, { color: theme.colors.success }]}>Terminé</Text>
-          </View>
-        </View>
-      </Card>
-    </ScrollView>
-  );
+            {closed.length > 0 && (
+              <>
+                <Text style={styles.sectionTitle}>Historique ({closed.length})</Text>
+                {closed.slice(0, 5).map(t => (
+                  <Card key={t.id} style={styles.maintenanceCard}>
+                    <View style={styles.maintenanceRow}>
+                      <View style={[styles.priorityDot, { backgroundColor: theme.colors.success }]} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.maintenanceTitle}>{t.title}</Text>
+                        <Text style={styles.maintenanceMeta}>
+                          {t.updated_at ? `Résolu le ${t.updated_at.slice(0,10)}` : 'Résolu'}
+                        </Text>
+                      </View>
+                      <View style={[styles.statusBadge, { backgroundColor: theme.colors.success + '20' }]}>
+                        <Text style={[styles.statusBadgeText, { color: theme.colors.success }]}>Terminé</Text>
+                      </View>
+                    </View>
+                  </Card>
+                ))}
+              </>
+            )}
+          </>
+        )}
+      </ScrollView>
+    );
+  };
 
   const renderPayments = () => (
-    <ScrollView contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.md }}>
+    <ScrollView
+      contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.md }}
+      refreshControl={<RefreshControl refreshing={loadingPayments && paymentsLoaded} onRefresh={loadPayments} tintColor={theme.colors.primary} />}
+    >
       {/* Pay now card */}
       <Card style={styles.payNowCard}>
         <View style={styles.payNowTop}>
           <View>
-            <Text style={styles.payNowLabel}>Loyer — Avril 2026</Text>
+            <Text style={styles.payNowLabel}>Loyer du mois</Text>
             <Text style={styles.payNowAmount}>{formatCurrency(parseFloat(rent || '0'))}</Text>
-            <Text style={styles.payNowDue}>Dû le 1er avril 2026</Text>
+            <Text style={styles.payNowDue}>Dû le 1er du mois</Text>
           </View>
           <View style={[styles.statusBadge, { backgroundColor: theme.colors.warning + '20' }]}>
             <Text style={[styles.statusBadgeText, { color: theme.colors.warning }]}>À venir</Text>
@@ -213,31 +314,41 @@ export default function TenantPortalScreen() {
       </Card>
 
       <Text style={styles.sectionTitle}>Historique des paiements</Text>
-      {MOCK_PAYMENTS.map(p => (
-        <Card key={p.id} style={styles.paymentCard}>
-          <View style={styles.paymentRow}>
-            <View style={[styles.paymentIcon, { backgroundColor: theme.colors.success + '20' }]}>
-              <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+      {loadingPayments ? (
+        <View style={styles.centerLoader}><ActivityIndicator color={theme.colors.primary} /></View>
+      ) : payments.length === 0 ? (
+        <Card><Text style={styles.emptyText}>Aucun paiement enregistré</Text></Card>
+      ) : (
+        payments.map(p => (
+          <Card key={p.id} style={styles.paymentCard}>
+            <View style={styles.paymentRow}>
+              <View style={[styles.paymentIcon, { backgroundColor: theme.colors.success + '20' }]}>
+                <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.paymentMonth}>{p.month_year || p.month || '—'}</Text>
+                <Text style={styles.paymentMethod}>{p.payment_method || p.method || 'Virement'} · {(p.paid_date || p.date || '').slice(0, 10)}</Text>
+              </View>
+              <Text style={styles.paymentAmount}>{formatCurrency(p.amount || p.rent_amount || 0)}</Text>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.paymentMonth}>{p.month}</Text>
-              <Text style={styles.paymentMethod}>{p.method} · {p.date}</Text>
-            </View>
-            <Text style={styles.paymentAmount}>{formatCurrency(p.amount)}</Text>
-          </View>
-        </Card>
-      ))}
+          </Card>
+        ))
+      )}
     </ScrollView>
   );
 
   const renderDocuments = () => (
-    <ScrollView contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.sm }}>
+    <ScrollView
+      contentContainerStyle={{ padding: theme.spacing.md, gap: theme.spacing.sm }}
+      refreshControl={<RefreshControl refreshing={loadingDocs && docsLoaded} onRefresh={loadDocs} tintColor={theme.colors.primary} />}
+    >
+      {/* Relevé 31 banner — always shown */}
       <Card style={styles.releve31Banner}>
         <View style={styles.releve31Row}>
           <Ionicons name="star" size={18} color="#8B5CF6" />
           <View style={{ flex: 1 }}>
-            <Text style={styles.releve31Title}>Relevé 31 — 2025 disponible</Text>
-            <Text style={styles.releve31Sub}>Requis pour votre déclaration de revenus</Text>
+            <Text style={styles.releve31Title}>Relevé 31 — {new Date().getFullYear() - 1} disponible</Text>
+            <Text style={styles.releve31Sub}>Requis pour la déclaration de revenus</Text>
           </View>
           <TouchableOpacity style={styles.downloadBtn} onPress={() => Alert.alert('Téléchargement', 'Relevé 31 téléchargé.')}>
             <Ionicons name="download-outline" size={18} color="#8B5CF6" />
@@ -245,28 +356,38 @@ export default function TenantPortalScreen() {
         </View>
       </Card>
 
-      {MOCK_DOCS.map(doc => (
-        <TouchableOpacity key={doc.id} onPress={() => Alert.alert('Document', `Ouverture de "${doc.name}"`)}>
-          <Card style={styles.docCard}>
-            <View style={styles.docRow}>
-              <View style={[styles.docIcon, { backgroundColor: doc.color + '20' }]}>
-                <Ionicons name={doc.icon as any} size={20} color={doc.color} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.docName}>{doc.name}</Text>
-                <Text style={styles.docDate}>{doc.date}</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
-            </View>
-          </Card>
-        </TouchableOpacity>
-      ))}
+      {loadingDocs ? (
+        <View style={styles.centerLoader}><ActivityIndicator color={theme.colors.primary} /></View>
+      ) : documents.length === 0 ? (
+        <Card><Text style={styles.emptyText}>Aucun document disponible</Text></Card>
+      ) : (
+        documents.map(doc => {
+          const color = DOC_COLORS[doc.type] ?? theme.colors.textSecondary;
+          return (
+            <TouchableOpacity key={doc.id} onPress={() => Alert.alert('Document', `Ouverture de "${doc.name}"`)}>
+              <Card style={styles.docCard}>
+                <View style={styles.docRow}>
+                  <View style={[styles.docIcon, { backgroundColor: color + '20' }]}>
+                    <Ionicons name={(doc.icon || 'document-outline') as any} size={20} color={color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.docName}>{doc.name}</Text>
+                    <Text style={styles.docDate}>{(doc.date || '').slice(0, 10)}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+                </View>
+              </Card>
+            </TouchableOpacity>
+          );
+        })
+      )}
     </ScrollView>
   );
 
+  // ── Main render ────────────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
@@ -282,26 +403,34 @@ export default function TenantPortalScreen() {
         )}
       </View>
 
-      {/* Tab bar */}
       <View style={styles.tabBar}>
         {TABS.map(tab => (
           <TouchableOpacity
             key={tab.key}
             style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-            onPress={() => setActiveTab(tab.key)}
+            onPress={() => {
+              setActiveTab(tab.key);
+              if (tab.key === 'messages') setMessages(prev => prev.map(m => ({ ...m, read: true })));
+            }}
           >
-            <Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? theme.colors.primary : theme.colors.textTertiary} />
+            <View style={{ position: 'relative' }}>
+              <Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? theme.colors.primary : theme.colors.textTertiary} />
+              {tab.key === 'messages' && unreadCount > 0 && (
+                <View style={styles.tabBadge}>
+                  <Text style={styles.tabBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                </View>
+              )}
+            </View>
             <Text style={[styles.tabLabel, activeTab === tab.key && styles.tabLabelActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
       </View>
 
-      {/* Content */}
       <View style={{ flex: 1 }}>
-        {activeTab === 'messages' && renderMessages()}
+        {activeTab === 'messages'    && renderMessages()}
         {activeTab === 'maintenance' && renderMaintenance()}
-        {activeTab === 'payments' && renderPayments()}
-        {activeTab === 'documents' && renderDocuments()}
+        {activeTab === 'payments'    && renderPayments()}
+        {activeTab === 'documents'   && renderDocuments()}
       </View>
 
       {/* Stripe Payment Modal */}
@@ -309,7 +438,6 @@ export default function TenantPortalScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             {paymentSuccess ? (
-              /* Success state */
               <View style={styles.paySuccessView}>
                 <View style={styles.paySuccessIcon}>
                   <Ionicons name="checkmark-circle" size={64} color={theme.colors.success} />
@@ -333,97 +461,48 @@ export default function TenantPortalScreen() {
                     <Ionicons name="close" size={24} color={theme.colors.textPrimary} />
                   </TouchableOpacity>
                 </View>
-
-                {/* Amount summary */}
                 <View style={styles.payAmountRow}>
-                  <Text style={styles.payAmountLabel}>Loyer — Avril 2026</Text>
+                  <Text style={styles.payAmountLabel}>Loyer du mois</Text>
                   <Text style={styles.payAmountValue}>{formatCurrency(parseFloat(rent || '0'))}</Text>
                 </View>
-
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  {/* Stripe badge */}
                   <View style={styles.stripeBadge}>
                     <Ionicons name="lock-closed" size={12} color={theme.colors.success} />
                     <Text style={styles.stripeBadgeText}>Paiement sécurisé par </Text>
                     <Text style={styles.stripeBadgeBrand}>stripe</Text>
                   </View>
-
-                  {/* Card visual */}
                   <View style={styles.cardPreview}>
-                    <View style={styles.cardChip}>
-                      <Ionicons name="hardware-chip-outline" size={22} color="#FFD700" />
-                    </View>
-                    <Text style={styles.cardPreviewNumber}>
-                      {cardNumber || '•••• •••• •••• ••••'}
-                    </Text>
+                    <View style={styles.cardChip}><Ionicons name="hardware-chip-outline" size={22} color="#FFD700" /></View>
+                    <Text style={styles.cardPreviewNumber}>{cardNumber || '•••• •••• •••• ••••'}</Text>
                     <View style={styles.cardPreviewBottom}>
                       <Text style={styles.cardPreviewName}>{cardName || 'NOM SUR LA CARTE'}</Text>
                       <Text style={styles.cardPreviewExpiry}>{cardExpiry || 'MM/AA'}</Text>
                     </View>
                   </View>
-
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>Nom sur la carte</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={cardName}
-                      onChangeText={setCardName}
-                      placeholder="Michael John"
-                      placeholderTextColor={theme.colors.textTertiary}
-                      autoCapitalize="words"
-                    />
+                    <TextInput style={styles.input} value={cardName} onChangeText={setCardName} placeholder="Michael John" placeholderTextColor={theme.colors.textTertiary} autoCapitalize="words" />
                   </View>
                   <View style={styles.formGroup}>
                     <Text style={styles.label}>Numéro de carte</Text>
                     <View style={styles.inputRow}>
-                      <TextInput
-                        style={[styles.input, { flex: 1 }]}
-                        value={cardNumber}
-                        onChangeText={v => setCardNumber(formatCardNumber(v))}
-                        placeholder="1234 5678 9012 3456"
-                        placeholderTextColor={theme.colors.textTertiary}
-                        keyboardType="number-pad"
-                        maxLength={19}
-                      />
-                      <View style={styles.cardBrandIcon}>
-                        <Ionicons name="card-outline" size={22} color={theme.colors.primary} />
-                      </View>
+                      <TextInput style={[styles.input, { flex: 1 }]} value={cardNumber} onChangeText={v => setCardNumber(formatCardNumber(v))} placeholder="1234 5678 9012 3456" placeholderTextColor={theme.colors.textTertiary} keyboardType="number-pad" maxLength={19} />
+                      <View style={styles.cardBrandIcon}><Ionicons name="card-outline" size={22} color={theme.colors.primary} /></View>
                     </View>
                   </View>
                   <View style={styles.cardFieldRow}>
                     <View style={[styles.formGroup, { flex: 1 }]}>
                       <Text style={styles.label}>Expiration</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={cardExpiry}
-                        onChangeText={v => setCardExpiry(formatExpiry(v))}
-                        placeholder="MM/AA"
-                        placeholderTextColor={theme.colors.textTertiary}
-                        keyboardType="number-pad"
-                        maxLength={5}
-                      />
+                      <TextInput style={styles.input} value={cardExpiry} onChangeText={v => setCardExpiry(formatExpiry(v))} placeholder="MM/AA" placeholderTextColor={theme.colors.textTertiary} keyboardType="number-pad" maxLength={5} />
                     </View>
                     <View style={[styles.formGroup, { flex: 1 }]}>
                       <Text style={styles.label}>CVV</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={cardCVV}
-                        onChangeText={v => setCardCVV(v.replace(/\D/g, '').slice(0, 4))}
-                        placeholder="123"
-                        placeholderTextColor={theme.colors.textTertiary}
-                        keyboardType="number-pad"
-                        secureTextEntry
-                        maxLength={4}
-                      />
+                      <TextInput style={styles.input} value={cardCVV} onChangeText={v => setCardCVV(v.replace(/\D/g,'').slice(0,4))} placeholder="123" placeholderTextColor={theme.colors.textTertiary} keyboardType="number-pad" secureTextEntry maxLength={4} />
                     </View>
                   </View>
-
                   <TouchableOpacity style={[styles.submitBtn, processingPayment && { opacity: 0.7 }]} onPress={submitPayment} disabled={processingPayment}>
                     {processingPayment ? (
-                      <View style={styles.processingRow}>
-                        <ActivityIndicator size="small" color="#fff" />
-                        <Text style={styles.submitBtnText}>Traitement en cours…</Text>
-                      </View>
+                      <View style={styles.processingRow}><ActivityIndicator size="small" color="#fff" /><Text style={styles.submitBtnText}>Traitement…</Text></View>
                     ) : (
                       <Text style={styles.submitBtnText}>Payer {formatCurrency(parseFloat(rent || '0'))}</Text>
                     )}
@@ -448,24 +527,11 @@ export default function TenantPortalScreen() {
             <ScrollView showsVerticalScrollIndicator={false}>
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Problème *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={maintenanceForm.title}
-                  onChangeText={t => setMaintenanceForm(f => ({ ...f, title: t }))}
-                  placeholder="Ex. : robinet qui coule"
-                  placeholderTextColor={theme.colors.textTertiary}
-                />
+                <TextInput style={styles.input} value={maintenanceForm.title} onChangeText={t => setMaintenanceForm(f => ({ ...f, title: t }))} placeholder="Ex. : robinet qui coule" placeholderTextColor={theme.colors.textTertiary} />
               </View>
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Description</Text>
-                <TextInput
-                  style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
-                  value={maintenanceForm.description}
-                  onChangeText={t => setMaintenanceForm(f => ({ ...f, description: t }))}
-                  placeholder="Décrivez le problème en détail..."
-                  placeholderTextColor={theme.colors.textTertiary}
-                  multiline
-                />
+                <TextInput style={[styles.input, { height: 80, textAlignVertical: 'top' }]} value={maintenanceForm.description} onChangeText={t => setMaintenanceForm(f => ({ ...f, description: t }))} placeholder="Décrivez le problème..." placeholderTextColor={theme.colors.textTertiary} multiline />
               </View>
               <TouchableOpacity style={styles.photoBtn} onPress={handleAddPhoto}>
                 <Ionicons name={maintenanceForm.hasPhoto ? 'checkmark-circle-outline' : 'camera-outline'} size={20} color={maintenanceForm.hasPhoto ? theme.colors.success : theme.colors.primary} />
@@ -497,6 +563,10 @@ const styles = StyleSheet.create({
   tabActive: { borderBottomWidth: 2, borderBottomColor: theme.colors.primary },
   tabLabel: { fontSize: 11, color: theme.colors.textTertiary },
   tabLabelActive: { color: theme.colors.primary, fontWeight: '600' },
+  tabBadge: { position: 'absolute', top: -4, right: -6, minWidth: 16, height: 16, borderRadius: 8, backgroundColor: theme.colors.error, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderWidth: 1.5, borderColor: theme.colors.surface },
+  tabBadgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
+  centerLoader: { paddingVertical: 40, alignItems: 'center' },
+  emptyText: { fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', paddingVertical: 16 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: theme.colors.textPrimary, marginTop: 4 },
   // Messages
   messageList: { flex: 1 },
@@ -560,7 +630,6 @@ const styles = StyleSheet.create({
   photoBtnText: { fontSize: 14, fontWeight: '500', color: theme.colors.primary },
   submitBtn: { backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md, paddingVertical: 14, alignItems: 'center', marginBottom: theme.spacing.lg },
   submitBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  // Stripe payment styles
   payAmountRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: theme.colors.primaryLight, borderRadius: theme.borderRadius.md, paddingHorizontal: 16, paddingVertical: 12, marginBottom: theme.spacing.md },
   payAmountLabel: { fontSize: 14, color: theme.colors.textSecondary },
   payAmountValue: { fontSize: 20, fontWeight: '800', color: theme.colors.primary },

@@ -80,6 +80,157 @@ const currentYM = (): string => {
   return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`;
 };
 
+// ─── Branded HTML Report Generator ───────────────────────────────────────────
+function generateReportHTML(opts: {
+  propertyName: string;
+  period: string;
+  financials: any;
+  generatedAt: string;
+}): string {
+  const { propertyName, period, financials, generatedAt } = opts;
+  const netFlow = financials?.net_cash_flow ?? 0;
+  const isPositive = netFlow >= 0;
+  const flowColor = isPositive ? '#10B981' : '#EF4444';
+  const flowBg    = isPositive ? '#F0FDF4' : '#FEF2F2';
+
+  const expenseRows = (financials?.expenses ?? []).map((e: any) => `
+    <tr>
+      <td>${e.title}</td>
+      <td style="color:#6B7280;">${getCategoryLabel(e.category)}</td>
+      <td style="color:#9CA3AF;">${formatDate(e.expense_date)}</td>
+      <td style="text-align:right;font-weight:700;">${formatCurrency(e.amount)}</td>
+      <td style="color:#9CA3AF;font-style:italic;">${e.notes || '—'}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Rapport Domely — ${propertyName}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Helvetica Neue',Arial,sans-serif;background:#F8F9FA;color:#111827}
+.page{max-width:820px;margin:0 auto;background:#fff;min-height:100vh}
+.header{background:linear-gradient(135deg,#4F46E5 0%,#7C3AED 100%);color:#fff;padding:36px 40px 32px}
+.logo-row{display:flex;align-items:center;gap:12px;margin-bottom:22px}
+.logo{width:42px;height:42px;background:rgba(255,255,255,.18);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.brand{font-size:22px;font-weight:800;letter-spacing:-.5px}
+.brand-sub{font-size:11px;opacity:.65;margin-top:1px}
+.rpt-title{font-size:28px;font-weight:700;margin-bottom:6px;letter-spacing:-.5px}
+.rpt-meta{font-size:14px;opacity:.75}
+.kpi-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;padding:28px 40px;background:#F9FAFB}
+.kpi-card{background:#fff;border-radius:12px;padding:18px 20px;border:1px solid #E5E7EB}
+.kpi-lbl{font-size:11px;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px}
+.kpi-val{font-size:26px;font-weight:800;letter-spacing:-1px}
+.v-blue{color:#4F46E5}.v-green{color:#10B981}.v-warn{color:#F59E0B}
+.section{padding:26px 40px;border-top:1px solid #F0F0F0}
+.sec-title{font-size:16px;font-weight:700;color:#111827;margin-bottom:14px}
+.flow-bar{display:flex;align-items:flex-start;gap:14px;padding:16px 20px;border-radius:12px;border-left:4px solid ${flowColor};background:${flowBg}}
+.flow-icon{font-size:26px;line-height:1}
+.flow-title{font-size:15px;font-weight:700;color:${flowColor}}
+.flow-desc{font-size:13px;color:#6B7280;margin-top:3px}
+.metrics-row{display:flex;gap:0;border:1px solid #E5E7EB;border-radius:12px;overflow:hidden}
+.metric{flex:1;padding:16px;text-align:center;border-right:1px solid #E5E7EB}
+.metric:last-child{border-right:none}
+.metric-lbl{font-size:11px;color:#9CA3AF;margin-bottom:6px}
+.metric-val{font-size:18px;font-weight:700;color:#111827}
+table{width:100%;border-collapse:collapse}
+th{background:#F9FAFB;padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.6px;border-bottom:2px solid #E5E7EB}
+td{padding:12px 12px;font-size:14px;color:#374151;border-bottom:1px solid #F4F4F5}
+tr:last-child td{border-bottom:none}
+.footer{padding:22px 40px;background:#F8F9FA;border-top:1px solid #E5E7EB;display:flex;justify-content:space-between;align-items:center}
+.ft-brand{font-size:14px;font-weight:800;color:#4F46E5}
+.ft-sub{font-size:11px;color:#9CA3AF;margin-top:2px}
+.ft-date{font-size:11px;color:#9CA3AF;text-align:right;line-height:1.6}
+.empty-msg{text-align:center;padding:28px;color:#9CA3AF;font-size:14px}
+@media print{body{background:#fff}.page{max-width:100%}}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo-row">
+      <div class="logo">🏠</div>
+      <div>
+        <div class="brand">Domely</div>
+        <div class="brand-sub">Gestion immobilière intelligente</div>
+      </div>
+    </div>
+    <div class="rpt-title">Rapport financier</div>
+    <div class="rpt-meta">${propertyName} &nbsp;·&nbsp; ${period}</div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-lbl">Loyer attendu</div>
+      <div class="kpi-val v-blue">${formatCurrency(financials?.expected_rent ?? 0)}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-lbl">Loyer perçu</div>
+      <div class="kpi-val v-green">${formatCurrency(financials?.collected_rent ?? 0)}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-lbl">Total dépenses</div>
+      <div class="kpi-val v-warn">${formatCurrency(financials?.total_expenses ?? 0)}</div>
+    </div>
+    <div class="kpi-card" style="border-color:${flowColor}40">
+      <div class="kpi-lbl">Flux net</div>
+      <div class="kpi-val" style="color:${flowColor}">${isPositive ? '' : '–'}${formatCurrency(Math.abs(netFlow))}</div>
+    </div>
+  </div>
+
+  <!-- Synthèse -->
+  <div class="section">
+    <div class="sec-title">Synthèse</div>
+    <div class="flow-bar">
+      <div class="flow-icon">${isPositive ? '📈' : '📉'}</div>
+      <div>
+        <div class="flow-title">${isPositive ? 'Flux de trésorerie positif' : 'Flux de trésorerie négatif'}</div>
+        <div class="flow-desc">Taux d'occupation : ${financials?.occupancy_rate ?? 0}% &nbsp;·&nbsp; Ratio de dépenses : ${Math.round((financials?.expense_ratio ?? 0) * 100)}% &nbsp;·&nbsp; Coûts maintenance : ${formatCurrency(financials?.maintenance_expenses ?? 0)}</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dépenses -->
+  <div class="section">
+    <div class="sec-title">Détail des dépenses</div>
+    ${(financials?.expenses?.length ?? 0) > 0 ? `
+    <table>
+      <thead>
+        <tr>
+          <th>Description</th>
+          <th>Catégorie</th>
+          <th>Date</th>
+          <th style="text-align:right">Montant</th>
+          <th>Notes</th>
+        </tr>
+      </thead>
+      <tbody>${expenseRows}</tbody>
+    </table>` : '<div class="empty-msg">Aucune dépense enregistrée pour cette période.</div>'}
+  </div>
+
+  <!-- Footer -->
+  <div class="footer">
+    <div>
+      <div class="ft-brand">Préparé par Domely</div>
+      <div class="ft-sub">domely.ca &nbsp;·&nbsp; Gestion immobilière intelligente</div>
+    </div>
+    <div class="ft-date">
+      Généré le ${generatedAt}<br>
+      <span style="color:#D1D5DB">Document confidentiel</span>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>`;
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
 export default function PropertyFinancialsScreen() {
   const { propertyId, propertyName } = useLocalSearchParams<{ propertyId: string; propertyName: string }>();
   const { t } = useTranslation();
@@ -135,7 +286,59 @@ export default function PropertyFinancialsScreen() {
     if (next <= currentYM()) setSelectedMonth(next);
   };
 
-  const handleExport = async () => {
+  const handleExport = () => {
+    Alert.alert(
+      'Exporter le rapport',
+      'Choisissez le format d\'export :',
+      [
+        {
+          text: '📄 Rapport PDF (HTML)',
+          onPress: exportPDF,
+        },
+        {
+          text: '📊 Données CSV',
+          onPress: exportCSV,
+        },
+        { text: 'Annuler', style: 'cancel' },
+      ]
+    );
+  };
+
+  const exportPDF = async () => {
+    setExporting(true);
+    try {
+      const now = new Date();
+      const generatedAt = now.toLocaleDateString('fr-CA', { year: 'numeric', month: 'long', day: 'numeric' });
+      const periodStr = period === 'ytd'
+        ? `Année ${now.getFullYear()} (année en cours)`
+        : getMonthLabel(selectedMonth);
+
+      const html = generateReportHTML({
+        propertyName: propertyName as string || 'Propriété',
+        period: periodStr,
+        financials,
+        generatedAt,
+      });
+
+      const safeName = (propertyName as string || 'propriete').replace(/[^a-z0-9]/gi, '-').toLowerCase();
+      const suffix = period === 'ytd' ? `${now.getFullYear()}-ytd` : selectedMonth;
+      const filename = `domely-rapport-${safeName}-${suffix}.html`;
+      const fileUri = (FileSystem.documentDirectory ?? '') + filename;
+
+      await FileSystem.writeAsStringAsync(fileUri, html, { encoding: FileSystem.EncodingType.UTF8 });
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'text/html',
+        dialogTitle: 'Rapport financier Domely',
+        UTI: 'public.html',
+      });
+    } catch {
+      Alert.alert('Erreur', 'Impossible de générer le rapport PDF.');
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportCSV = async () => {
     setExporting(true);
     try {
       const csv = await api.exportPropertyFinancials(
@@ -145,12 +348,12 @@ export default function PropertyFinancialsScreen() {
       );
       const suffix = period === 'ytd' ? `${new Date().getFullYear()}-ytd` : selectedMonth;
       const safeName = (propertyName as string || 'property').replace(/[^a-z0-9]/gi, '-').toLowerCase();
-      const filename = `plexio-${safeName}-${suffix}.csv`;
+      const filename = `domely-${safeName}-${suffix}.csv`;
       const fileUri = (FileSystem.documentDirectory ?? '') + filename;
       await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
-      await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Export Financials' });
+      await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: 'Données CSV Domely' });
     } catch {
-      Alert.alert(t('error') as string, 'Export failed');
+      Alert.alert(t('error') as string, 'Export CSV échoué.');
     } finally {
       setExporting(false);
     }

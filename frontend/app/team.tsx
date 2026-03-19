@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,11 +11,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Card, theme } from '../src/components';
+import { api } from '../src/services/api';
 
 // ─── Types ─────────────────────────────────────────────────────────────────
 
@@ -27,57 +30,15 @@ interface TeamMember {
   email: string;
   role: Role;
   status: 'active' | 'pending' | 'declined';
-  addedDate: string;
-  lastActive?: string;
-  properties: string[]; // property names they have access to
-  canViewFinances: boolean;
-  canEditTenants: boolean;
-  canManageMaintenance: boolean;
+  added_date: string;
+  last_active?: string;
+  properties: string[];
+  can_view_finances: boolean;
+  can_edit_tenants: boolean;
+  can_manage_maintenance: boolean;
 }
 
-// ─── Mock Data ──────────────────────────────────────────────────────────────
-
-const MOCK_TEAM: TeamMember[] = [
-  {
-    id: 't1',
-    name: 'Michel Gagnon',
-    email: 'michel.gagnon@email.com',
-    role: 'co_owner',
-    status: 'active',
-    addedDate: '2024-01-15',
-    lastActive: '2025-03-08',
-    properties: ['Duplex St-Henri', 'Triplex Rosemont'],
-    canViewFinances: true,
-    canEditTenants: true,
-    canManageMaintenance: true,
-  },
-  {
-    id: 't2',
-    name: 'Andrée Simard',
-    email: 'a.simard@gestion.ca',
-    role: 'manager',
-    status: 'active',
-    addedDate: '2024-06-01',
-    lastActive: '2025-03-07',
-    properties: ['Triplex Rosemont'],
-    canViewFinances: false,
-    canEditTenants: true,
-    canManageMaintenance: true,
-  },
-  {
-    id: 't3',
-    name: 'Patrick Ouellet',
-    email: 'p.ouellet@example.com',
-    role: 'read_only',
-    status: 'pending',
-    addedDate: '2025-03-05',
-    lastActive: undefined,
-    properties: ['Duplex St-Henri'],
-    canViewFinances: false,
-    canEditTenants: false,
-    canManageMaintenance: false,
-  },
-];
+// ─── Configs ─────────────────────────────────────────────────────────────────
 
 const ROLE_CONFIG: Record<Role, { label: string; color: string; bg: string; icon: string; description: string }> = {
   co_owner: {
@@ -104,9 +65,9 @@ const ROLE_CONFIG: Record<Role, { label: string; color: string; bg: string; icon
 };
 
 const STATUS_CONFIG: Record<TeamMember['status'], { label: string; color: string; bg: string }> = {
-  active:   { label: 'Actif',     color: theme.colors.success, bg: '#E6F9F4' },
+  active:   { label: 'Actif',      color: theme.colors.success, bg: '#E6F9F4' },
   pending:  { label: 'En attente', color: theme.colors.warning, bg: '#FFF6E6' },
-  declined: { label: 'Refusé',    color: theme.colors.error,   bg: '#FDE8E8' },
+  declined: { label: 'Refusé',     color: theme.colors.error,   bg: '#FDE8E8' },
 };
 
 interface InviteForm {
@@ -114,12 +75,20 @@ interface InviteForm {
   email: string;
   role: Role;
   properties: string[];
-  canViewFinances: boolean;
-  canEditTenants: boolean;
-  canManageMaintenance: boolean;
+  can_view_finances: boolean;
+  can_edit_tenants: boolean;
+  can_manage_maintenance: boolean;
 }
 
-const ALL_PROPERTIES = ['Duplex St-Henri', 'Triplex Rosemont'];
+const BLANK_FORM: InviteForm = {
+  name: '',
+  email: '',
+  role: 'manager',
+  properties: [],
+  can_view_finances: false,
+  can_edit_tenants: true,
+  can_manage_maintenance: true,
+};
 
 // ─── Permission Row ───────────────────────────────────────────────────────────
 
@@ -144,29 +113,45 @@ function PermissionRow({ icon, label, value, onChange }: { icon: string; label: 
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export default function TeamScreen() {
-  const [team, setTeam] = useState<TeamMember[]>(MOCK_TEAM);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [propertyNames, setPropertyNames] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
-  const [inviteForm, setInviteForm] = useState<InviteForm>({
-    name: '',
-    email: '',
-    role: 'manager',
-    properties: [],
-    canViewFinances: false,
-    canEditTenants: true,
-    canManageMaintenance: true,
-  });
+  const [inviteForm, setInviteForm] = useState<InviteForm>(BLANK_FORM);
 
-  useFocusEffect(useCallback(() => {}, []));
+  useFocusEffect(useCallback(() => {
+    loadAll();
+  }, []));
+
+  const loadAll = async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
+    try {
+      const [teamData, propsData] = await Promise.all([
+        api.getTeam(),
+        api.getProperties(),
+      ]);
+      setTeam(teamData as TeamMember[]);
+      setPropertyNames((propsData as any[]).map((p: any) => p.name));
+    } catch {
+      Alert.alert('Erreur', 'Impossible de charger l\'équipe.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
 
   const updateFormRole = (role: Role) => {
     setInviteForm(prev => ({
       ...prev,
       role,
-      canViewFinances: role === 'co_owner',
-      canEditTenants: role !== 'read_only',
-      canManageMaintenance: role !== 'read_only',
+      can_view_finances: role === 'co_owner',
+      can_edit_tenants: role !== 'read_only',
+      can_manage_maintenance: role !== 'read_only',
     }));
   };
 
@@ -179,7 +164,7 @@ export default function TeamScreen() {
     }));
   };
 
-  const sendInvite = () => {
+  const sendInvite = async () => {
     if (!inviteForm.name.trim() || !inviteForm.email.trim()) {
       Alert.alert('Champs requis', 'Le prénom/nom et l\'email sont obligatoires.');
       return;
@@ -193,23 +178,25 @@ export default function TeamScreen() {
       return;
     }
 
-    const newMember: TeamMember = {
-      id: `t${Date.now()}`,
-      name: inviteForm.name,
-      email: inviteForm.email,
-      role: inviteForm.role,
-      status: 'pending',
-      addedDate: new Date().toISOString().split('T')[0],
-      lastActive: undefined,
-      properties: inviteForm.properties,
-      canViewFinances: inviteForm.canViewFinances,
-      canEditTenants: inviteForm.canEditTenants,
-      canManageMaintenance: inviteForm.canManageMaintenance,
-    };
-
-    setTeam(prev => [...prev, newMember]);
-    setShowInviteModal(false);
-    Alert.alert('Invitation envoyée', `${inviteForm.name} recevra un courriel pour rejoindre PlexIo.`);
+    setSaving(true);
+    try {
+      const created = await api.addTeamMember({
+        name: inviteForm.name,
+        email: inviteForm.email,
+        role: inviteForm.role,
+        properties: inviteForm.properties,
+        can_view_finances: inviteForm.can_view_finances,
+        can_edit_tenants: inviteForm.can_edit_tenants,
+        can_manage_maintenance: inviteForm.can_manage_maintenance,
+      });
+      setTeam(prev => [...prev, created as TeamMember]);
+      setShowInviteModal(false);
+      Alert.alert('Invitation envoyée', `${inviteForm.name} recevra un courriel pour rejoindre Domely.`);
+    } catch {
+      Alert.alert('Erreur', 'Impossible d\'envoyer l\'invitation.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const removeMember = (member: TeamMember) => {
@@ -221,9 +208,14 @@ export default function TeamScreen() {
         {
           text: 'Retirer',
           style: 'destructive',
-          onPress: () => {
-            setTeam(prev => prev.filter(m => m.id !== member.id));
-            setShowDetailModal(false);
+          onPress: async () => {
+            try {
+              await api.deleteTeamMember(member.id);
+              setTeam(prev => prev.filter(m => m.id !== member.id));
+              setShowDetailModal(false);
+            } catch {
+              Alert.alert('Erreur', 'Impossible de retirer ce membre.');
+            }
           },
         },
       ]
@@ -237,6 +229,25 @@ export default function TeamScreen() {
   const activeMembers = team.filter(m => m.status === 'active');
   const pendingMembers = team.filter(m => m.status === 'pending');
 
+  if (loading) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
+            <Ionicons name="chevron-back" size={24} color={theme.colors.textPrimary} />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>Mon équipe</Text>
+          </View>
+          <View style={{ width: 36 }} />
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
@@ -249,7 +260,7 @@ export default function TeamScreen() {
           <Text style={styles.headerSub}>{team.length} membre{team.length > 1 ? 's' : ''} · {pendingMembers.length} en attente</Text>
         </View>
         <TouchableOpacity style={styles.inviteBtn} onPress={() => {
-          setInviteForm({ name: '', email: '', role: 'manager', properties: [], canViewFinances: false, canEditTenants: true, canManageMaintenance: true });
+          setInviteForm(BLANK_FORM);
           setShowInviteModal(true);
         }}>
           <Ionicons name="person-add-outline" size={18} color="#FFF" />
@@ -257,7 +268,11 @@ export default function TeamScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => loadAll(true)} tintColor={theme.colors.primary} />}
+      >
 
         {/* Role Info Cards */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.roleCardsRow} contentContainerStyle={styles.roleCardsContent}>
@@ -312,19 +327,18 @@ export default function TeamScreen() {
                       <Ionicons name="business-outline" size={12} color={theme.colors.textTertiary} />
                       <Text style={styles.metaText}>{member.properties.join(', ')}</Text>
                     </View>
-                    {member.lastActive && (
+                    {member.last_active && (
                       <View style={styles.metaItem}>
                         <Ionicons name="time-outline" size={12} color={theme.colors.textTertiary} />
-                        <Text style={styles.metaText}>Actif: {member.lastActive}</Text>
+                        <Text style={styles.metaText}>Actif: {member.last_active}</Text>
                       </View>
                     )}
                   </View>
 
-                  {/* Permission pills */}
                   <View style={styles.permPillRow}>
-                    {member.canViewFinances && <View style={[styles.permPill, { backgroundColor: '#E6F9F4' }]}><Text style={[styles.permPillText, { color: theme.colors.success }]}>Finances</Text></View>}
-                    {member.canEditTenants && <View style={[styles.permPill, { backgroundColor: theme.colors.primaryLight }]}><Text style={[styles.permPillText, { color: theme.colors.primary }]}>Locataires</Text></View>}
-                    {member.canManageMaintenance && <View style={[styles.permPill, { backgroundColor: '#FFF6E6' }]}><Text style={[styles.permPillText, { color: theme.colors.warning }]}>Entretien</Text></View>}
+                    {member.can_view_finances && <View style={[styles.permPill, { backgroundColor: '#E6F9F4' }]}><Text style={[styles.permPillText, { color: theme.colors.success }]}>Finances</Text></View>}
+                    {member.can_edit_tenants && <View style={[styles.permPill, { backgroundColor: theme.colors.primaryLight }]}><Text style={[styles.permPillText, { color: theme.colors.primary }]}>Locataires</Text></View>}
+                    {member.can_manage_maintenance && <View style={[styles.permPill, { backgroundColor: '#FFF6E6' }]}><Text style={[styles.permPillText, { color: theme.colors.warning }]}>Entretien</Text></View>}
                   </View>
                 </Card>
               </TouchableOpacity>
@@ -374,7 +388,7 @@ export default function TeamScreen() {
           </View>
         )}
 
-        {/* Info box about tenant access */}
+        {/* Info box */}
         <Card style={styles.infoCard}>
           <View style={styles.infoHeader}>
             <Ionicons name="information-circle-outline" size={18} color={theme.colors.primary} />
@@ -397,13 +411,15 @@ export default function TeamScreen() {
                 <Text style={styles.modalCancel}>Annuler</Text>
               </TouchableOpacity>
               <Text style={styles.modalTitle}>Inviter un membre</Text>
-              <TouchableOpacity onPress={sendInvite}>
-                <Text style={styles.modalSave}>Envoyer</Text>
+              <TouchableOpacity onPress={sendInvite} disabled={saving}>
+                {saving
+                  ? <ActivityIndicator size="small" color={theme.colors.primary} />
+                  : <Text style={styles.modalSave}>Envoyer</Text>
+                }
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={styles.modalBody}>
-              {/* Name + Email */}
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Prénom et nom *</Text>
                 <TextInput
@@ -452,21 +468,25 @@ export default function TeamScreen() {
               {/* Properties */}
               <View style={styles.formGroup}>
                 <Text style={styles.formLabel}>Immeubles accessibles *</Text>
-                <View style={styles.propChips}>
-                  {ALL_PROPERTIES.map(prop => {
-                    const isSelected = inviteForm.properties.includes(prop);
-                    return (
-                      <TouchableOpacity
-                        key={prop}
-                        style={[styles.propChip, isSelected && styles.propChipActive]}
-                        onPress={() => toggleProperty(prop)}
-                      >
-                        <Ionicons name={isSelected ? 'checkmark-circle' : 'ellipse-outline'} size={15} color={isSelected ? '#FFF' : theme.colors.textSecondary} />
-                        <Text style={[styles.propChipText, isSelected && styles.propChipTextActive]}>{prop}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
+                {propertyNames.length === 0 ? (
+                  <Text style={styles.emptyText}>Aucun immeuble disponible</Text>
+                ) : (
+                  <View style={styles.propChips}>
+                    {propertyNames.map(prop => {
+                      const isSelected = inviteForm.properties.includes(prop);
+                      return (
+                        <TouchableOpacity
+                          key={prop}
+                          style={[styles.propChip, isSelected && styles.propChipActive]}
+                          onPress={() => toggleProperty(prop)}
+                        >
+                          <Ionicons name={isSelected ? 'checkmark-circle' : 'ellipse-outline'} size={15} color={isSelected ? '#FFF' : theme.colors.textSecondary} />
+                          <Text style={[styles.propChipText, isSelected && styles.propChipTextActive]}>{prop}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
 
               {/* Permissions */}
@@ -476,22 +496,22 @@ export default function TeamScreen() {
                   <PermissionRow
                     icon="bar-chart-outline"
                     label="Voir les finances"
-                    value={inviteForm.canViewFinances}
-                    onChange={v => setInviteForm(prev => ({ ...prev, canViewFinances: v }))}
+                    value={inviteForm.can_view_finances}
+                    onChange={v => setInviteForm(prev => ({ ...prev, can_view_finances: v }))}
                   />
                   <View style={styles.permDivider} />
                   <PermissionRow
                     icon="people-outline"
                     label="Gérer les locataires"
-                    value={inviteForm.canEditTenants}
-                    onChange={v => setInviteForm(prev => ({ ...prev, canEditTenants: v }))}
+                    value={inviteForm.can_edit_tenants}
+                    onChange={v => setInviteForm(prev => ({ ...prev, can_edit_tenants: v }))}
                   />
                   <View style={styles.permDivider} />
                   <PermissionRow
                     icon="construct-outline"
                     label="Gérer l'entretien"
-                    value={inviteForm.canManageMaintenance}
-                    onChange={v => setInviteForm(prev => ({ ...prev, canManageMaintenance: v }))}
+                    value={inviteForm.can_manage_maintenance}
+                    onChange={v => setInviteForm(prev => ({ ...prev, can_manage_maintenance: v }))}
                   />
                 </Card>
               </View>
@@ -515,7 +535,6 @@ export default function TeamScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.modalBody}>
-              {/* Avatar + name */}
               <View style={styles.detailProfile}>
                 <View style={[styles.detailAvatar, { backgroundColor: ROLE_CONFIG[selectedMember.role].bg }]}>
                   <Text style={[styles.detailAvatarText, { color: ROLE_CONFIG[selectedMember.role].color }]}>
@@ -531,7 +550,6 @@ export default function TeamScreen() {
                 </View>
               </View>
 
-              {/* Stats */}
               <Card style={styles.detailStatsCard}>
                 <View style={styles.detailStat}>
                   <Text style={styles.detailStatLabel}>Statut</Text>
@@ -543,17 +561,16 @@ export default function TeamScreen() {
                 </View>
                 <View style={styles.detailStat}>
                   <Text style={styles.detailStatLabel}>Ajouté le</Text>
-                  <Text style={styles.detailStatValue}>{selectedMember.addedDate}</Text>
+                  <Text style={styles.detailStatValue}>{selectedMember.added_date}</Text>
                 </View>
-                {selectedMember.lastActive && (
+                {selectedMember.last_active && (
                   <View style={styles.detailStat}>
                     <Text style={styles.detailStatLabel}>Dernière activité</Text>
-                    <Text style={styles.detailStatValue}>{selectedMember.lastActive}</Text>
+                    <Text style={styles.detailStatValue}>{selectedMember.last_active}</Text>
                   </View>
                 )}
               </Card>
 
-              {/* Immeubles */}
               <Card style={{ marginBottom: theme.spacing.md }}>
                 <Text style={styles.detailSectionTitle}>Immeubles accessibles</Text>
                 {selectedMember.properties.map(prop => (
@@ -564,13 +581,12 @@ export default function TeamScreen() {
                 ))}
               </Card>
 
-              {/* Permissions */}
               <Card>
                 <Text style={styles.detailSectionTitle}>Permissions</Text>
                 {[
-                  { icon: 'bar-chart-outline', label: 'Voir les finances', value: selectedMember.canViewFinances },
-                  { icon: 'people-outline', label: 'Gérer les locataires', value: selectedMember.canEditTenants },
-                  { icon: 'construct-outline', label: 'Gérer l\'entretien', value: selectedMember.canManageMaintenance },
+                  { icon: 'bar-chart-outline', label: 'Voir les finances', value: selectedMember.can_view_finances },
+                  { icon: 'people-outline', label: 'Gérer les locataires', value: selectedMember.can_edit_tenants },
+                  { icon: 'construct-outline', label: 'Gérer l\'entretien', value: selectedMember.can_manage_maintenance },
                 ].map(perm => (
                   <View key={perm.label} style={styles.detailPermRow}>
                     <Ionicons name={perm.icon as any} size={15} color={perm.value ? theme.colors.success : theme.colors.textTertiary} />
@@ -595,6 +611,7 @@ export default function TeamScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.background },
+  loadingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: theme.spacing.md, paddingVertical: theme.spacing.sm, backgroundColor: theme.colors.surface, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
   backBtn: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
   headerCenter: { flex: 1, alignItems: 'center' },
@@ -651,7 +668,6 @@ const styles = StyleSheet.create({
   emptyCard: { alignItems: 'center', paddingVertical: 24 },
   emptyText: { fontSize: 14, color: theme.colors.textSecondary },
 
-  // Modal
   modalContainer: { flex: 1, backgroundColor: theme.colors.background },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: theme.spacing.md, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
   modalCancel: { fontSize: 15, color: theme.colors.textSecondary },
@@ -679,7 +695,6 @@ const styles = StyleSheet.create({
   permLabel: { fontSize: 14, color: theme.colors.textPrimary },
   permDivider: { height: 1, backgroundColor: theme.colors.borderLight, marginHorizontal: theme.spacing.md },
 
-  // Detail
   detailProfile: { alignItems: 'center', marginBottom: theme.spacing.lg },
   detailAvatar: { width: 72, height: 72, borderRadius: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   detailAvatarText: { fontSize: 26, fontWeight: '700' },

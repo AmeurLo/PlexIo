@@ -1,22 +1,22 @@
-// Plexio Design System - Premium Real Estate Inspired
-// Inspired by Emaar One: calm, elegant, card-based, luxury feel
-// Brand palette extracted from Plexio logo: deep navy → teal gradient
+// Domely Design System - Premium Property Management
+// Brand palette extracted from Domely logo: deep teal → green gradient
+// Logo analysis: dark teal #144F54 → mid teal-green #1E7A6E → bright green #3FAF86
 
 export const theme = {
   colors: {
-    // Primary - Logo Navy (deep trust, architectural, premium)
-    primary: '#1B4F7C',
-    primaryLight: '#E6EEF6',
-    primaryDark: '#112F4E',
+    // Primary - Logo Teal-Green (trust, modern, fresh)
+    primary: '#1E7A6E',
+    primaryLight: '#E3F5F2',
+    primaryDark: '#144F54',
 
-    // Accent - Logo Teal (the gradient end, modern + fresh)
-    accent: '#2E9B88',
-    accentLight: '#E3F5F2',
+    // Accent - Logo Bright Green (highlights, CTAs)
+    accent: '#3FAF86',
+    accentLight: '#E6F9F2',
 
     // Brand gradient reference (use with LinearGradient)
-    gradientStart: '#1A3B6B',  // logo deep navy (top-left)
-    gradientEnd: '#3A8E7C',    // logo teal (bottom-right)
-    gradientMid: '#1B6080',    // blended mid-point
+    gradientStart: '#144F54',  // logo dark teal (top shadow)
+    gradientEnd: '#3FAF86',    // logo bright green (highlight facets)
+    gradientMid: '#1E7A6E',    // logo mid teal-green
 
     // Gold - Luxury touch
     gold: '#C9A96E',
@@ -39,21 +39,21 @@ export const theme = {
     borderLight: '#F0F3F7',
 
     // Status colors
-    success: '#2E9B88',        // aligned to brand teal
+    success: '#1E7A6E',        // aligned to brand teal-green
     successLight: '#E3F5F2',
     warning: '#F5A623',
     warningLight: '#FFF6E6',
     error: '#E85D5D',
     errorLight: '#FDE8E8',
-    info: '#1B4F7C',           // aligned to brand navy
-    infoLight: '#E6EEF6',
+    info: '#1E7A6E',           // aligned to brand teal
+    infoLight: '#E3F5F2',
 
     // Occupancy
-    occupied: '#2E9B88',
+    occupied: '#1E7A6E',
     vacant: '#E85D5D',
 
     // Overlay
-    overlay: 'rgba(26, 59, 107, 0.55)',
+    overlay: 'rgba(20, 79, 84, 0.55)',
   },
 
   spacing: {

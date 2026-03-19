@@ -129,7 +129,7 @@ export function AddressAutocomplete({ value, onChangeText, onSelect, placeholder
         `https://nominatim.openstreetmap.org/search?${params.toString()}`,
         {
           headers: {
-            'User-Agent': 'PlexIo-PropertyManager/1.0',
+            'User-Agent': 'Domely-PropertyManager/1.0',
             'Accept-Language': 'fr,en',
           },
         }

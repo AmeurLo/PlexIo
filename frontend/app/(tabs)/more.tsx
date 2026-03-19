@@ -257,19 +257,19 @@ export default function MoreScreen() {
               <View style={[styles.toolIcon, { backgroundColor: '#F59E0B18' }]}>
                 <Ionicons name="construct-outline" size={22} color="#F59E0B" />
               </View>
-              <Text style={styles.toolLabel}>Entretien</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Entretien</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/documents')}>
               <View style={[styles.toolIcon, { backgroundColor: theme.colors.primary + '18' }]}>
                 <Ionicons name="document-text-outline" size={22} color={theme.colors.primary} />
               </View>
-              <Text style={styles.toolLabel}>Documents & Avis</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Documents & Avis</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/applicants')}>
+            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/vacancy')}>
               <View style={[styles.toolIcon, { backgroundColor: '#8B5CF618' }]}>
-                <Ionicons name="person-add-outline" size={22} color="#8B5CF6" />
+                <Ionicons name="megaphone-outline" size={22} color="#8B5CF6" />
               </View>
-              <Text style={styles.toolLabel}>Candidatures</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Mes annonces</Text>
             </TouchableOpacity>
           </View>
 
@@ -279,76 +279,62 @@ export default function MoreScreen() {
               <View style={[styles.toolIcon, { backgroundColor: '#EC489918' }]}>
                 <Ionicons name="hammer-outline" size={22} color="#EC4899" />
               </View>
-              <Text style={styles.toolLabel}>Entrepreneurs</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Entrepreneurs</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/inspections')}>
               <View style={[styles.toolIcon, { backgroundColor: '#10B98118' }]}>
                 <Ionicons name="clipboard-outline" size={22} color="#10B981" />
               </View>
-              <Text style={styles.toolLabel}>Inspections</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Inspections</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/vacancy')}>
-              <View style={[styles.toolIcon, { backgroundColor: '#EF444418' }]}>
-                <Ionicons name="home-outline" size={22} color="#EF4444" />
+            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/market-rent')}>
+              <View style={[styles.toolIcon, { backgroundColor: '#6366F118' }]}>
+                <Ionicons name="trending-up-outline" size={22} color="#6366F1" />
               </View>
-              <Text style={styles.toolLabel}>Vacance</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Intelligence marché</Text>
             </TouchableOpacity>
           </View>
 
           {/* Row 3 */}
           <View style={[styles.toolsGrid, { marginTop: theme.spacing.sm }]}>
-            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/market-rent')}>
-              <View style={[styles.toolIcon, { backgroundColor: '#6366F118' }]}>
-                <Ionicons name="trending-up-outline" size={22} color="#6366F1" />
-              </View>
-              <Text style={styles.toolLabel}>Marché locatif</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/mortgage')}>
-              <View style={[styles.toolIcon, { backgroundColor: '#3B82F618' }]}>
-                <Ionicons name="business-outline" size={22} color="#3B82F6" />
-              </View>
-              <Text style={styles.toolLabel}>Hypothèques</Text>
-            </TouchableOpacity>
             <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/team')}>
               <View style={[styles.toolIcon, { backgroundColor: '#14B8A618' }]}>
                 <Ionicons name="people-outline" size={22} color="#14B8A6" />
               </View>
-              <Text style={styles.toolLabel}>Mon équipe</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Mon équipe</Text>
             </TouchableOpacity>
-          </View>
-
-          {/* Row 4 */}
-          <View style={[styles.toolsGrid, { marginTop: theme.spacing.sm }]}>
             <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/(auth)/tenant-login')}>
               <View style={[styles.toolIcon, { backgroundColor: '#14B8A618' }]}>
                 <Ionicons name="person-circle-outline" size={22} color="#14B8A6" />
               </View>
-              <Text style={styles.toolLabel}>Portail locataire</Text>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Portail locataire</Text>
             </TouchableOpacity>
-            <View style={{ flex: 1 }} />
-            <View style={{ flex: 1 }} />
+            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/automations')}>
+              <View style={[styles.toolIcon, { backgroundColor: '#6366F118' }]}>
+                <Ionicons name="flash-outline" size={22} color="#6366F1" />
+              </View>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Automatisations</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Financials shortcut */}
+        {/* ── Finances ─────────────────────────────────────────────────── */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>{t('financials') as string}</Text>
-          <TouchableOpacity onPress={() => router.push('/(tabs)/properties')} activeOpacity={0.75}>
-            <Card style={styles.finShortcutCard}>
+          <Text style={styles.sectionTitle}>Finances</Text>
+          <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <TouchableOpacity style={styles.finShortcutCard} onPress={() => router.push('/mortgage')}>
               <View style={styles.finShortcutLeft}>
-                <View style={styles.finShortcutIcon}>
-                  <Ionicons name="bar-chart-outline" size={22} color={theme.colors.primary} />
+                <View style={[styles.finShortcutIcon, { backgroundColor: '#3B82F618' }]}>
+                  <Ionicons name="home-outline" size={20} color="#3B82F6" />
                 </View>
                 <View>
-                  <Text style={styles.finShortcutTitle}>{t('viewFinancialsShortcut') as string}</Text>
-                  <Text style={styles.finShortcutSub}>
-                    {(t('collectedRate2') as Function)(formatCurrency(stats?.total_rent_collected || 0), stats?.collection_rate || 0)}
-                  </Text>
+                  <Text style={styles.finShortcutTitle}>Hypothèques</Text>
+                  <Text style={styles.finShortcutSub}>Gérer vos prêts immobiliers</Text>
                 </View>
               </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textTertiary} />
-            </Card>
-          </TouchableOpacity>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+            </TouchableOpacity>
+          </Card>
         </View>
 
         {/* Expiring Leases */}
