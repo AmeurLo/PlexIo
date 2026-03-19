@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
@@ -37,6 +38,7 @@ const T = {
   status:      { fr: "Statut",            en: "Status" },
   selectProp:  { fr: "— Sélectionner —",  en: "— Select —" },
   noPhone:     { fr: "Aucun téléphone",    en: "No phone" },
+  documents:   { fr: "Documents",          en: "Documents" },
 };
 
 const emptyForm = {
@@ -173,6 +175,10 @@ export default function TenantsPage() {
                     <td className="px-5 py-3"><StatusBadge status={ten.status ?? "active"} lang={lang} /></td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2 justify-end">
+                        <Link href={`/dashboard/tenants/${ten.id ?? ten._id}/documents`}
+                          className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                          {t(T.documents)}
+                        </Link>
                         <button onClick={() => openEdit(ten)} className="text-[12px] text-teal-700 hover:underline">{t(T.edit)}</button>
                         <button onClick={() => setDeleteTarget(ten)} className="text-[12px] text-red-500 hover:underline">{t(T.delete)}</button>
                       </div>
@@ -196,6 +202,12 @@ export default function TenantsPage() {
                   <p className="text-[12px] text-gray-400 truncate">{ten.email}</p>
                 </div>
                 <StatusBadge status={ten.status ?? "active"} lang={lang} />
+                <Link href={`/dashboard/tenants/${ten.id ?? ten._id}/documents`}
+                  className="p-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20">
+                  <svg className="w-4 h-4 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                </Link>
                 <button onClick={() => setDeleteTarget(ten)} className="p-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-900/20">
                   <Icon name="x" size={14} className="text-red-400" />
                 </button>

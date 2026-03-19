@@ -111,6 +111,7 @@ export const api = {
   deleteTenant: (id: string) => apiFetch<void>(`/tenants/${id}`, { method: "DELETE" }),
   getTenantPayments: (id: string) => apiFetch<RentPayment[]>(`/tenants/${id}/payments`),
   getTenantMaintenance: (id: string) => apiFetch<MaintenanceRequestWithDetails[]>(`/tenants/${id}/maintenance`),
+  getTenantDocuments: (id: string) => apiFetch<{ id: string; name: string; type: string; date: string; icon: string; color: string }[]>(`/tenants/${id}/documents`),
 
   // Leases
   getLeases: (activeOnly = true) =>

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
@@ -41,6 +42,7 @@ const T = {
   currentValue:  { fr: "Valeur actuelle",          en: "Current value" },
   description:   { fr: "Description",              en: "Description" },
   manageUnits:   { fr: "Unités",                   en: "Units" },
+  finances:      { fr: "Finances",                 en: "Finances" },
   // Unit modal
   unitsOf:       { fr: "Unités —",                 en: "Units —" },
   addUnit:       { fr: "+ Ajouter une unité",       en: "+ Add unit" },
@@ -299,13 +301,19 @@ export default function PropertiesPage() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 flex-wrap">
                     <button
                       onClick={() => openUnitsModal(p)}
                       className="flex-1 py-1.5 text-[12px] font-medium text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg transition-colors"
                     >
                       {t(T.manageUnits)} ({p.total_units ?? 0})
                     </button>
+                    <Link
+                      href={`/dashboard/properties/${p.id}/financials`}
+                      className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-lg transition-colors"
+                    >
+                      {t(T.finances)}
+                    </Link>
                     <button
                       onClick={() => openEditProp(p)}
                       className="px-3 py-1.5 text-[12px] font-medium text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 rounded-lg transition-colors"
@@ -488,7 +496,13 @@ export default function PropertiesPage() {
                       </span>
 
                       {/* Actions */}
-                      <div className="flex gap-1.5 sm:justify-end">
+                      <div className="flex gap-1.5 sm:justify-end flex-wrap">
+                        <Link
+                          href={`/dashboard/units/${uid}/timeline`}
+                          className="px-3 py-1 text-[12px] font-medium text-indigo-700 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg transition-colors"
+                        >
+                          {lang === "fr" ? "Historique" : "Timeline"}
+                        </Link>
                         <button
                           onClick={() => openEditUnit(u)}
                           className="px-3 py-1 text-[12px] font-medium text-teal-700 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/20 hover:bg-teal-100 dark:hover:bg-teal-900/40 rounded-lg transition-colors"
