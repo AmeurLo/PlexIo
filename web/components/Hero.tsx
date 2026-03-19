@@ -178,7 +178,10 @@ export default function Hero() {
           {/* Micro badges */}
           <div className="flex flex-wrap gap-2 mb-10">
             {[t(H.badge1), t(H.badge2), t(H.badge3)].map((b) => (
-              <span key={b} className="flex items-center gap-1.5 text-[13px] text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-3.5 py-1.5 shadow-sm">
+              <span key={b} className="flex items-center gap-1.5 text-[13px] font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-full px-3.5 py-1.5 shadow-sm">
+                <svg className="w-3.5 h-3.5 text-teal-500 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="20 6 9 17 4 12" />
+                </svg>
                 {b}
               </span>
             ))}
