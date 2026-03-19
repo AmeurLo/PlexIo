@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
@@ -193,6 +194,10 @@ export default function RentPage() {
                         {p.status !== "paid" && (
                           <button onClick={() => markPaid(p)} className="text-[12px] text-teal-700 hover:underline whitespace-nowrap">{t(T.markPaid)}</button>
                         )}
+                        <Link href={`/dashboard/rent/${p.id}/receipt`}
+                          className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                          {lang === "fr" ? "Reçu" : "Receipt"}
+                        </Link>
                         <button onClick={() => openEdit(p)} className="text-[12px] text-gray-500 hover:underline">{lang === "fr" ? "Modifier" : "Edit"}</button>
                       </div>
                     </td>

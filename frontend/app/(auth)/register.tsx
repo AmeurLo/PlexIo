@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -27,17 +28,17 @@ export default function RegisterScreen() {
 
   const handleRegister = async () => {
     if (!fullName || !email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Champs manquants', 'Veuillez remplir tous les champs.');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      Alert.alert('Erreur', 'Les mots de passe ne correspondent pas.');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      Alert.alert('Mot de passe trop court', 'Le mot de passe doit comporter au moins 6 caractères.');
       return;
     }
 
@@ -53,11 +54,12 @@ export default function RegisterScreen() {
         // Demo data might already exist or other error - not critical
         console.log('Demo data seeding:', e);
       }
-      
-      router.replace('/(tabs)');
+
+      // Route new users to onboarding wizard
+      router.replace('/onboarding');
     } catch (error: any) {
-      const message = error.response?.data?.detail || 'Registration failed. Please try again.';
-      Alert.alert('Registration Failed', message);
+      const message = error.response?.data?.detail || 'Inscription échouée. Veuillez réessayer.';
+      Alert.alert('Inscription impossible', message);
     } finally {
       setLoading(false);
     }
@@ -79,27 +81,29 @@ export default function RegisterScreen() {
           </TouchableOpacity>
 
           <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>P</Text>
-            </View>
-            <Text style={styles.title}>Join Plexio</Text>
-            <Text style={styles.subtitle}>Start managing your properties today</Text>
+            <Image
+              source={require('../../assets/images/logo.png')}
+              style={styles.logo}
+              resizeMode="contain"
+            />
+            <Text style={styles.title}>Rejoindre Domely</Text>
+            <Text style={styles.subtitle}>Gérez vos logements, simplement.</Text>
           </View>
 
           <View style={styles.form}>
             <Input
-              label="Full Name"
+              label="Nom complet"
               value={fullName}
               onChangeText={setFullName}
-              placeholder="Enter your full name"
+              placeholder="Votre nom complet"
               autoCapitalize="words"
             />
 
             <Input
-              label="Email"
+              label="Courriel"
               value={email}
               onChangeText={setEmail}
-              placeholder="Enter your email"
+              placeholder="votre@courriel.com"
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
@@ -107,10 +111,10 @@ export default function RegisterScreen() {
 
             <View style={styles.passwordContainer}>
               <Input
-                label="Password"
+                label="Mot de passe"
                 value={password}
                 onChangeText={setPassword}
-                placeholder="Create a password"
+                placeholder="Créez un mot de passe"
                 secureTextEntry={!showPassword}
               />
               <TouchableOpacity
@@ -126,16 +130,16 @@ export default function RegisterScreen() {
             </View>
 
             <Input
-              label="Confirm Password"
+              label="Confirmer le mot de passe"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
-              placeholder="Confirm your password"
+              placeholder="Répétez votre mot de passe"
               secureTextEntry={!showPassword}
               containerStyle={styles.lastInput}
             />
 
             <Button
-              title="Create Account"
+              title="Créer mon compte"
               onPress={handleRegister}
               loading={loading}
               size="large"
@@ -144,9 +148,9 @@ export default function RegisterScreen() {
           </View>
 
           <View style={styles.footer}>
-            <Text style={styles.footerText}>Already have an account?</Text>
+            <Text style={styles.footerText}>Déjà un compte ?</Text>
             <TouchableOpacity onPress={() => router.back()}>
-              <Text style={styles.link}>Sign In</Text>
+              <Text style={styles.link}>Se connecter</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -178,21 +182,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: theme.spacing.xl,
   },
-  logoContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 20,
-    backgroundColor: theme.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+  logo: {
+    width: 80,
+    height: 80,
     marginBottom: theme.spacing.md,
-    ...theme.shadows.lg,
-  },
-  logoText: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -1,
   },
   title: {
     fontSize: 24,

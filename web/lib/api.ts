@@ -127,6 +127,7 @@ export const api = {
 
   // Rent
   getRentOverview: () => apiFetch<RentOverview[]>("/rent-overview"),
+  getRentPayment: (id: string) => apiFetch<RentPayment>(`/rent-payments/${id}`),
   getRentPayments: (monthYear?: string, tenantId?: string) =>
     apiFetch<RentPayment[]>(`/rent-payments${qs({ month_year: monthYear, tenant_id: tenantId })}`),
   createRentPayment: (data: {
@@ -242,6 +243,8 @@ export const api = {
   getInspections: () => apiFetch<Inspection[]>("/inspections"),
   createInspection: (data: Partial<Inspection>) =>
     apiFetch<Inspection>("/inspections", { method: "POST", ...body(data) }),
+  updateInspection: (id: string, data: Partial<Inspection>) =>
+    apiFetch<Inspection>(`/inspections/${id}`, { method: "PUT", ...body(data) }),
   deleteInspection: (id: string) => apiFetch<void>(`/inspections/${id}`, { method: "DELETE" }),
 
   // Automations

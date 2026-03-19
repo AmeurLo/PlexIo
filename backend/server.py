@@ -3980,7 +3980,7 @@ class InspectionCreate(BaseModel):
 
 @api_router.get("/inspections")
 async def get_inspections(current_user: dict = Depends(get_current_user)):
-    user_id = str(current_user["_id"])
+    user_id = current_user["id"]
     docs = await db.inspections.find({"user_id": user_id}).sort("date", -1).to_list(500)
     result = []
     for d in docs:
@@ -3990,14 +3990,28 @@ async def get_inspections(current_user: dict = Depends(get_current_user)):
 
 @api_router.post("/inspections")
 async def create_inspection(data: InspectionCreate, current_user: dict = Depends(get_current_user)):
-    user_id = str(current_user["_id"])
+    user_id = current_user["id"]
     doc = {**data.dict(), "user_id": user_id, "id": str(uuid.uuid4()), "created_at": datetime.utcnow().isoformat()}
     await db.inspections.insert_one({**doc, "_id": doc["id"]})
     return doc
 
+@api_router.put("/inspections/{inspection_id}")
+async def update_inspection(inspection_id: str, data: InspectionCreate, current_user: dict = Depends(get_current_user)):
+    user_id = current_user["id"]
+    update = {**data.dict(), "updated_at": datetime.utcnow().isoformat()}
+    result = await db.inspections.update_one(
+        {"_id": inspection_id, "user_id": user_id},
+        {"$set": update}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Inspection not found")
+    doc = await db.inspections.find_one({"_id": inspection_id})
+    doc["id"] = str(doc.pop("_id"))
+    return doc
+
 @api_router.delete("/inspections/{inspection_id}")
 async def delete_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
-    user_id = str(current_user["_id"])
+    user_id = current_user["id"]
     await db.inspections.delete_one({"_id": inspection_id, "user_id": user_id})
     return {"ok": True}
 

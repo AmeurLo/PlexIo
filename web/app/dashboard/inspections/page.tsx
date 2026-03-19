@@ -78,6 +78,7 @@ export default function InspectionsPage() {
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading]         = useState(true);
   const [modal, setModal]             = useState(false);
+  const [editing, setEditing]         = useState<Inspection | null>(null);
   const [delId, setDelId]             = useState<string | null>(null);
   const [form, setForm]               = useState({ ...EMPTY_FORM });
   const [saving, setSaving]           = useState(false);
@@ -93,7 +94,22 @@ export default function InspectionsPage() {
   }, []);
 
   function openAdd() {
+    setEditing(null);
     setForm({ ...EMPTY_FORM, date: new Date().toISOString().slice(0, 10) });
+    setModal(true);
+  }
+
+  function openEdit(ins: Inspection) {
+    setEditing(ins);
+    setForm({
+      type: ins.type ?? "routine",
+      unit: ins.unit ?? "",
+      tenant: ins.tenant ?? "",
+      date: ins.date?.slice(0, 10) ?? "",
+      status: ins.status ?? "completed",
+      items_done: String(ins.items_done ?? 0),
+      total_items: String(ins.total_items ?? 10),
+    });
     setModal(true);
   }
 
@@ -113,9 +129,15 @@ export default function InspectionsPage() {
       total_items: parseInt(form.total_items) || 0,
     };
     try {
-      const created = await api.createInspection(payload);
-      setInspections(prev => [created as Inspection, ...prev]);
-      showToast(lang === "fr" ? "Inspection ajoutée" : "Inspection added", "success");
+      if (editing) {
+        const updated = await api.updateInspection(editing.id, payload);
+        setInspections(prev => prev.map(i => i.id === editing.id ? updated as Inspection : i));
+        showToast(lang === "fr" ? "Inspection mise à jour" : "Inspection updated", "success");
+      } else {
+        const created = await api.createInspection(payload);
+        setInspections(prev => [created as Inspection, ...prev]);
+        showToast(lang === "fr" ? "Inspection ajoutée" : "Inspection added", "success");
+      }
       setModal(false);
     } catch (e: any) {
       showToast(e.message, "error");
@@ -216,10 +238,16 @@ export default function InspectionsPage() {
                         ) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="px-5 py-4">
-                        <button onClick={() => setDelId(ins.id)}
-                          className="text-[12px] text-red-500 hover:text-red-700 font-medium transition-colors">
-                          {t(T.delete)}
-                        </button>
+                        <div className="flex items-center gap-3 justify-end">
+                          <button onClick={() => openEdit(ins)}
+                            className="text-[12px] text-teal-600 hover:text-teal-800 font-medium transition-colors">
+                            {t(T.edit)}
+                          </button>
+                          <button onClick={() => setDelId(ins.id)}
+                            className="text-[12px] text-red-500 hover:text-red-700 font-medium transition-colors">
+                            {t(T.delete)}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -254,7 +282,10 @@ export default function InspectionsPage() {
                       <span className="text-[11px] text-gray-400">{pct}%</span>
                     </div>
                   )}
-                  <button onClick={() => setDelId(ins.id)} className="mt-3 text-[12px] text-red-500 font-medium">{t(T.delete)}</button>
+                  <div className="flex gap-3 mt-3">
+                    <button onClick={() => openEdit(ins)} className="text-[12px] text-teal-600 font-medium">{t(T.edit)}</button>
+                    <button onClick={() => setDelId(ins.id)} className="text-[12px] text-red-500 font-medium">{t(T.delete)}</button>
+                  </div>
                 </div>
               );
             })}
@@ -262,9 +293,9 @@ export default function InspectionsPage() {
         </div>
       )}
 
-      {/* Add Modal */}
+      {/* Add / Edit Modal */}
       <Modal open={modal} onClose={() => setModal(false)}
-        title={`${t(T.add)} — ${t(T.title)}`}
+        title={editing ? `${t(T.edit)} — ${t(T.title)}` : `${t(T.add)} — ${t(T.title)}`}
         footer={
           <div className="flex gap-2 justify-end">
             <button onClick={() => setModal(false)} className="px-4 py-2 text-[13px] font-medium text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl transition-colors">{t(T.cancel)}</button>
