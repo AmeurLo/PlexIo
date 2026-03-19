@@ -312,7 +312,7 @@ export const translations = {
     cta2:  { fr: "Parler à l'équipe", en: "Talk to the team" },
     trust: [
       { icon: "lock",       fr: "Données chiffrées AES-256",   en: "AES-256 encrypted data" },
-      { icon: "building",   fr: "Adapté à votre province",      en: "Built for your province" },
+      { icon: "building",   fr: "Conforme à votre juridiction",  en: "Compliant with your jurisdiction" },
       { icon: "smartphone", fr: "iOS · Android · Web",          en: "iOS · Android · Web" },
       { icon: "heart",      fr: "Hébergement nord-américain",   en: "North American hosting" },
     ],
