@@ -94,7 +94,7 @@ export default function Pricing() {
                 style={!isHighlighted ? { borderColor: "var(--border-subtle)" } : undefined}>
 
                 {isHighlighted && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 flex items-center gap-2">
                     <span className="text-[12px] font-bold text-white px-4 py-1.5 rounded-full shadow-teal-sm"
                           style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                       {t(P.popular)}
@@ -112,10 +112,22 @@ export default function Pricing() {
                         <span className="text-[44px] font-bold tracking-tight text-gray-900 dark:text-white">
                           {yearly ? plan.price.yearly : plan.price.monthly}$
                         </span>
-                        <span className="text-gray-400 text-[14px] mb-3">{t(P.perMonth)}</span>
+                        <div className="mb-3 flex flex-col gap-0.5">
+                          <span className="text-gray-400 text-[14px]">{t(P.perMonth)}</span>
+                          {plan.wasPrice && (
+                            <span className="text-[12px] text-gray-400 line-through">
+                              {yearly ? plan.wasPrice.yearly : plan.wasPrice.monthly}$
+                            </span>
+                          )}
+                        </div>
                       </>
                     )}
                   </div>
+                  {plan.launchBadge && (
+                    <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold px-2.5 py-1 rounded-full mb-2">
+                      🔥 {t(plan.launchBadge)}
+                    </div>
+                  )}
                   <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{t(plan.desc)}</p>
                 </div>
 

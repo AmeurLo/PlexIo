@@ -257,12 +257,14 @@ export const translations = {
       },
       {
         name: { fr: "Pro",    en: "Pro" },
-        price: { monthly: 29, yearly: 23 },
-        desc: { fr: "Pour les portefeuilles de 2 à 15 logements.", en: "For portfolios from 2 to 15 units." },
+        price: { monthly: 19, yearly: 15 },
+        wasPrice: { monthly: 29, yearly: 23 },
+        launchBadge: { fr: "Prix de lancement", en: "Launch price" },
+        desc: { fr: "Pour les portefeuilles de 2 à 20 logements.", en: "For portfolios from 2 to 20 units." },
         cta:  { fr: "Essayer 14 jours gratuits", en: "Try free for 14 days" },
         badge: true,
         features: [
-          { fr: "Immeubles illimités · jusqu'à 15 logements", en: "Unlimited properties · up to 15 units" },
+          { fr: "Immeubles illimités · jusqu'à 20 logements", en: "Unlimited properties · up to 20 units" },
           { fr: "Domely AI inclus",                           en: "Domely AI included" },
           { fr: "Toutes les automatisations",                 en: "All automations" },
           { fr: "Données de marché locatif",                  en: "Rental market data" },
@@ -274,8 +276,8 @@ export const translations = {
       },
       {
         name: { fr: "Équipe",   en: "Team" },
-        price: { monthly: 79, yearly: 63 },
-        desc: { fr: "Pour les gestionnaires de 16+ logements.", en: "For managers with 16+ units." },
+        price: { monthly: 99, yearly: 79 },
+        desc: { fr: "Pour les gestionnaires de 21+ logements.", en: "For managers with 21+ units." },
         cta:  { fr: "Contacter les ventes", en: "Contact sales" },
         features: [
           { fr: "Logements illimités",                  en: "Unlimited units" },
@@ -291,6 +293,8 @@ export const translations = {
     ] as Array<{
       name: { fr: string; en: string };
       price: { monthly: number; yearly: number };
+      wasPrice?: { monthly: number; yearly: number };
+      launchBadge?: { fr: string; en: string };
       desc: { fr: string; en: string };
       cta:  { fr: string; en: string };
       badge?: boolean;
