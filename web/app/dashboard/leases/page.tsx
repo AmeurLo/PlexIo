@@ -76,7 +76,7 @@ export default function LeasesPage() {
     if (!requireAuth()) return;
     Promise.all([api.getLeases(), api.getProperties(), api.getTenants()])
       .then(([ls, ps, ts]) => { setLeases(ls); setProperties(ps); setTenants(ts); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -97,6 +97,14 @@ export default function LeasesPage() {
 
   async function handleSave() {
     if (!form.monthly_rent || isNaN(Number(form.monthly_rent))) { setFormError(lang === "fr" ? "Loyer invalide." : "Invalid rent."); return; }
+    if (!form.tenant_id) {
+      setFormError(lang === "fr" ? "Sélectionnez un locataire." : "Please select a tenant.");
+      return;
+    }
+    if (!form.property_id) {
+      setFormError(lang === "fr" ? "Sélectionnez une propriété." : "Please select a property.");
+      return;
+    }
     setSaving(true); setFormError("");
     try {
       const payload = { ...form, monthly_rent: Number(form.monthly_rent), deposit_amount: Number(form.deposit_amount) || 0 };

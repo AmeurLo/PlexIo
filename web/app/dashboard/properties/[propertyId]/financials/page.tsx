@@ -221,7 +221,7 @@ export default function PropertyFinancialsPage() {
                         <tr key={e.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                           <td className="px-5 py-3.5 text-[13px] text-gray-600 dark:text-gray-400 whitespace-nowrap">{e.expense_date?.slice(0, 10) ?? "—"}</td>
                           <td className="px-5 py-3.5">
-                            <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${CATEGORY_COLORS[e.category] ?? CATEGORY_COLORS.other}`}>
+                            <span className={`text-[11px] font-semibold px-2.5 py-0.5 rounded-full ${CATEGORY_COLORS[e.category ?? "other"] ?? CATEGORY_COLORS.other}`}>
                               {e.category}
                             </span>
                           </td>
@@ -244,7 +244,7 @@ export default function PropertyFinancialsPage() {
                       <div>
                         <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200">{e.title}</p>
                         <div className="flex items-center gap-2 mt-0.5">
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${CATEGORY_COLORS[e.category] ?? CATEGORY_COLORS.other}`}>{e.category}</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${CATEGORY_COLORS[e.category ?? "other"] ?? CATEGORY_COLORS.other}`}>{e.category}</span>
                           <span className="text-[11px] text-gray-400">{e.expense_date?.slice(0, 10)}</span>
                         </div>
                       </div>

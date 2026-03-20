@@ -58,7 +58,7 @@ export default function TeamPage() {
   async function load() {
     setLoading(true);
     try { setMembers(await api.getTeamMembers()); }
-    catch (e: any) { console.error(e); }
+    catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
     finally { setLoading(false); }
   }
 

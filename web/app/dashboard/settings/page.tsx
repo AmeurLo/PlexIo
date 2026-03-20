@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/lib/LanguageContext";
+import { useToast } from "@/lib/ToastContext";
 import { requireAuth, getUser, logout } from "@/lib/auth";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/dashboard/PageHeader";
@@ -32,6 +33,7 @@ const T = {
 
 export default function SettingsPage() {
   const { lang, setLang, t } = useLanguage();
+  const { showToast } = useToast();
   const [storedUser, setStoredUser] = useState<import("@/lib/auth").StoredUser | null>(null);
   const [form, setForm] = useState({
     first_name: "",
@@ -58,7 +60,7 @@ export default function SettingsPage() {
         email:      p.email ?? "",
         phone:      p.phone ?? "",
       });
-    }).catch(() => {});
+    }).catch(e => showToast(e instanceof Error ? e.message : String(e), "error"));
   }, []);
 
   async function handleSaveProfile() {
@@ -75,6 +77,7 @@ export default function SettingsPage() {
         localStorage.setItem("domely_user", JSON.stringify(u));
       }
       setSaved(true);
+      showToast(t(T.saved), "success");
       setTimeout(() => setSaved(false), 3000);
     } catch (e: any) { setProfileError(e.message); }
     finally { setSaving(false); }
@@ -88,6 +91,7 @@ export default function SettingsPage() {
       await api.changePassword({ current_password: pwdForm.current_password, new_password: pwdForm.new_password });
       setPwdForm({ current_password: "", new_password: "", confirm: "" });
       setPwdSaved(true);
+      showToast(lang === "fr" ? "Mot de passe mis à jour !" : "Password updated!", "success");
       setTimeout(() => setPwdSaved(false), 3000);
     } catch (e: any) { setPwdError(e.message); }
     finally { setPwdSaving(false); }

@@ -82,7 +82,7 @@ export default function FinancesPage() {
       .then(([es, ms, ins, ps]) => {
         setExpenses(es); setMortgages(ms); setPolicies(ins); setProperties(ps);
       })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 

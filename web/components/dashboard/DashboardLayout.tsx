@@ -4,6 +4,8 @@ import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
 import DashboardHeader from "./DashboardHeader";
 import AIChatWidget from "./AIChatWidget";
+import WelcomeModal from "./WelcomeModal";
+import OnboardingChecklist from "./OnboardingChecklist";
 import { ToastProvider } from "@/lib/ToastContext";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -56,6 +58,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       {/* AI chat widget — floats over all dashboard pages */}
       <AIChatWidget />
+
+      {/* Onboarding — welcome modal (first login) + activation checklist */}
+      <WelcomeModal />
+      <OnboardingChecklist />
     </div>
     </ToastProvider>
   );

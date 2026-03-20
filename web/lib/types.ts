@@ -402,6 +402,7 @@ export interface Notification {
   type: string;
   title: string;
   message: string;
+  body?: string;
   is_read: boolean;
   created_at: string;
   related_id?: string;

@@ -240,7 +240,7 @@ export default function DocumentsPage() {
     if (!tenant) return;
     const lease = getLeaseForTenant(tenantId);
     const landlordName = "Le propriétaire";
-    const tenantName = `${(tenant as any).first_name ?? ""} ${(tenant as any).last_name ?? tenant.name ?? ""}`.trim();
+    const tenantName = `${(tenant as any).first_name ?? ""} ${(tenant as any).last_name ?? (tenant as any).name ?? ""}`.trim();
     const html = buildHTML(selected.id, {
       landlord: landlordName,
       tenant: tenantName,
@@ -338,7 +338,7 @@ export default function DocumentsPage() {
                 <select className={selectClass} value={tenantId} onChange={e => setTenantId(e.target.value)}>
                   {tenants.map(tn => (
                     <option key={tn.id} value={tn.id}>
-                      {(tn as any).first_name ?? ""} {(tn as any).last_name ?? tn.name ?? ""}
+                      {(tn as any).first_name ?? ""} {(tn as any).last_name ?? (tn as any).name ?? ""}
                       {(tn as any).unit_number ? ` · Log. ${(tn as any).unit_number}` : ""}
                     </option>
                   ))}
@@ -366,7 +366,7 @@ export default function DocumentsPage() {
             )}
 
             {/* Entry reason */}
-            {selected?.needsReason && (
+            {(selected as any)?.needsReason && (
               <FormField label={t(T.entryReason)}>
                 <input className={inputClass} value={entryReason}
                   onChange={e => setEntryReason(e.target.value)}

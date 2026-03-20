@@ -119,13 +119,19 @@ export default function OverviewPage() {
               <p className="text-[15px] font-bold text-teal-900 dark:text-teal-100">{t(T.demoTitle)}</p>
               <p className="text-[13px] text-teal-700 dark:text-teal-300 mt-0.5">{t(T.demoSub)}</p>
             </div>
-            <button
-              onClick={handleSeedDemo}
-              disabled={seeding}
-              className="flex-shrink-0 px-5 py-2.5 text-[13px] font-semibold text-white rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 shadow-sm"
-              style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
-              {seeding ? t(T.demoLoading) : t(T.demoBtn)}
-            </button>
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-shrink-0">
+              <button
+                onClick={handleSeedDemo}
+                disabled={seeding}
+                className="px-5 py-2.5 text-[13px] font-semibold text-white rounded-xl transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-60 shadow-sm"
+                style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
+                {seeding ? t(T.demoLoading) : t(T.demoBtn)}
+              </button>
+              <Link href="/dashboard/properties"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-[14px] font-semibold text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-800 rounded-xl hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors">
+                {lang === "fr" ? "+ Ajouter une propriété" : "+ Add a property"}
+              </Link>
+            </div>
           </div>
         </div>
       )}

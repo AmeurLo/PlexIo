@@ -67,7 +67,7 @@ export default function ContractorsPage() {
   async function load() {
     setLoading(true);
     try { setContractors(await api.getContractors()); }
-    catch (e: any) { console.error(e); }
+    catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
     finally { setLoading(false); }
   }
 

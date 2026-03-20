@@ -80,7 +80,7 @@ export default function NotificationsPage() {
     try {
       await api.markNotificationRead(id);
       setNotifs(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
-    } catch {/* silent */}
+    } catch (e) { showToast(e instanceof Error ? e.message : String(e), "error"); }
   }
 
   async function markAll() {
@@ -88,7 +88,8 @@ export default function NotificationsPage() {
       const unreadIds = notifs.filter(n => !n.is_read).map(n => n.id);
       await api.markAllNotificationsRead(unreadIds);
       setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
-    } catch {/* silent */}
+      showToast(lang === "fr" ? "Toutes les notifications lues." : "All notifications marked as read.", "success");
+    } catch (e) { showToast(e instanceof Error ? e.message : String(e), "error"); }
   }
 
   return (

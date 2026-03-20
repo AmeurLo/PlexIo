@@ -71,7 +71,7 @@ export default function MaintenancePage() {
     if (!requireAuth()) return;
     Promise.all([api.getMaintenanceRequests(), api.getProperties()])
       .then(([rs, ps]) => { setRequests(rs); setProperties(ps); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 

@@ -204,7 +204,9 @@ export default function InspectionsPage() {
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {inspections.map(ins => {
-                  const pct = ins.total_items > 0 ? Math.round((ins.items_done / ins.total_items) * 100) : 0;
+                  const totalItems = ins.total_items ?? 0;
+                  const itemsDone  = ins.items_done  ?? 0;
+                  const pct = totalItems > 0 ? Math.round((itemsDone / totalItems) * 100) : 0;
                   return (
                     <tr key={ins.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                       <td className="px-5 py-4">
@@ -228,12 +230,12 @@ export default function InspectionsPage() {
                         </span>
                       </td>
                       <td className="px-5 py-4">
-                        {ins.total_items > 0 ? (
+                        {totalItems > 0 ? (
                           <div className="flex items-center gap-2">
                             <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden" style={{ minWidth: 60 }}>
                               <div className="h-full bg-teal-500 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
-                            <span className="text-[11px] text-gray-400">{ins.items_done}/{ins.total_items}</span>
+                            <span className="text-[11px] text-gray-400">{itemsDone}/{totalItems}</span>
                           </div>
                         ) : <span className="text-gray-300">—</span>}
                       </td>
@@ -259,7 +261,9 @@ export default function InspectionsPage() {
           {/* Mobile cards */}
           <div className="md:hidden divide-y divide-gray-50 dark:divide-gray-800">
             {inspections.map(ins => {
-              const pct = ins.total_items > 0 ? Math.round((ins.items_done / ins.total_items) * 100) : 0;
+              const totalItems = ins.total_items ?? 0;
+              const itemsDone  = ins.items_done  ?? 0;
+              const pct = totalItems > 0 ? Math.round((itemsDone / totalItems) * 100) : 0;
               return (
                 <div key={ins.id} className="p-5">
                   <div className="flex items-center justify-between mb-2">
@@ -274,7 +278,7 @@ export default function InspectionsPage() {
                       {getLabel(ins.status, statusLabels)}
                     </span>
                   </div>
-                  {ins.total_items > 0 && (
+                  {totalItems > 0 && (
                     <div className="flex items-center gap-2 mt-2">
                       <div className="flex-1 h-1.5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div className="h-full bg-teal-500 rounded-full" style={{ width: `${pct}%` }} />
@@ -294,7 +298,7 @@ export default function InspectionsPage() {
       )}
 
       {/* Add / Edit Modal */}
-      <Modal open={modal} onClose={() => setModal(false)}
+      <Modal isOpen={modal} onClose={() => setModal(false)}
         title={editing ? `${t(T.edit)} — ${t(T.title)}` : `${t(T.add)} — ${t(T.title)}`}
         footer={
           <div className="flex gap-2 justify-end">
@@ -340,7 +344,7 @@ export default function InspectionsPage() {
       </Modal>
 
       <ConfirmDialog
-        open={!!delId}
+        isOpen={!!delId}
         title={t(T.delTitle)}
         message={t(T.delMsg)}
         onConfirm={deleteInspection}

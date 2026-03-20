@@ -12,6 +12,7 @@ import Modal from "@/components/dashboard/Modal";
 import EmptyState from "@/components/dashboard/EmptyState";
 import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
 import StatusBadge from "@/components/dashboard/StatusBadge";
+import ConfirmDialog from "@/components/dashboard/ConfirmDialog";
 
 const T = {
   title:      { fr: "Loyers",              en: "Rent" },
@@ -58,12 +59,13 @@ export default function RentPage() {
   const [form, setForm] = useState({ ...emptyForm });
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
+  const [confirmPay, setConfirmPay] = useState<RentPayment | null>(null);
 
   useEffect(() => {
     if (!requireAuth()) return;
     Promise.all([api.getRentPayments(), api.getProperties(), api.getTenants()])
       .then(([rp, ps, ts]) => { setPayments(rp); setProperties(ps); setTenants(ts); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -99,7 +101,7 @@ export default function RentPage() {
     try {
       await api.updateRentPayment(p.id ?? p._id, { status: "paid", payment_date: new Date().toISOString().slice(0, 10) });
       load();
-    } catch (e: any) { showToast(e.message, "error"); }
+    } catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
   }
 
   function handleExport() {
@@ -192,7 +194,7 @@ export default function RentPage() {
                     <td className="px-5 py-3">
                       <div className="flex gap-2 justify-end">
                         {p.status !== "paid" && (
-                          <button onClick={() => markPaid(p)} className="text-[12px] text-teal-700 hover:underline whitespace-nowrap">{t(T.markPaid)}</button>
+                          <button onClick={() => setConfirmPay(p)} className="text-[12px] text-teal-700 hover:underline whitespace-nowrap">{t(T.markPaid)}</button>
                         )}
                         <Link href={`/dashboard/rent/${p.id}/receipt`}
                           className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
@@ -219,13 +221,23 @@ export default function RentPage() {
                   <StatusBadge status={p.status ?? "pending"} lang={lang} />
                 </div>
                 {p.status !== "paid" && (
-                  <button onClick={() => markPaid(p)} className="ml-1 px-2 py-1 text-[11px] font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 rounded-lg">{t(T.markPaid)}</button>
+                  <button onClick={() => setConfirmPay(p)} className="ml-1 px-2 py-1 text-[11px] font-medium bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 rounded-lg">{t(T.markPaid)}</button>
                 )}
               </div>
             ))}
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={!!confirmPay}
+        title={lang === "fr" ? "Confirmer le paiement" : "Confirm Payment"}
+        message={lang === "fr"
+          ? `Marquer le loyer de ${confirmPay?.tenant_name ?? ""} comme payé ?`
+          : `Mark rent for ${confirmPay?.tenant_name ?? ""} as paid?`}
+        onConfirm={() => { if (confirmPay) markPaid(confirmPay); setConfirmPay(null); }}
+        onCancel={() => setConfirmPay(null)}
+      />
 
       <Modal
         isOpen={showModal}

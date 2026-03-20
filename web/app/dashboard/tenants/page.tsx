@@ -65,7 +65,7 @@ export default function TenantsPage() {
     if (!requireAuth()) return;
     Promise.all([api.getTenants(), api.getProperties()])
       .then(([ts, ps]) => { setTenants(ts); setProperties(ps); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 

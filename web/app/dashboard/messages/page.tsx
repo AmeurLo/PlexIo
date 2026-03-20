@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useLanguage } from "@/lib/LanguageContext";
+import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -23,6 +24,7 @@ const T = {
 
 export default function MessagesPage() {
   const { lang, t } = useLanguage();
+  const { showToast } = useToast();
   const [conversations, setConversations] = useState<any[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -40,7 +42,7 @@ export default function MessagesPage() {
     if (!requireAuth()) return;
     api.getConversations()
       .then((convs: any[]) => { setConversations(convs); if (convs.length > 0) openConversation(convs[0].id ?? convs[0]._id, convs); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -48,7 +50,7 @@ export default function MessagesPage() {
     if (!activeConvId) return;
     api.getMessages(activeConvId)
       .then(msgs => { setMessages(msgs); setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50); })
-      .catch(e => console.error(e));
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"));
   }, [activeConvId]);
 
   function openConversation(id: string, convList?: any[]) {
@@ -65,7 +67,7 @@ export default function MessagesPage() {
       setTenantsLoading(true);
       api.getTenants()
         .then((ts: any[]) => setTenants(ts))
-        .catch(e => console.error(e))
+        .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
         .finally(() => setTenantsLoading(false));
     }
   }
@@ -90,7 +92,7 @@ export default function MessagesPage() {
       const msgs = await api.getMessages(activeConvId);
       setMessages(msgs);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
-    } catch (e: any) { console.error(e); }
+    } catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
     finally { setSending(false); }
   }
 

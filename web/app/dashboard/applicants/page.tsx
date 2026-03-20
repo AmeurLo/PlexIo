@@ -68,7 +68,7 @@ export default function ApplicantsPage() {
     if (!requireAuth()) return;
     Promise.all([api.getApplicants(), api.getProperties()])
       .then(([as_, ps]) => { setApplicants(as_); setProperties(ps); })
-      .catch(e => console.error(e))
+      .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -113,7 +113,7 @@ export default function ApplicantsPage() {
 
   async function moveStatus(a: Applicant, status: string) {
     try { await api.updateApplicant(a.id ?? a._id, { status } as any); load(); }
-    catch (e: any) { console.error(e); }
+    catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
   }
 
   const f = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }));
