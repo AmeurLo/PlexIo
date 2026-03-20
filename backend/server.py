@@ -312,16 +312,23 @@ class Reminder(BaseModel):
 class DashboardStats(BaseModel):
     total_properties: int = 0
     total_units: int = 0
+    total_tenants: int = 0
     occupied_units: int = 0
     vacant_units: int = 0
     occupancy_rate: float = 0
     total_rent_expected: float = 0
     total_rent_collected: float = 0
+    monthly_revenue: float = 0
+    collected_this_month: float = 0
+    pending_rent: float = 0
     collection_rate: float = 0
     open_maintenance: int = 0
+    open_maintenance_requests: int = 0
     leases_expiring_soon: int = 0
     overdue_rent_count: int = 0
     current_month: str = ""
+    recent_payments: List[dict] = []
+    alerts: List[dict] = []
 
 # ===========================
 # AUTH HELPERS
@@ -1350,28 +1357,39 @@ async def get_dashboard(current_user: dict = Depends(get_current_user)):
     
     collection_rate = (total_rent_collected / total_rent_expected * 100) if total_rent_expected > 0 else 0
     
+    # Tenants count
+    total_tenants = await db.tenants.count_documents({"user_id": current_user["id"]})
+
+    # Collected vs pending this month
+    collected_this_month = sum(
+        p.get("amount", 0) for p in payments if p.get("status") == "paid"
+    )
+    pending_rent = sum(
+        p.get("amount", 0) for p in payments if p.get("status") in ("pending", "late")
+    )
+
     # Open maintenance
     open_maintenance = await db.maintenance_requests.count_documents({
         "user_id": current_user["id"],
         "status": {"$in": ["open", "in_progress"]}
     })
-    
+
     # Leases expiring in next 60 days
     future_date = (today + timedelta(days=60)).strftime("%Y-%m-%d")
     today_str = today.strftime("%Y-%m-%d")
-    
+
     leases_expiring = await db.leases.count_documents({
         "user_id": current_user["id"],
         "is_active": True,
         "end_date": {"$lte": future_date, "$gte": today_str}
     })
-    
+
     # Overdue rent count
     active_leases = await db.leases.find({
         "user_id": current_user["id"],
         "is_active": True
     }).to_list(100)
-    
+
     overdue_count = 0
     for lease in active_leases:
         payment = await db.rent_payments.find_one({
@@ -1380,20 +1398,59 @@ async def get_dashboard(current_user: dict = Depends(get_current_user)):
         })
         if not payment and today.day > lease.get("payment_due_day", 1):
             overdue_count += 1
-    
+
+    # Recent payments (last 8, with tenant name)
+    tenant_cache: dict = {}
+    recent_raw = await db.rent_payments.find(
+        {"user_id": current_user["id"]}
+    ).sort("created_at", -1).limit(8).to_list(8)
+
+    recent_payments = []
+    for p in recent_raw:
+        tid = p.get("tenant_id")
+        if tid and tid not in tenant_cache:
+            t = await db.tenants.find_one({"id": tid, "user_id": current_user["id"]})
+            tenant_cache[tid] = f"{t.get('first_name','')} {t.get('last_name','')}".strip() if t else tid
+        recent_payments.append({
+            "id": p.get("id"),
+            "tenant_id": tid,
+            "tenant_name": tenant_cache.get(tid, tid),
+            "amount": p.get("amount", 0),
+            "status": p.get("status", "pending"),
+            "month_year": p.get("month_year"),
+            "due_date": f"{p.get('month_year')}-01" if p.get("month_year") else None,
+            "payment_date": p.get("payment_date"),
+        })
+
+    # Alerts
+    alerts = []
+    if overdue_count > 0:
+        alerts.append({"type": "urgent", "message": f"{overdue_count} loyer(s) en retard ce mois-ci" if True else f"{overdue_count} overdue rent(s) this month"})
+    if leases_expiring > 0:
+        alerts.append({"type": "warning", "message": f"{leases_expiring} bail(s) expire(nt) dans les 60 prochains jours"})
+    if open_maintenance > 0:
+        alerts.append({"type": "info", "message": f"{open_maintenance} demande(s) de maintenance ouverte(s)"})
+
     return DashboardStats(
         total_properties=total_properties,
         total_units=total_units,
+        total_tenants=total_tenants,
         occupied_units=occupied_units,
         vacant_units=vacant_units,
         occupancy_rate=round(occupancy_rate, 1),
         total_rent_expected=total_rent_expected,
         total_rent_collected=total_rent_collected,
+        monthly_revenue=collected_this_month,
+        collected_this_month=collected_this_month,
+        pending_rent=pending_rent,
         collection_rate=round(collection_rate, 1),
         open_maintenance=open_maintenance,
+        open_maintenance_requests=open_maintenance,
         leases_expiring_soon=leases_expiring,
         overdue_rent_count=overdue_count,
-        current_month=current_month
+        current_month=current_month,
+        recent_payments=recent_payments,
+        alerts=alerts,
     )
 
 # ===========================
