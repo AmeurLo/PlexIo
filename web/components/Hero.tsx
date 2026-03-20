@@ -228,7 +228,7 @@ export default function Hero() {
         </div>
 
         {/* ── Right mockup ── */}
-        <div className="flex justify-center lg:justify-end lg:pr-0 lg:translate-x-12">
+        <div className="flex justify-center lg:justify-end lg:pr-0 lg:translate-x-24">
           <AppMockup />
         </div>
       </div>
