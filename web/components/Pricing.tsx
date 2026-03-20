@@ -1,10 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLanguage } from "@/lib/LanguageContext";
 import { translations as T } from "@/lib/translations";
+
+// ── Launch promo expiry — change this date to extend or end the promo ──────────
+const PROMO_END = new Date("2026-04-30T23:59:59");
 
 const CHECK = () => (
   <svg className="w-4 h-4 text-teal-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -20,11 +23,29 @@ const CROSS = () => (
 const PLAN_KEYS = ["starter", "pro", "team"] as const;
 
 export default function Pricing() {
-  const { t } = useLanguage();
+  const { t, lang } = useLanguage();
   const router = useRouter();
   const P = T.pricing;
-  const [yearly, setYearly]       = useState(false);
-  const [loading, setLoading]     = useState<string | null>(null);
+  const [yearly, setYearly]   = useState(false);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [daysLeft, setDaysLeft] = useState(0);
+  const [isPromoActive, setIsPromoActive] = useState(false);
+
+  useEffect(() => {
+    const compute = () => {
+      const now = new Date();
+      const active = now < PROMO_END;
+      setIsPromoActive(active);
+      if (active) {
+        const diff = Math.ceil((PROMO_END.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        setDaysLeft(diff);
+      }
+    };
+    compute();
+    // Recompute once a minute so the tab stays accurate
+    const id = setInterval(compute, 60_000);
+    return () => clearInterval(id);
+  }, []);
 
   const handleCheckout = async (planKey: string) => {
     setLoading(planKey);
@@ -39,11 +60,8 @@ export default function Pricing() {
         }),
       });
       const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      }
+      if (data.url) window.location.href = data.url;
     } catch {
-      // Stripe not configured yet — fallback to signup
       router.push("/login?signup=true");
     } finally {
       setLoading(null);
@@ -84,6 +102,13 @@ export default function Pricing() {
             const isEnterprise  = i === 2;
             const isLoadingThis = loading === planKey;
 
+            // When promo is live use discounted price; after expiry fall back to wasPrice
+            const hasPromo      = !!plan.wasPrice && !!plan.launchBadge;
+            const showPromo     = hasPromo && isPromoActive;
+            const activePrice   = showPromo
+              ? plan.price
+              : (plan.wasPrice ?? plan.price);   // revert to original after expiry
+
             return (
               <div key={i}
                 className={`relative rounded-2xl p-7 border-2 flex flex-col transition-shadow ${
@@ -94,7 +119,7 @@ export default function Pricing() {
                 style={!isHighlighted ? { borderColor: "var(--border-subtle)" } : undefined}>
 
                 {isHighlighted && (
-                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2 flex items-center gap-2">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
                     <span className="text-[12px] font-bold text-white px-4 py-1.5 rounded-full shadow-teal-sm"
                           style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                       {t(P.popular)}
@@ -102,19 +127,21 @@ export default function Pricing() {
                   </div>
                 )}
 
-                  <div className="mb-7">
+                <div className="mb-7">
                   <p className="text-[12px] font-semibold text-gray-400 uppercase tracking-widest mb-2">{t(plan.name)}</p>
-                    <div className="flex items-end gap-1.5 mb-2">
+
+                  <div className="flex items-end gap-1.5 mb-2">
                     {isFree ? (
                       <span className="text-[44px] font-bold tracking-tight text-gray-900 dark:text-white">{t(P.free)}</span>
                     ) : (
                       <>
                         <span className="text-[44px] font-bold tracking-tight text-gray-900 dark:text-white">
-                          {yearly ? plan.price.yearly : plan.price.monthly}$
+                          {yearly ? activePrice.yearly : activePrice.monthly}$
                         </span>
                         <div className="mb-3 flex flex-col gap-0.5">
                           <span className="text-gray-400 text-[14px]">{t(P.perMonth)}</span>
-                          {plan.wasPrice && (
+                          {/* Strikethrough original price — only visible during promo */}
+                          {showPromo && plan.wasPrice && (
                             <span className="text-[12px] text-gray-400 line-through">
                               {yearly ? plan.wasPrice.yearly : plan.wasPrice.monthly}$
                             </span>
@@ -123,11 +150,20 @@ export default function Pricing() {
                       </>
                     )}
                   </div>
-                  {plan.launchBadge && (
-                    <div className="inline-flex items-center gap-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold px-2.5 py-1 rounded-full mb-2">
+
+                  {/* Launch badge + countdown — disappears automatically after PROMO_END */}
+                  {showPromo && plan.launchBadge && (
+                    <div className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-semibold px-2.5 py-1 rounded-full mb-2">
                       🔥 {t(plan.launchBadge)}
+                      <span className="text-amber-500 font-normal">·</span>
+                      <span className="text-amber-600">
+                        {daysLeft <= 1
+                          ? (lang === "fr" ? "Dernier jour !" : "Last day!")
+                          : (lang === "fr" ? `${daysLeft}j restants` : `${daysLeft}d left`)}
+                      </span>
                     </div>
                   )}
+
                   <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>{t(plan.desc)}</p>
                 </div>
 
@@ -149,7 +185,7 @@ export default function Pricing() {
                     className="block w-full text-center py-3 px-5 rounded-xl text-[14px] font-semibold transition-all mb-7 text-white disabled:opacity-70 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99]"
                     style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                     {isLoadingThis
-                      ? (t({ fr: "Chargement…", en: "Loading…" }))
+                      ? t({ fr: "Chargement…", en: "Loading…" })
                       : t(plan.cta)}
                   </button>
                 )}
