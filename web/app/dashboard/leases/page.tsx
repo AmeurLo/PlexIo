@@ -5,7 +5,7 @@ import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatDate, formatCurrency, downloadCsv } from "@/lib/format";
-import type { Lease, Property, Tenant } from "@/lib/types";
+import type { Lease, Property, Tenant, Unit } from "@/lib/types";
 import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
 import ConfirmDialog from "@/components/dashboard/ConfirmDialog";
@@ -55,7 +55,7 @@ const LEASE_STATUSES = [
 ];
 
 const emptyForm = {
-  tenant_id: "", property_id: "", unit_number: "", start_date: "", end_date: "",
+  tenant_id: "", property_id: "", unit_id: "", start_date: "", end_date: "",
   monthly_rent: "", deposit_amount: "", lease_type: "fixed_term", status: "active", notes: "",
 };
 
@@ -65,6 +65,7 @@ export default function LeasesPage() {
   const [leases, setLeases] = useState<Lease[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [tenants, setTenants] = useState<Tenant[]>([]);
+  const [units, setUnits] = useState<Unit[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editing, setEditing] = useState<Lease | null>(null);
@@ -77,8 +78,8 @@ export default function LeasesPage() {
 
   useEffect(() => {
     if (!requireAuth()) return;
-    Promise.all([api.getLeases(), api.getProperties(), api.getTenants()])
-      .then(([ls, ps, ts]) => { setLeases(ls); setProperties(ps); setTenants(ts); })
+    Promise.all([api.getLeases(), api.getProperties(), api.getTenants(), api.getUnits()])
+      .then(([ls, ps, ts, us]) => { setLeases(ls); setProperties(ps); setTenants(ts); setUnits(us); })
       .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
@@ -90,10 +91,16 @@ export default function LeasesPage() {
   function openEdit(l: Lease) {
     setEditing(l);
     setForm({
-      tenant_id: l.tenant_id ?? "", property_id: l.property_id ?? "", unit_number: l.unit_number ?? "",
-      start_date: l.start_date?.slice(0, 10) ?? "", end_date: l.end_date?.slice(0, 10) ?? "",
-      monthly_rent: String(l.monthly_rent ?? ""), deposit_amount: String(l.deposit_amount ?? ""),
-      lease_type: l.lease_type ?? "fixed_term", status: l.status ?? "active", notes: l.notes ?? "",
+      tenant_id: l.tenant_id ?? "",
+      property_id: l.property_id ?? "",
+      unit_id: l.unit_id ?? "",
+      start_date: l.start_date?.slice(0, 10) ?? "",
+      end_date: l.end_date?.slice(0, 10) ?? "",
+      monthly_rent: String(l.rent_amount ?? (l as any).monthly_rent ?? ""),
+      deposit_amount: String(l.security_deposit ?? (l as any).deposit_amount ?? ""),
+      lease_type: l.lease_type ?? "fixed_term",
+      status: l.status ?? "active",
+      notes: l.notes ?? "",
     });
     setFormError(""); setShowModal(true);
   }
@@ -110,7 +117,18 @@ export default function LeasesPage() {
     }
     setSaving(true); setFormError("");
     try {
-      const payload = { ...form, monthly_rent: Number(form.monthly_rent), deposit_amount: Number(form.deposit_amount) || 0 };
+      const payload = {
+        tenant_id: form.tenant_id,
+        property_id: form.property_id,
+        unit_id: form.unit_id || undefined,
+        start_date: form.start_date || undefined,
+        end_date: form.end_date || undefined,
+        rent_amount: Number(form.monthly_rent),
+        security_deposit: Number(form.deposit_amount) || 0,
+        lease_type: form.lease_type,
+        status: form.status,
+        notes: form.notes || undefined,
+      };
       if (editing) { await api.updateLease(editing.id, payload as any); }
       else { await api.createLease(payload as any); }
       setShowModal(false); load();
@@ -142,13 +160,13 @@ export default function LeasesPage() {
 
   function handleExport() {
     const rows = leases.map(l => ({
-      [t(T.tenant)]: tenantName(l.tenant_id ?? ""),
-      [t(T.property)]: propName(l.property_id ?? ""),
+      [t(T.tenant)]: displayTenantName(l),
+      [t(T.property)]: displayPropertyName(l),
       [t(T.unit)]: l.unit_number ?? "",
       [t(T.start)]: l.start_date ?? "",
       [t(T.end)]: l.end_date ?? "",
-      [t(T.rent)]: l.monthly_rent ?? "",
-      [t(T.deposit)]: l.deposit_amount ?? "",
+      [t(T.rent)]: l.rent_amount ?? (l as any).monthly_rent ?? "",
+      [t(T.deposit)]: l.security_deposit ?? (l as any).deposit_amount ?? "",
       [t(T.status)]: l.status ?? "",
     }));
     if (rows.length) downloadCsv(rows, "baux.csv");
@@ -157,6 +175,15 @@ export default function LeasesPage() {
   const f = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }));
   const tenantName = (id: string) => { const ten = tenants.find(t => t.id === id || t._id === id); return ten ? `${ten.first_name} ${ten.last_name}` : id; };
   const propName = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
+
+  // Use denormalized names from API when available, fall back to local lookups
+  const displayTenantName = (l: Lease) => (l as any).tenant_name ?? tenantName(l.tenant_id ?? "");
+  const displayPropertyName = (l: Lease) => (l as any).property_name ?? propName(l.property_id ?? "");
+
+  // Units filtered by selected property in the form
+  const filteredUnits = form.property_id
+    ? units.filter(u => (u.property_id === form.property_id) || ((u as any).property === form.property_id))
+    : units;
 
   return (
     <div className="p-6 max-w-6xl space-y-6">
@@ -187,12 +214,14 @@ export default function LeasesPage() {
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {leases.map(l => (
                   <tr key={l.id ?? l._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="px-5 py-3 font-medium text-gray-800 dark:text-gray-200">{tenantName(l.tenant_id ?? "")}</td>
-                    <td className="px-5 py-3 text-gray-500">{propName(l.property_id ?? "")}</td>
+                    <td className="px-5 py-3 font-medium text-gray-800 dark:text-gray-200">{displayTenantName(l)}</td>
+                    <td className="px-5 py-3 text-gray-500">{displayPropertyName(l)}</td>
                     <td className="px-5 py-3 text-gray-500">{l.unit_number || "—"}</td>
                     <td className="px-5 py-3 text-gray-500">{l.start_date ? formatDate(l.start_date) : "—"}</td>
                     <td className="px-5 py-3 text-gray-500">{l.end_date ? formatDate(l.end_date) : "—"}</td>
-                    <td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{formatCurrency(l.monthly_rent ?? 0)}/mo</td>
+                    <td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">
+                      {formatCurrency(l.rent_amount ?? (l as any).monthly_rent ?? 0)}/mo
+                    </td>
                     <td className="px-5 py-3"><StatusBadge status={l.status ?? "active"} lang={lang} /></td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2 justify-end items-center">
@@ -219,11 +248,14 @@ export default function LeasesPage() {
             {leases.map(l => (
               <div key={l.id ?? l._id} className="p-4">
                 <div className="flex items-center justify-between mb-1">
-                  <p className="font-medium text-gray-800 dark:text-gray-200">{tenantName(l.tenant_id ?? "")}</p>
+                  <p className="font-medium text-gray-800 dark:text-gray-200">{displayTenantName(l)}</p>
                   <StatusBadge status={l.status ?? "active"} lang={lang} />
                 </div>
-                <p className="text-[12px] text-gray-400">{propName(l.property_id ?? "")} · {l.unit_number || "—"}</p>
+                <p className="text-[12px] text-gray-400">{displayPropertyName(l)} · {l.unit_number || "—"}</p>
                 <p className="text-[12px] text-gray-400">{formatDate(l.start_date ?? "")} → {l.end_date ? formatDate(l.end_date) : "∞"}</p>
+                <p className="text-[12px] font-semibold text-gray-700 dark:text-gray-300 mt-1">
+                  {formatCurrency(l.rent_amount ?? (l as any).monthly_rent ?? 0)}/mo
+                </p>
                 <div className="flex gap-3 mt-2 items-center">
                   <button
                     onClick={() => handleGenerateBail(l.id ?? l._id ?? "")}
@@ -265,14 +297,21 @@ export default function LeasesPage() {
             </select>
           </FormField>
           <FormField label={t(T.property)}>
-            <select className={selectClass} value={form.property_id} onChange={e => f("property_id", e.target.value)}>
+            <select className={selectClass} value={form.property_id} onChange={e => { f("property_id", e.target.value); f("unit_id", ""); }}>
               <option value="">—</option>
               {properties.map(p => <option key={p.id ?? p._id} value={p.id ?? p._id}>{p.name}</option>)}
             </select>
           </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label={t(T.unit)}>
-              <input className={inputClass} value={form.unit_number} onChange={e => f("unit_number", e.target.value)} placeholder="101" />
+              <select className={selectClass} value={form.unit_id} onChange={e => f("unit_id", e.target.value)}>
+                <option value="">—</option>
+                {filteredUnits.map(u => (
+                  <option key={u.id ?? u._id} value={u.id ?? u._id}>
+                    {u.unit_number || `Unit ${u.id?.slice(0, 6)}`}
+                  </option>
+                ))}
+              </select>
             </FormField>
             <FormField label={t(T.type)}>
               <select className={selectClass} value={form.lease_type} onChange={e => f("lease_type", e.target.value)}>
@@ -310,7 +349,7 @@ export default function LeasesPage() {
       <ConfirmDialog
         isOpen={!!deleteTarget}
         title={t(T.delTitle)}
-        message={`${tenantName(deleteTarget?.tenant_id ?? "")} — ${t(T.delMsg)}`}
+        message={`${displayTenantName(deleteTarget ?? {} as Lease)} — ${t(T.delMsg)}`}
         confirmLabel={t(T.delete)}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
