@@ -5025,8 +5025,42 @@ async def shutdown_db_client():
     scheduler.shutdown(wait=False)
     client.close()
 
+DEMO_EMAIL    = "demo@domely.app"
+DEMO_PASSWORD = "Demo1234!"
+DEMO_NAME     = "Alex Dupont (Demo)"
+
+async def ensure_demo_account():
+    """Create the shared demo account and seed it if it doesn't already exist."""
+    existing = await db.users.find_one({"email": DEMO_EMAIL})
+    if existing:
+        # Already exists — just make sure demo data is present
+        has_props = await db.properties.find_one({"user_id": existing["id"]})
+        if not has_props:
+            logger.info("[Demo] Seeding demo data for existing demo account…")
+            await seed_demo_data(existing)
+        return
+
+    logger.info("[Demo] Creating demo account: %s", DEMO_EMAIL)
+    demo_id = str(uuid.uuid4())
+    hashed  = pwd_context.hash(DEMO_PASSWORD)
+    demo_user = {
+        "id":              demo_id,
+        "email":           DEMO_EMAIL,
+        "full_name":       DEMO_NAME,
+        "hashed_password": hashed,
+        "plan":            "pro",
+        "plan_status":     "active",
+        "is_demo":         True,
+        "created_at":      datetime.utcnow(),
+    }
+    await db.users.insert_one(demo_user)
+    logger.info("[Demo] Demo account created — seeding data…")
+    await seed_demo_data(demo_user)
+    logger.info("[Demo] Done. Login: %s / %s", DEMO_EMAIL, DEMO_PASSWORD)
+
 @app.on_event("startup")
 async def startup():
     scheduler.add_job(run_daily_automations, "cron", hour=8, minute=0, id="daily_automations")
     scheduler.start()
     logger.info("[Scheduler] APScheduler started — daily automations at 08:00")
+    await ensure_demo_account()

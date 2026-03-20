@@ -6,7 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { useLanguage } from "@/lib/LanguageContext";
 import { translations as T } from "@/lib/translations";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const API_URL      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+const DEMO_EMAIL    = "demo@domely.app";
+const DEMO_PASSWORD = "Demo1234!";
 
 function LoginForm() {
   const params = useSearchParams();
@@ -18,8 +20,30 @@ function LoginForm() {
   const [password, setPassword]         = useState("");
   const [fullName, setFullName]         = useState("");
   const [loading, setLoading]           = useState(false);
+  const [demoLoading, setDemoLoading]   = useState(false);
   const [error, setError]               = useState("");
   const [showPassword, setShowPassword] = useState(false);
+
+  const handleDemoLogin = async () => {
+    setDemoLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: DEMO_EMAIL, password: DEMO_PASSWORD }),
+      });
+      if (!res.ok) throw new Error("Compte démo indisponible, réessayez.");
+      const data = await res.json();
+      localStorage.setItem("domely_token", data.access_token);
+      localStorage.setItem("domely_user", JSON.stringify(data.user));
+      window.location.href = "/dashboard";
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur démo.");
+    } finally {
+      setDemoLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -172,6 +196,28 @@ function LoginForm() {
                   : isSignup ? t(L.submitSignup) : t(L.submit)
                 }
               </button>
+
+              {!isSignup && (
+                <>
+                  <div className="flex items-center gap-3 my-1">
+                    <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                    <span className="text-[11px] text-gray-400 font-medium">ou</span>
+                    <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDemoLogin}
+                    disabled={demoLoading}
+                    className="w-full py-3 text-[14px] font-semibold rounded-xl border-2 border-teal-600 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  >
+                    {demoLoading
+                      ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Chargement…</>
+                      : <><span>🏠</span> Essayer la démo</>
+                    }
+                  </button>
+                  <p className="text-center text-[11px] text-gray-400 mt-1">Compte de démonstration pré-rempli — aucune inscription requise</p>
+                </>
+              )}
             </form>
           </div>
 
