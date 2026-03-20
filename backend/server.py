@@ -3940,6 +3940,90 @@ async def get_tenant_payments(current_tenant: dict = Depends(get_current_tenant)
     return payments
 
 
+class TenantPaymentConfirmBody(BaseModel):
+    method: str = "etransfer"   # etransfer, cash, cheque, other
+    note: Optional[str] = None
+
+@api_router.post("/tenant/payments/confirm")
+async def tenant_confirm_payment(
+    data: TenantPaymentConfirmBody,
+    current_tenant: dict = Depends(get_current_tenant),
+):
+    """
+    Tenant declares they have paid rent manually (e-transfer / cash / cheque).
+    Creates a rent_payment with status='pending_confirmation' — landlord must verify.
+    """
+    tenant_id = current_tenant.get("id") or current_tenant.get("tenant_id")
+    lease = await db.leases.find_one({"tenant_id": tenant_id, "is_active": True})
+    if not lease:
+        raise HTTPException(status_code=404, detail="No active lease found")
+
+    rent_amount = float(lease.get("rent_amount", 0))
+    month_year  = datetime.utcnow().strftime("%Y-%m")
+
+    # Prevent duplicate confirmation for same month
+    existing = await db.rent_payments.find_one({
+        "tenant_id": tenant_id,
+        "month_year": month_year,
+        "status": {"$in": ["paid", "pending_confirmation"]},
+    })
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail="A payment for this month already exists or is pending confirmation.",
+        )
+
+    landlord = await db.users.find_one({"id": lease.get("landlord_id") or lease.get("user_id")})
+    payment_doc = {
+        "id":             str(uuid.uuid4()),
+        "user_id":        landlord["id"] if landlord else "",
+        "lease_id":       str(lease.get("id", "")),
+        "tenant_id":      tenant_id,
+        "unit_id":        str(lease.get("unit_id", "")),
+        "amount":         rent_amount,
+        "payment_date":   datetime.utcnow().strftime("%Y-%m-%d"),
+        "payment_method": data.method,
+        "month_year":     month_year,
+        "status":         "pending_confirmation",
+        "notes":          data.note or "",
+        "created_at":     datetime.utcnow(),
+    }
+    await db.rent_payments.insert_one(payment_doc)
+
+    # Notify landlord by email if RESEND_API_KEY is set
+    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
+    if RESEND_API_KEY and landlord:
+        tenant_name = f"{current_tenant.get('first_name', '')} {current_tenant.get('last_name', '')}".strip() or "Votre locataire"
+        method_labels = {"etransfer": "virement Interac", "cash": "comptant", "cheque": "chèque", "other": "autre"}
+        method_label = method_labels.get(data.method, data.method)
+        try:
+            import httpx
+            async with httpx.AsyncClient() as client:
+                await client.post(
+                    "https://api.resend.com/emails",
+                    headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                    json={
+                        "from": "Domely <notifications@domely.ca>",
+                        "to": landlord["email"],
+                        "subject": f"Domely — {tenant_name} a confirmé un paiement de loyer",
+                        "text": (
+                            f"Bonjour,\n\n{tenant_name} a confirmé avoir payé son loyer de {rent_amount}$ "
+                            f"pour {month_year} par {method_label}.\n\n"
+                            f"Note : {data.note or '(aucune)'}\n\n"
+                            f"Veuillez vérifier la réception et confirmer le paiement dans votre tableau de bord Domely.\n\n"
+                            f"https://domely.app/dashboard/rent\n\nL'équipe Domely"
+                        ),
+                    },
+                )
+        except Exception as e:
+            logger.warning("[TenantConfirm] Email notification failed: %s", e)
+
+    payment_doc.pop("_id", None)
+    if isinstance(payment_doc.get("created_at"), datetime):
+        payment_doc["created_at"] = payment_doc["created_at"].isoformat()
+    return payment_doc
+
+
 @api_router.get("/tenant/maintenance")
 async def get_tenant_maintenance(current_tenant: dict = Depends(get_current_tenant)):
     unit = await db.units.find_one({"id": current_tenant.get("unit_id")}) if current_tenant.get("unit_id") else None

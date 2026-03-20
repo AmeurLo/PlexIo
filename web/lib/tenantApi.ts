@@ -90,4 +90,6 @@ export const tenantApi = {
     tenantFetch<any>("/tenant/messages", { method: "POST", ...body({ content }) }),
   createPaymentIntent: () =>
     tenantFetch<{ client_secret: string; amount: number }>("/tenant/payments/create-intent", { method: "POST" }),
+  confirmPayment: (data: { method: string; note?: string }) =>
+    tenantFetch<any>("/tenant/payments/confirm", { method: "POST", ...body(data) }),
 };

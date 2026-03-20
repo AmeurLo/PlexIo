@@ -37,6 +37,8 @@ const T = {
   total:      { fr: "Total perçu",        en: "Total collected" },
   pending:    { fr: "En attente",         en: "Pending" },
   all:        { fr: "Tous",              en: "All" },
+  confirmRecv: { fr: "Confirmer réception", en: "Confirm receipt" },
+  tenantConf:  { fr: "✉ Locataire a confirmé paiement", en: "✉ Tenant confirmed payment" },
 };
 
 const METHODS = ["bank_transfer", "cheque", "cash", "e_transfer", "credit_card"];
@@ -150,8 +152,8 @@ export default function RentPage() {
       </div>
 
       {/* Filter */}
-      <div className="flex gap-2 flex-wrap">
-        {["all", "pending", "paid", "late"].map(s => (
+      <div className="flex gap-2 flex-wrap items-center">
+        {["all", "pending_confirmation", "pending", "paid", "late"].map(s => (
           <button
             key={s}
             onClick={() => setStatusFilter(s)}
@@ -159,7 +161,9 @@ export default function RentPage() {
               statusFilter === s ? "bg-teal-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-teal-400"
             }`}
           >
-            {s === "all" ? t(T.all) : <StatusBadge status={s} lang={lang} />}
+            {s === "all" ? t(T.all) : s === "pending_confirmation"
+              ? <span className="flex items-center gap-1">✉ {lang === "fr" ? "À confirmer" : "To confirm"}{payments.filter(p => p.status === "pending_confirmation").length > 0 && <span className="ml-1 bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">{payments.filter(p => p.status === "pending_confirmation").length}</span>}</span>
+              : <StatusBadge status={s} lang={lang} />}
           </button>
         ))}
       </div>
@@ -193,8 +197,13 @@ export default function RentPage() {
                     <td className="px-5 py-3"><StatusBadge status={p.status ?? "pending"} lang={lang} /></td>
                     <td className="px-5 py-3">
                       <div className="flex gap-2 justify-end">
+                        {p.status === "pending_confirmation" && (
+                          <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium italic mr-1">{t(T.tenantConf)}</span>
+                        )}
                         {p.status !== "paid" && (
-                          <button onClick={() => setConfirmPay(p)} className="text-[12px] text-teal-700 hover:underline whitespace-nowrap">{t(T.markPaid)}</button>
+                          <button onClick={() => setConfirmPay(p)} className={`text-[12px] hover:underline whitespace-nowrap font-medium ${p.status === "pending_confirmation" ? "text-blue-600 dark:text-blue-400" : "text-teal-700"}`}>
+                            {p.status === "pending_confirmation" ? t(T.confirmRecv) : t(T.markPaid)}
+                          </button>
                         )}
                         <Link href={`/dashboard/rent/${p.id}/receipt`}
                           className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium">

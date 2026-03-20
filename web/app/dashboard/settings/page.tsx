@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth, getUser, logout } from "@/lib/auth";
@@ -41,7 +41,9 @@ const T = {
   stripeFee:        { fr: "Frais : 1% Domely + 2,9%+0,30$ Stripe", en: "Fees: 1% Domely + 2.9%+$0.30 Stripe" },
 };
 
-export default function SettingsPage() {
+// Wrapped in Suspense by the default export below — required by Next.js 14
+// for any component that calls useSearchParams()
+function SettingsContent() {
   const { lang, setLang, t } = useLanguage();
   const { showToast } = useToast();
   const searchParams = useSearchParams();
@@ -294,5 +296,13 @@ export default function SettingsPage() {
         </button>
       </div>
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-6"><div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /></div>}>
+      <SettingsContent />
+    </Suspense>
   );
 }
