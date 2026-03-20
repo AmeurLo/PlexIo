@@ -2653,6 +2653,22 @@ class AIChatRequest(BaseModel):
     messages: List[AIChatMessage]
     context: Optional[str] = "home"
 
+AI_LIMITS = {"free": 20, "pro": 150, "admin": 9999}
+AI_SCOPE_KEYWORDS = [
+    "loyer","locataire","bail","propriété","immeuble","logement","unité","maintenance",
+    "réparation","inspection","dépense","assurance","hypothèque","vacance","charges",
+    "revenu","cash flow","taux","hausse","renouvellement","résiliation","expulsion",
+    "rent","tenant","lease","property","unit","maintenance","repair","inspection",
+    "expense","insurance","mortgage","vacancy","income","revenue","increase","renewal",
+    "eviction","landlord","building","real estate","investment","portfolio","finance",
+    "tribunal","tal","ltb","régie","notice","avis","legal","loi","law","regulation",
+]
+
+def _is_on_topic(message: str) -> bool:
+    """Return True if the message touches rental/real-estate topics."""
+    lower = message.lower()
+    return any(kw in lower for kw in AI_SCOPE_KEYWORDS)
+
 @api_router.post("/ai/chat")
 async def ai_chat(data: AIChatRequest, current_user: dict = Depends(get_current_user)):
     """Real AI chat powered by Claude. Receives conversation history + screen context,
@@ -2661,6 +2677,28 @@ async def ai_chat(data: AIChatRequest, current_user: dict = Depends(get_current_
     openrouter_key = os.environ.get("OPENROUTER_API_KEY")
     if not openrouter_key or openrouter_key.startswith("sk-or-your-key"):
         return {"response": "Domely AI n'est pas encore configuré. Veuillez contacter l'équipe Domely. / Domely AI is not yet configured. Please contact the Domely team."}
+
+    # ── 1. Rate limit check ───────────────────────────────────────────────────
+    user_id   = current_user["id"]
+    user_plan = current_user.get("plan", "free")
+    month_key = datetime.now().strftime("%Y-%m")
+    limit     = AI_LIMITS.get(user_plan, AI_LIMITS["free"])
+
+    usage_doc = await db.ai_usage.find_one({"user_id": user_id, "month": month_key})
+    used = usage_doc["count"] if usage_doc else 0
+
+    if used >= limit:
+        over_fr = f"Vous avez atteint votre limite de {limit} questions IA ce mois-ci."
+        over_en = f"You've reached your {limit}-question AI limit for this month."
+        upgrade  = " Passez au plan Pro pour continuer. / Upgrade to Pro to continue." if user_plan == "free" else ""
+        return {"response": over_fr + " / " + over_en + upgrade, "limit_reached": True, "used": used, "limit": limit}
+
+    # ── 2. Topic guard ────────────────────────────────────────────────────────
+    last_user_msg = next((m.content for m in reversed(data.messages) if m.role == "user"), "")
+    if last_user_msg and not _is_on_topic(last_user_msg):
+        off_fr = "Je suis Domely AI, spécialisé en gestion locative et immobilier. Je ne peux pas répondre à cette question."
+        off_en = "I'm Domely AI, specialized in rental management and real estate. I can't answer that question."
+        return {"response": f"{off_fr}\n\n{off_en}", "off_topic": True}
 
     user_id = current_user["id"]
     current_month = datetime.now().strftime("%Y-%m")
@@ -2720,13 +2758,20 @@ INSTRUCTIONS:
 - If asked about legal matters, reference Canadian landlord-tenant law (TAL for Quebec, LTB for Ontario)
 - You can suggest next steps, generate draft messages, or explain regulations
 - Current screen context: {data.context}
+
+SCOPE RESTRICTION (strictly enforced):
+- You ONLY answer questions related to: rental property management, tenants, leases, rent, maintenance, expenses, real estate investment, landlord-tenant law, vacancy, and finances related to the user's portfolio.
+- If the user asks anything outside this scope (coding, general knowledge, recipes, jokes, creative writing, etc.), respond ONLY with: "Je suis Domely AI, spécialisé en gestion locative. Je ne peux pas répondre à cela. / I'm Domely AI, specialized in rental management. I can't answer that."
+- Never break character or pretend to be a general assistant.
 """
 
     # ── Call via OpenRouter (OpenAI-compatible) ───────────────────────────────
     try:
         import httpx
+        # Trim to last 6 messages to control token spend
+        trimmed_messages = data.messages[-6:]
         messages_payload = [{"role": "system", "content": system_prompt}] + [
-            {"role": m.role, "content": m.content} for m in data.messages
+            {"role": m.role, "content": m.content} for m in trimmed_messages
         ]
         async with httpx.AsyncClient(timeout=30) as http:
             resp = await http.post(
@@ -2745,11 +2790,35 @@ INSTRUCTIONS:
             )
             resp.raise_for_status()
             answer = resp.json()["choices"][0]["message"]["content"]
-        return {"response": answer}
+
+        # ── Increment usage counter ───────────────────────────────────────────
+        await db.ai_usage.update_one(
+            {"user_id": user_id, "month": month_key},
+            {"$inc": {"count": 1}, "$setOnInsert": {"user_id": user_id, "month": month_key}},
+            upsert=True,
+        )
+
+        return {
+            "response": answer,
+            "used": used + 1,
+            "limit": limit,
+        }
 
     except Exception as e:
         logging.error(f"AI chat error: {e}")
         return {"response": "Une erreur est survenue. Veuillez réessayer. / An error occurred. Please try again."}
+
+
+@api_router.get("/ai/usage")
+async def get_ai_usage(current_user: dict = Depends(get_current_user)):
+    """Return how many AI requests the user has used this month."""
+    user_id   = current_user["id"]
+    user_plan = current_user.get("plan", "free")
+    month_key = datetime.now().strftime("%Y-%m")
+    limit     = AI_LIMITS.get(user_plan, AI_LIMITS["free"])
+    usage_doc = await db.ai_usage.find_one({"user_id": user_id, "month": month_key})
+    used      = usage_doc["count"] if usage_doc else 0
+    return {"used": used, "limit": limit, "remaining": max(0, limit - used), "plan": user_plan}
 
 
 # ===========================

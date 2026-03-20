@@ -176,9 +176,11 @@ export const api = {
 
   // AI Chat
   aiChat: (messages: { role: "user" | "assistant"; content: string }[], context?: string) =>
-    apiFetch<{ response: string }>("/ai/chat", { method: "POST", ...body({ messages, context }) }),
+    apiFetch<{ response: string; used?: number; limit?: number; limit_reached?: boolean; off_topic?: boolean }>("/ai/chat", { method: "POST", ...body({ messages, context }) }),
   chatWithAI: (messages: { role: "user" | "assistant"; content: string }[]) =>
-    apiFetch<{ message: string; response: string }>("/ai/chat", { method: "POST", ...body({ messages }) }),
+    apiFetch<{ message: string; response: string; used?: number; limit?: number }>("/ai/chat", { method: "POST", ...body({ messages }) }),
+  getAiUsage: () =>
+    apiFetch<{ used: number; limit: number; remaining: number; plan: string }>("/ai/usage"),
 
   // Notifications
   getNotifications: () => apiFetch<Notification[]>("/notifications"),

@@ -24,10 +24,15 @@ export default function AIPage() {
   const [messages, setMessages] = useState<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [usage, setUsage] = useState<{ used: number; limit: number; remaining: number } | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { requireAuth(); }, []);
+
+  useEffect(() => {
+    api.getAiUsage().then(setUsage).catch(() => null);
+  }, []);
 
   useEffect(() => {
     setTimeout(() => endRef.current?.scrollIntoView({ behavior: "smooth" }), 50);
@@ -36,12 +41,16 @@ export default function AIPage() {
   async function send(text?: string) {
     const content = (text ?? input).trim();
     if (!content || loading) return;
+    if (usage && usage.remaining <= 0) return;
     setInput("");
     setMessages(prev => [...prev, { role: "user", content }]);
     setLoading(true);
     try {
       const response = await api.chatWithAI([...messages, { role: "user", content }]);
       setMessages(prev => [...prev, { role: "assistant", content: response.message ?? response.response ?? "" }]);
+      if (response.used !== undefined && response.limit !== undefined) {
+        setUsage({ used: response.used, limit: response.limit, remaining: response.limit - response.used });
+      }
     } catch (e: any) {
       setMessages(prev => [...prev, { role: "assistant", content: lang === "fr" ? "Une erreur est survenue. Veuillez réessayer." : "An error occurred. Please try again." }]);
     } finally { setLoading(false); inputRef.current?.focus(); }
@@ -60,10 +69,21 @@ export default function AIPage() {
         <div className="w-9 h-9 bg-gradient-to-br from-teal-500 to-teal-700 rounded-xl flex items-center justify-center">
           <Icon name="sparkles" size={18} className="text-white" />
         </div>
-        <div>
+        <div className="flex-1">
           <h1 className="text-[15px] font-bold text-gray-900 dark:text-white">Domely AI</h1>
           <p className="text-[12px] text-gray-400">{lang === "fr" ? "Votre assistant immobilier" : "Your real estate assistant"}</p>
         </div>
+        {usage && (
+          <div className={`text-[11px] font-medium px-2.5 py-1 rounded-full ${
+            usage.remaining <= 3
+              ? "bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400"
+              : usage.remaining <= 10
+              ? "bg-orange-50 text-orange-600 dark:bg-orange-900/20 dark:text-orange-400"
+              : "bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-400"
+          }`}>
+            {usage.remaining} {lang === "fr" ? "questions restantes" : "questions left"}
+          </div>
+        )}
       </div>
 
       {/* Messages */}
