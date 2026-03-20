@@ -1017,7 +1017,7 @@ def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, 
     pdf.cell(W, 9, "BAIL DE LOGEMENT", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(90, 90, 90)
-    pdf.cell(W, 5, "Tribunal administratif du logement — Province de Québec", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(W, 5, "Tribunal administratif du logement - Province de Quebec", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "I", 7.5)
     pdf.cell(W, 4.5, f"Généré le {today_str} par Domely · domely.app", align="C", new_x="LMARGIN", new_y="NEXT")
     pdf.set_text_color(0, 0, 0)
@@ -1060,7 +1060,7 @@ def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, 
 
     # ── SECTION 3: LOGEMENT LOUÉ ─────────────────────────────────────────────
     section_hdr("3. LOGEMENT LOUÉ")
-    address_full = f"{prop.get('address', '')}  —  App. {unit.get('unit_number', '')}"
+    address_full = f"{prop.get('address', '')}  -  App. {unit.get('unit_number', '')}"
     city_prov    = f"{prop.get('city', '')} ({prop.get('province', 'QC')})  ·  {prop.get('postal_code', '')}"
     field("Adresse :", address_full)
     field("Ville / Province :", city_prov)
@@ -1189,7 +1189,7 @@ def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, 
     pdf.set_draw_color(220, 220, 220)
     pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
     pdf.ln(1)
-    pdf.cell(W, 4.5, f"Généré par Domely · domely.app · {today_str}  —  Ce document est fourni à titre indicatif. Consultez le TAL pour le formulaire officiel.", align="C")
+    pdf.cell(W, 4.5, f"Genere par Domely - domely.app - {today_str} | Ce document est fourni a titre indicatif. Consultez le TAL pour le formulaire officiel.", align="C")
 
     return bytes(pdf.output())
 
@@ -1370,12 +1370,32 @@ async def generate_bail_endpoint(lease_id: str, current_user: dict = Depends(get
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
 
-    tenant = await db.tenants.find_one({"id": lease["tenant_id"]})
-    unit   = await db.units.find_one({"id": lease["unit_id"]})
-    prop   = await db.properties.find_one({"id": unit["property_id"]}) if unit else None
+    tenant = await db.tenants.find_one({"id": lease.get("tenant_id")}) if lease.get("tenant_id") else None
+    unit   = await db.units.find_one({"id": lease.get("unit_id")}) if lease.get("unit_id") else None
+    prop   = await db.properties.find_one({"id": unit["property_id"]}) if unit and unit.get("property_id") else None
 
-    if not tenant or not unit or not prop:
-        raise HTTPException(status_code=422, detail="Données incomplètes pour générer le bail.")
+    # Fall back to property_id on the lease if unit lookup didn't resolve a property
+    if not prop and lease.get("property_id"):
+        prop = await db.properties.find_one({"id": lease["property_id"]})
+
+    # Build synthetic stubs so the PDF always generates even with missing relations
+    if tenant is None:
+        tenant = {"first_name": lease.get("tenant_name", ""), "last_name": "", "email": "", "phone": ""}
+    if unit is None:
+        unit = {
+            "unit_number": lease.get("unit_number", ""),
+            "bedrooms": "",
+            "bathrooms": "",
+            "property_id": lease.get("property_id", ""),
+        }
+    if prop is None:
+        prop = {
+            "address": lease.get("property_address", ""),
+            "city": lease.get("property_city", ""),
+            "province": "QC",
+            "postal_code": "",
+            "name": lease.get("property_name", ""),
+        }
 
     try:
         pdf_bytes = generate_quebec_bail_pdf(
