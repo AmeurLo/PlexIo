@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
 import uuid
 from datetime import datetime, date, timedelta
+import io
 import jwt
 from passlib.context import CryptContext
 
@@ -960,6 +961,240 @@ async def get_tenant_documents_landlord(tenant_id: str, current_user: dict = Dep
 
 
 # ===========================
+# QUEBEC BAIL PDF GENERATOR
+# ===========================
+
+def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
+    """Generate an official-style Quebec Bail de logement (TAL Form 2) as PDF bytes."""
+    from fpdf import FPDF
+
+    W = 180       # usable width (mm) — A4 with 15mm margins
+    LM = 15       # left margin
+    COL = W / 2   # half column width for two-column sections
+    TEAL = (30, 122, 110)
+
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(LM, 15, LM)
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=18)
+
+    today_str = datetime.now().strftime("%d %B %Y")
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def section_hdr(title: str):
+        pdf.set_font("Helvetica", "B", 9)
+        pdf.set_fill_color(*TEAL)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(W, 6, f"  {title}", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_fill_color(255, 255, 255)
+
+    def field(label: str, value: str, fw: float = W, lw: float = 52):
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.set_fill_color(248, 249, 250)
+        pdf.cell(lw, 5.5, f" {label}", border="B", fill=True)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.cell(fw - lw, 5.5, f" {value}", border="B", new_x="LMARGIN", new_y="NEXT")
+
+    def chk(x: float, y: float, checked: bool = False, size: float = 3.5):
+        pdf.rect(x, y, size, size)
+        if checked:
+            pdf.line(x, y, x + size, y + size)
+            pdf.line(x + size, y, x, y + size)
+
+    def chk_label(label: str, checked: bool, x: float):
+        y = pdf.get_y()
+        chk(x, y + 0.8, checked)
+        pdf.set_xy(x + 4.5, y)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.cell(0, 5.5, label)
+
+    # ── HEADER ───────────────────────────────────────────────────────────────
+    pdf.set_font("Helvetica", "B", 17)
+    pdf.set_text_color(*TEAL)
+    pdf.cell(W, 9, "BAIL DE LOGEMENT", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(W, 5, "Tribunal administratif du logement — Province de Québec", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "I", 7.5)
+    pdf.cell(W, 4.5, f"Généré le {today_str} par Domely · domely.app", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+
+    # ── SECTIONS 1 & 2: PARTIES (two columns) ────────────────────────────────
+    pdf.set_font("Helvetica", "B", 9)
+    pdf.set_fill_color(*TEAL)
+    pdf.set_text_color(255, 255, 255)
+    pdf.cell(COL, 6, "  1. PROPRIÉTAIRE / BAILLEUR", border=0, fill=True)
+    pdf.cell(COL, 6, "  2. LOCATAIRE(S)", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+
+    landlord_name  = landlord.get("full_name", "")
+    landlord_email = landlord.get("email", "")
+    tenant_name    = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip()
+    tenant_email   = tenant.get("email", "") or ""
+    tenant_phone   = tenant.get("phone", "") or ""
+
+    party_rows = [
+        ("Nom :",       landlord_name,  tenant_name),
+        ("Courriel :",  landlord_email, tenant_email),
+        ("Téléphone :", "",             tenant_phone),
+    ]
+    lbl_w = 24
+    for lbl, left_val, right_val in party_rows:
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_fill_color(248, 249, 250)
+        pdf.cell(lbl_w, 5.5, f" {lbl}", border="B", fill=True)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.cell(COL - lbl_w, 5.5, f" {left_val}", border="B")
+        pdf.set_font("Helvetica", "B", 7.5)
+        pdf.set_fill_color(248, 249, 250)
+        pdf.cell(lbl_w, 5.5, f" {lbl}", border="B", fill=True)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.cell(COL - lbl_w, 5.5, f" {right_val}", border="B", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── SECTION 3: LOGEMENT LOUÉ ─────────────────────────────────────────────
+    section_hdr("3. LOGEMENT LOUÉ")
+    address_full = f"{prop.get('address', '')}  —  App. {unit.get('unit_number', '')}"
+    city_prov    = f"{prop.get('city', '')} ({prop.get('province', 'QC')})  ·  {prop.get('postal_code', '')}"
+    field("Adresse :", address_full)
+    field("Ville / Province :", city_prov)
+
+    # Meublé / Non meublé checkboxes inline
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(248, 249, 250)
+    pdf.cell(52, 5.5, " Type de logement :", border="B", fill=True)
+    y_now = pdf.get_y()
+    chk(LM + 54, y_now + 0.8, checked=False)
+    pdf.set_xy(LM + 59, y_now)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(30, 5.5, "Non meublé")
+    chk(LM + 90, y_now + 0.8, checked=False)
+    pdf.set_xy(LM + 95, y_now)
+    pdf.cell(30, 5.5, "Meublé", new_x="LMARGIN", new_y="NEXT")
+
+    sq = unit.get("square_feet")
+    rooms_str = f"{unit.get('bedrooms', '')} chambre(s)  ·  {unit.get('bathrooms', '')} salle(s) de bain" + (f"  ·  {sq} pi²" if sq else "")
+    field("Pièces :", rooms_str)
+    pdf.ln(4)
+
+    # ── SECTION 4: DURÉE DU BAIL ──────────────────────────────────────────────
+    section_hdr("4. DURÉE DU BAIL")
+    start_date = lease.get("start_date", "")
+    end_date   = lease.get("end_date", "")
+    is_fixed   = bool(end_date)
+
+    # Durée fixe / indéterminée
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.set_fill_color(248, 249, 250)
+    pdf.cell(52, 5.5, " Type de durée :", border="B", fill=True)
+    y_now = pdf.get_y()
+    chk(LM + 54, y_now + 0.8, checked=is_fixed)
+    pdf.set_xy(LM + 59, y_now)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.cell(35, 5.5, "Durée fixe")
+    chk(LM + 94, y_now + 0.8, checked=not is_fixed)
+    pdf.set_xy(LM + 99, y_now)
+    pdf.cell(50, 5.5, "Durée indéterminée", new_x="LMARGIN", new_y="NEXT")
+
+    field("Du (date début) :", start_date)
+    field("Au (date fin) :",   end_date if is_fixed else "Durée indéterminée")
+    pdf.ln(4)
+
+    # ── SECTION 5: LOYER ──────────────────────────────────────────────────────
+    section_hdr("5. LOYER MENSUEL")
+    rent_amount = lease.get("rent_amount", 0)
+    due_day     = lease.get("payment_due_day", 1)
+    deposit     = lease.get("security_deposit", 0)
+    field("Montant du loyer :",     f"${rent_amount:,.2f} / mois")
+    field("Payable le :",           f"{due_day}er de chaque mois")
+    field("Dépôt de garantie :",    f"${deposit:,.2f}" if deposit else "Aucun")
+    pdf.ln(4)
+
+    # ── SECTION 6: SERVICES INCLUS ────────────────────────────────────────────
+    section_hdr("6. SERVICES INCLUS DANS LE LOYER")
+    pdf.set_font("Helvetica", "I", 7.5)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(W, 4.5, "  Cochez les services inclus dans le loyer :", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+
+    services = ["Chauffage", "Eau chaude", "Électricité", "Climatisation", "Stationnement", "Rangement"]
+    col_w_svc = W / 3
+    for idx, svc in enumerate(services):
+        col = idx % 3
+        row = idx // 3
+        if col == 0 and idx > 0:
+            pdf.ln(6)
+        x = LM + col * col_w_svc + 2
+        if col > 0:
+            pdf.set_xy(x, pdf.get_y())
+        chk_label(svc, checked=False, x=x)
+    pdf.ln(7)
+    pdf.ln(1)
+
+    # ── SECTION 7: CLAUSES PARTICULIÈRES ─────────────────────────────────────
+    section_hdr("7. CLAUSES PARTICULIÈRES")
+    notes = (lease.get("notes") or "").strip()
+    pdf.set_font("Helvetica", "", 8)
+    if notes:
+        pdf.multi_cell(W, 5, notes, border=0)
+    else:
+        for _ in range(4):
+            pdf.cell(W, 6.5, "", border="B", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(4)
+
+    # ── SECTION 8: SIGNATURES ─────────────────────────────────────────────────
+    section_hdr("8. SIGNATURES DES PARTIES")
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 8)
+    pdf.cell(COL, 5, "Propriétaire / Bailleur")
+    pdf.cell(COL, 5, "Locataire", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(10)
+
+    # Signature lines
+    sig_line_w = COL - 8
+    pdf.set_draw_color(100, 100, 100)
+    x1 = LM
+    x2 = LM + COL
+    y_sig = pdf.get_y()
+    pdf.line(x1, y_sig, x1 + sig_line_w, y_sig)
+    pdf.line(x2, y_sig, x2 + sig_line_w, y_sig)
+    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_text_color(120, 120, 120)
+    pdf.set_xy(x1, y_sig + 1)
+    pdf.cell(sig_line_w, 4.5, "Signature")
+    pdf.set_xy(x2, y_sig + 1)
+    pdf.cell(sig_line_w, 4.5, "Signature", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(7)
+
+    date_line_w = 50
+    y_date = pdf.get_y()
+    pdf.line(x1, y_date, x1 + date_line_w, y_date)
+    pdf.line(x2, y_date, x2 + date_line_w, y_date)
+    pdf.set_xy(x1, y_date + 1)
+    pdf.cell(date_line_w, 4.5, "Date")
+    pdf.set_xy(x2, y_date + 1)
+    pdf.cell(date_line_w, 4.5, "Date", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+
+    # ── FOOTER ───────────────────────────────────────────────────────────────
+    pdf.set_y(-13)
+    pdf.set_font("Helvetica", "I", 7)
+    pdf.set_text_color(160, 160, 160)
+    pdf.set_draw_color(220, 220, 220)
+    pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
+    pdf.ln(1)
+    pdf.cell(W, 4.5, f"Généré par Domely · domely.app · {today_str}  —  Ce document est fourni à titre indicatif. Consultez le TAL pour le formulaire officiel.", align="C")
+
+    return bytes(pdf.output())
+
+
+# ===========================
 # LEASE ROUTES
 # ===========================
 
@@ -991,7 +1226,47 @@ async def create_lease(data: LeaseCreate, current_user: dict = Depends(get_curre
             "rent_amount": data.rent_amount
         }}
     )
-    
+
+    # ── Auto-generate and email bail PDF ─────────────────────────────────────
+    if RESEND_API_KEY:
+        try:
+            unit_doc = await db.units.find_one({"id": data.unit_id})
+            prop_doc = await db.properties.find_one({"id": unit_doc["property_id"]}) if unit_doc else None
+            if tenant and unit_doc and prop_doc:
+                pdf_bytes = generate_quebec_bail_pdf(
+                    lease=lease.model_dump(),
+                    tenant=tenant,
+                    unit=unit_doc,
+                    prop=prop_doc,
+                    landlord=current_user,
+                )
+                pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
+                landlord_email = current_user.get("email", "")
+                tenant_email   = tenant.get("email", "")
+                recipients = [r for r in [landlord_email, tenant_email] if r]
+                if recipients:
+                    import httpx as _httpx
+                    async with _httpx.AsyncClient() as _hc:
+                        await _hc.post(
+                            "https://api.resend.com/emails",
+                            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+                            json={
+                                "from": "Domely <noreply@domely.ca>",
+                                "to": recipients,
+                                "subject": "Domely — Votre bail de logement",
+                                "html": f"""
+                                <h2 style="color:#1E7A6E">Bail de logement généré</h2>
+                                <p>Votre bail a été créé dans Domely. Vous trouverez le document en pièce jointe.</p>
+                                <p style="color:#999;font-size:12px">Gérez votre bail dans l'application Domely · <a href="https://domely.app">domely.app</a></p>
+                                """,
+                                "attachments": [{"filename": f"bail-{lease.id[:8]}.pdf", "content": pdf_b64}],
+                            },
+                            timeout=15,
+                        )
+                    logger.info("[Lease] Bail PDF emailed to %s", recipients)
+        except Exception as e:
+            logger.warning("[Lease] Bail PDF email failed: %s", e)
+
     return lease
 
 @api_router.get("/leases", response_model=List[LeaseWithDetails])
@@ -1082,9 +1357,44 @@ async def delete_lease(lease_id: str, current_user: dict = Depends(get_current_u
     lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
     if not lease:
         raise HTTPException(status_code=404, detail="Lease not found")
-    
+
     await db.leases.delete_one({"id": lease_id})
     return {"message": "Lease deleted"}
+
+@api_router.get("/leases/{lease_id}/generate-bail")
+async def generate_bail_endpoint(lease_id: str, current_user: dict = Depends(get_current_user)):
+    """Generate and stream the official Quebec Bail de logement PDF for a lease."""
+    from fastapi.responses import StreamingResponse
+
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    tenant = await db.tenants.find_one({"id": lease["tenant_id"]})
+    unit   = await db.units.find_one({"id": lease["unit_id"]})
+    prop   = await db.properties.find_one({"id": unit["property_id"]}) if unit else None
+
+    if not tenant or not unit or not prop:
+        raise HTTPException(status_code=422, detail="Données incomplètes pour générer le bail.")
+
+    try:
+        pdf_bytes = generate_quebec_bail_pdf(
+            lease=lease,
+            tenant=tenant,
+            unit=unit,
+            prop=prop,
+            landlord=current_user,
+        )
+    except Exception as e:
+        logger.error("[Bail PDF] Generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF.")
+
+    filename = f"bail-{lease_id[:8]}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 # ===========================
 # RENT PAYMENT ROUTES

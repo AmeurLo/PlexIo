@@ -276,4 +276,15 @@ export const api = {
     apiFetch<{ message: string; seeded: boolean }>("/seed-demo-data", { method: "POST" }),
   resetDemoData: () =>
     apiFetch<{ message: string; seeded: boolean }>("/reset-demo-data", { method: "POST" }),
+
+  // Quebec Bail PDF
+  generateBail: async (leaseId: string): Promise<Blob> => {
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const res = await fetch(`${BASE}/leases/${leaseId}/generate-bail`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) throw new Error("Génération du bail échouée");
+    return res.blob();
+  },
 };

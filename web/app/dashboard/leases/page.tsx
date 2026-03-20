@@ -37,6 +37,8 @@ const T = {
   delTitle: { fr: "Supprimer le bail ?", en: "Delete lease?" },
   delMsg:   { fr: "Cette action est irréversible.", en: "This action cannot be undone." },
   type:     { fr: "Type",            en: "Type" },
+  genBail:  { fr: "Bail PDF",        en: "Bail PDF" },
+  generating: { fr: "Génération…",   en: "Generating…" },
 };
 
 const LEASE_TYPES = [
@@ -71,6 +73,7 @@ export default function LeasesPage() {
   const [formError, setFormError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Lease | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [generatingBail, setGeneratingBail] = useState<string | null>(null);
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -121,6 +124,20 @@ export default function LeasesPage() {
     try { await api.deleteLease(deleteTarget.id); setDeleteTarget(null); load(); }
     catch (e: any) { showToast(e.message, "error"); }
     finally { setDeleting(false); }
+  }
+
+  async function handleGenerateBail(leaseId: string) {
+    setGeneratingBail(leaseId);
+    try {
+      const blob = await api.generateBail(leaseId);
+      const url = URL.createObjectURL(blob);
+      Object.assign(document.createElement("a"), { href: url, download: `bail-${leaseId.slice(0, 8)}.pdf` }).click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      showToast(e.message ?? (lang === "fr" ? "Erreur de génération" : "Generation failed"), "error");
+    } finally {
+      setGeneratingBail(null);
+    }
   }
 
   function handleExport() {
@@ -178,7 +195,16 @@ export default function LeasesPage() {
                     <td className="px-5 py-3 font-semibold text-gray-900 dark:text-white">{formatCurrency(l.monthly_rent ?? 0)}/mo</td>
                     <td className="px-5 py-3"><StatusBadge status={l.status ?? "active"} lang={lang} /></td>
                     <td className="px-5 py-3">
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end items-center">
+                        <button
+                          onClick={() => handleGenerateBail(l.id ?? l._id ?? "")}
+                          disabled={generatingBail === (l.id ?? l._id)}
+                          className="inline-flex items-center gap-1 text-[12px] text-violet-600 hover:underline disabled:opacity-50"
+                        >
+                          {generatingBail === (l.id ?? l._id) ? (
+                            <span className="w-3 h-3 border border-violet-500 border-t-transparent rounded-full animate-spin inline-block" />
+                          ) : "📄"} {t(T.genBail)}
+                        </button>
                         <button onClick={() => openEdit(l)} className="text-[12px] text-teal-700 hover:underline">{t(T.edit)}</button>
                         <button onClick={() => setDeleteTarget(l)} className="text-[12px] text-red-500 hover:underline">{t(T.delete)}</button>
                       </div>
@@ -198,7 +224,16 @@ export default function LeasesPage() {
                 </div>
                 <p className="text-[12px] text-gray-400">{propName(l.property_id ?? "")} · {l.unit_number || "—"}</p>
                 <p className="text-[12px] text-gray-400">{formatDate(l.start_date ?? "")} → {l.end_date ? formatDate(l.end_date) : "∞"}</p>
-                <div className="flex gap-3 mt-2">
+                <div className="flex gap-3 mt-2 items-center">
+                  <button
+                    onClick={() => handleGenerateBail(l.id ?? l._id ?? "")}
+                    disabled={generatingBail === (l.id ?? l._id)}
+                    className="inline-flex items-center gap-1 text-[12px] text-violet-600 hover:underline disabled:opacity-50"
+                  >
+                    {generatingBail === (l.id ?? l._id) ? (
+                      <span className="w-3 h-3 border border-violet-500 border-t-transparent rounded-full animate-spin inline-block" />
+                    ) : "📄"} {t(T.genBail)}
+                  </button>
                   <button onClick={() => openEdit(l)} className="text-[12px] text-teal-700 hover:underline">{t(T.edit)}</button>
                   <button onClick={() => setDeleteTarget(l)} className="text-[12px] text-red-500 hover:underline">{t(T.delete)}</button>
                 </div>

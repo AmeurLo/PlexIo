@@ -48,6 +48,21 @@ export default function TenantDocumentsPage() {
   const [docs, setDocs]       = useState<TenantDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [tenantName, setTenantName] = useState("");
+  const [generatingBail, setGeneratingBail] = useState<string | null>(null);
+
+  async function handleGenerateBail(leaseId: string) {
+    setGeneratingBail(leaseId);
+    try {
+      const blob = await api.generateBail(leaseId);
+      const url = URL.createObjectURL(blob);
+      Object.assign(document.createElement("a"), { href: url, download: `bail-${leaseId.slice(0, 8)}.pdf` }).click();
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      showToast(e.message ?? (lang === "fr" ? "Erreur de génération" : "Generation failed"), "error");
+    } finally {
+      setGeneratingBail(null);
+    }
+  }
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -100,6 +115,23 @@ export default function TenantDocumentsPage() {
                       )}
                     </div>
                   </div>
+
+                  {/* Bail PDF download button — only for lease documents */}
+                  {doc.type === "lease" && (
+                    <button
+                      onClick={() => handleGenerateBail(doc.id)}
+                      disabled={generatingBail === doc.id}
+                      className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50 flex-shrink-0"
+                      title={lang === "fr" ? "Télécharger le bail PDF" : "Download lease PDF"}
+                    >
+                      {generatingBail === doc.id ? (
+                        <span className="w-3.5 h-3.5 border border-violet-500 border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <span className="text-base">⬇️</span>
+                      )}
+                      PDF
+                    </button>
+                  )}
 
                   {/* Dot indicator */}
                   <div className={`w-2 h-2 rounded-full flex-shrink-0 ${style.dot}`} />
