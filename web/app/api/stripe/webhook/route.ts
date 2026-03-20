@@ -8,6 +8,7 @@ const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY || "", {
 const API_URL      = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 const INTERNAL_KEY = process.env.INTERNAL_API_KEY    || "";
 const RESEND_KEY   = process.env.RESEND_API_KEY      || "";
+const CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET || "";
 
 /** Update user plan in the FastAPI backend. */
 async function updateSubscription(payload: {
@@ -49,14 +50,60 @@ async function sendPaymentFailedEmail(email: string, name?: string) {
   }
 }
 
+/** Record a confirmed rent payment via the internal API. */
+async function recordRentPayment(payload: {
+  tenant_id: string;
+  lease_id: string;
+  landlord_id: string;
+  amount: number;
+  month_year: string;
+  stripe_payment_intent_id: string;
+}) {
+  if (!payload.tenant_id || !payload.lease_id) return;
+  try {
+    const res = await fetch(`${API_URL}/internal/rent-payment`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Key": INTERNAL_KEY },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) console.error("[Webhook] recordRentPayment failed:", await res.text());
+  } catch (err: any) {
+    console.error("[Webhook] recordRentPayment error:", err.message);
+  }
+}
+
+/** Update landlord's Stripe Connect account status. */
+async function updateConnectStatus(payload: { account_id: string; charges_enabled: boolean; payouts_enabled: boolean }) {
+  try {
+    const res = await fetch(`${API_URL}/internal/stripe-connect-status`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Internal-Key": INTERNAL_KEY },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) console.error("[Webhook] updateConnectStatus failed:", await res.text());
+  } catch (err: any) {
+    console.error("[Webhook] updateConnectStatus error:", err.message);
+  }
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.text();
   const sig  = req.headers.get("stripe-signature")!;
 
   const stripe = getStripe();
   let event: Stripe.Event;
+
+  // Try platform webhook secret first, then Connect webhook secret
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+  const connectSecret = CONNECT_WEBHOOK_SECRET || webhookSecret;
+
   try {
-    event = stripe.webhooks.constructEvent(body, sig, process.env.STRIPE_WEBHOOK_SECRET || "");
+    // Attempt with platform secret; fall back to connect secret for account.* events
+    try {
+      event = stripe.webhooks.constructEvent(body, sig, webhookSecret);
+    } catch {
+      event = stripe.webhooks.constructEvent(body, sig, connectSecret);
+    }
   } catch (err: any) {
     console.error("[Stripe Webhook] Invalid signature:", err.message);
     return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
@@ -103,6 +150,44 @@ export async function POST(req: NextRequest) {
         stripe_customer_id: String(invoice.customer || ""),
       });
       await sendPaymentFailedEmail(email);
+      break;
+    }
+
+    // ── Connect events ──────────────────────────────────────────────────────
+
+    case "charge.succeeded": {
+      const charge = event.data.object as Stripe.Charge;
+      const meta   = charge.metadata ?? {};
+      const tenantId  = meta.tenant_id   || "";
+      const leaseId   = meta.lease_id    || "";
+      const landlordId = meta.landlord_id || "";
+      const monthYear = meta.month_year  || new Date().toISOString().slice(0, 7);
+      const amountDollars = (charge.amount ?? 0) / 100;
+      const intentId = typeof charge.payment_intent === "string"
+        ? charge.payment_intent
+        : (charge.payment_intent as any)?.id ?? "";
+      if (tenantId && leaseId) {
+        console.log("[Stripe] Rent charge succeeded:", charge.id, "→ tenant:", tenantId, "amount:", amountDollars);
+        await recordRentPayment({
+          tenant_id:   tenantId,
+          lease_id:    leaseId,
+          landlord_id: landlordId,
+          amount:      amountDollars,
+          month_year:  monthYear,
+          stripe_payment_intent_id: intentId,
+        });
+      }
+      break;
+    }
+
+    case "account.updated": {
+      const acct = event.data.object as Stripe.Account;
+      console.log("[Stripe] Connect account updated:", acct.id, "charges_enabled:", acct.charges_enabled);
+      await updateConnectStatus({
+        account_id:      acct.id,
+        charges_enabled: acct.charges_enabled ?? false,
+        payouts_enabled: acct.payouts_enabled ?? false,
+      });
       break;
     }
   }

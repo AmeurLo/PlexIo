@@ -4498,6 +4498,123 @@ async def register_push_token(body: dict, current_user: dict = Depends(get_curre
 
 
 # ===========================
+# STRIPE CONNECT — RENT PAYMENTS
+# ===========================
+
+import stripe as stripe_lib
+
+STRIPE_SECRET_KEY      = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_PLATFORM_ACCT   = os.getenv("STRIPE_PLATFORM_ACCOUNT_ID", "")
+STRIPE_CONNECT_RETURN  = os.getenv("NEXT_PUBLIC_APP_URL", "https://domely.app") + "/dashboard/settings?stripe=connected"
+STRIPE_CONNECT_REFRESH = os.getenv("NEXT_PUBLIC_APP_URL", "https://domely.app") + "/dashboard/settings?stripe=refresh"
+
+def _stripe():
+    stripe_lib.api_key = STRIPE_SECRET_KEY
+    return stripe_lib
+
+
+@api_router.post("/stripe/connect/onboard")
+async def stripe_connect_onboard(current_user: dict = Depends(get_current_user)):
+    """Create (or resume) Stripe Connect Express account for a landlord and return onboarding URL."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    s = _stripe()
+    account_id = current_user.get("stripe_account_id")
+    try:
+        if not account_id:
+            acct = s.Account.create(
+                type="express",
+                country="CA",
+                email=current_user.get("email"),
+                capabilities={"card_payments": {"requested": True}, "transfers": {"requested": True}},
+            )
+            account_id = acct["id"]
+            await db.users.update_one(
+                {"id": current_user["id"]},
+                {"$set": {"stripe_account_id": account_id, "stripe_account_status": "onboarding"}},
+            )
+        link = s.AccountLink.create(
+            account=account_id,
+            return_url=STRIPE_CONNECT_RETURN,
+            refresh_url=STRIPE_CONNECT_REFRESH,
+            type="account_onboarding",
+        )
+        return {"url": link["url"]}
+    except Exception as e:
+        logger.error("[Stripe Connect onboard] %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/stripe/connect/status")
+async def stripe_connect_status(current_user: dict = Depends(get_current_user)):
+    """Return the landlord's Stripe Connect account status."""
+    account_id = current_user.get("stripe_account_id")
+    if not account_id:
+        return {"connected": False, "charges_enabled": False, "payouts_enabled": False, "account_id": None}
+    if not STRIPE_SECRET_KEY:
+        return {"connected": False, "charges_enabled": False, "payouts_enabled": False, "account_id": None}
+    try:
+        s = _stripe()
+        acct = s.Account.retrieve(account_id)
+        charges_enabled = acct.get("charges_enabled", False)
+        payouts_enabled = acct.get("payouts_enabled", False)
+        status_val = "active" if charges_enabled else "onboarding"
+        await db.users.update_one(
+            {"id": current_user["id"]},
+            {"$set": {"stripe_account_status": status_val}},
+        )
+        return {
+            "connected": True,
+            "charges_enabled": charges_enabled,
+            "payouts_enabled": payouts_enabled,
+            "account_id": account_id,
+        }
+    except Exception as e:
+        logger.error("[Stripe Connect status] %s", e)
+        return {"connected": False, "charges_enabled": False, "payouts_enabled": False, "account_id": account_id}
+
+
+@api_router.post("/tenant/payments/create-intent")
+async def create_rent_payment_intent(current_tenant: dict = Depends(get_current_tenant)):
+    """Create a Stripe PaymentIntent for the current month's rent (called by tenant portal)."""
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    tenant_id = current_tenant.get("id") or current_tenant.get("tenant_id")
+    lease = await db.leases.find_one({"tenant_id": tenant_id, "is_active": True})
+    if not lease:
+        raise HTTPException(status_code=404, detail="No active lease found")
+    rent_amount = float(lease.get("rent_amount", 0))
+    if rent_amount <= 0:
+        raise HTTPException(status_code=400, detail="Invalid rent amount")
+    landlord = await db.users.find_one({"id": lease.get("landlord_id") or lease.get("user_id")})
+    if not landlord:
+        raise HTTPException(status_code=404, detail="Landlord not found")
+    landlord_stripe_id = landlord.get("stripe_account_id")
+    if not landlord_stripe_id:
+        raise HTTPException(status_code=400, detail="Landlord has not connected Stripe yet")
+    s = _stripe()
+    amount_cents  = int(rent_amount * 100)
+    app_fee_cents = int(rent_amount * 0.01 * 100)
+    try:
+        intent = s.PaymentIntent.create(
+            amount=amount_cents,
+            currency="cad",
+            application_fee_amount=app_fee_cents,
+            transfer_data={"destination": landlord_stripe_id},
+            metadata={
+                "tenant_id":   tenant_id,
+                "lease_id":    str(lease.get("id", "")),
+                "landlord_id": str(landlord.get("id", "")),
+                "month_year":  datetime.utcnow().strftime("%Y-%m"),
+            },
+        )
+        return {"client_secret": intent["client_secret"], "amount": rent_amount}
+    except Exception as e:
+        logger.error("[Stripe PaymentIntent] %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ===========================
 # INTERNAL — STRIPE SUBSCRIPTION
 # ===========================
 
@@ -4522,6 +4639,65 @@ async def update_subscription(body: dict, request: Request):
     result = await db.users.update_one({"email": email}, {"$set": update})
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
+    return {"ok": True}
+
+
+@api_router.post("/internal/rent-payment")
+async def internal_record_rent_payment(body: dict, request: Request):
+    """Called by Stripe webhook (charge.succeeded) to record a tenant rent payment."""
+    key = request.headers.get("X-Internal-Key", "")
+    if not key or key != os.getenv("INTERNAL_API_KEY", ""):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    tenant_id  = body.get("tenant_id", "")
+    lease_id   = body.get("lease_id", "")
+    amount     = float(body.get("amount", 0))
+    month_year = body.get("month_year", datetime.utcnow().strftime("%Y-%m"))
+    intent_id  = body.get("stripe_payment_intent_id", "")
+    if not tenant_id or not lease_id:
+        raise HTTPException(status_code=400, detail="tenant_id and lease_id required")
+    # Check for duplicate (same intent_id)
+    if intent_id:
+        existing = await db.rent_payments.find_one({"stripe_payment_intent_id": intent_id})
+        if existing:
+            return {"ok": True, "duplicate": True}
+    # Fetch lease to get unit_id
+    lease = await db.leases.find_one({"id": lease_id})
+    unit_id = lease.get("unit_id", "") if lease else ""
+    payment_doc = {
+        "id":           str(uuid.uuid4()),
+        "tenant_id":    tenant_id,
+        "lease_id":     lease_id,
+        "unit_id":      unit_id,
+        "amount":       amount,
+        "payment_date": datetime.utcnow().isoformat(),
+        "payment_method": "stripe",
+        "month_year":   month_year,
+        "status":       "paid",
+        "stripe_payment_intent_id": intent_id,
+        "created_at":   datetime.utcnow(),
+    }
+    await db.rent_payments.insert_one(payment_doc)
+    logger.info("[Stripe] Rent payment recorded: %s tenant=%s amount=%.2f", intent_id, tenant_id, amount)
+    return {"ok": True, "id": payment_doc["id"]}
+
+
+@api_router.post("/internal/stripe-connect-status")
+async def internal_update_connect_status(body: dict, request: Request):
+    """Called by Stripe webhook (account.updated) to sync landlord Connect account status."""
+    key = request.headers.get("X-Internal-Key", "")
+    if not key or key != os.getenv("INTERNAL_API_KEY", ""):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    account_id      = body.get("account_id", "")
+    charges_enabled = body.get("charges_enabled", False)
+    payouts_enabled = body.get("payouts_enabled", False)
+    if not account_id:
+        raise HTTPException(status_code=400, detail="account_id required")
+    status_val = "active" if charges_enabled else "onboarding"
+    result = await db.users.update_one(
+        {"stripe_account_id": account_id},
+        {"$set": {"stripe_account_status": status_val, "stripe_charges_enabled": charges_enabled, "stripe_payouts_enabled": payouts_enabled}},
+    )
+    logger.info("[Stripe] Connect status updated: %s → %s (matched=%d)", account_id, status_val, result.matched_count)
     return {"ok": True}
 
 

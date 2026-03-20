@@ -277,6 +277,22 @@ export const api = {
   resetDemoData: () =>
     apiFetch<{ message: string; seeded: boolean }>("/reset-demo-data", { method: "POST" }),
 
+  // Stripe Connect (landlord)
+  getStripeConnectStatus: () =>
+    apiFetch<{ connected: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null }>("/stripe/connect/status"),
+  startStripeOnboarding: async (): Promise<{ url: string }> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const res = await fetch("/api/stripe/connect", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+    if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error((b as any).error ?? `HTTP ${res.status}`); }
+    return res.json();
+  },
+
   // Quebec Bail PDF
   generateBail: async (leaseId: string): Promise<Blob> => {
     const token =
