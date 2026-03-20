@@ -4593,8 +4593,18 @@ async def create_rent_payment_intent(current_tenant: dict = Depends(get_current_
     if not landlord_stripe_id:
         raise HTTPException(status_code=400, detail="Landlord has not connected Stripe yet")
     s = _stripe()
-    amount_cents  = int(rent_amount * 100)
-    app_fee_cents = int(rent_amount * 0.01 * 100)
+    # ── Fee structure: tenant absorbs all fees so landlord receives full rent ──
+    # Domely fee = 1% of rent (fixed dollar amount, routed to platform)
+    # Gross-up formula: charge = (rent + domely_fee + stripe_fixed) / (1 - stripe_rate)
+    # This ensures: charge - stripe_fee - domely_fee = rent  (landlord is made whole)
+    STRIPE_RATE   = 0.029   # 2.9%
+    STRIPE_FIXED  = 0.30    # $0.30 per transaction
+    DOMELY_RATE   = 0.01    # 1%
+    domely_fee    = round(rent_amount * DOMELY_RATE, 2)
+    gross_amount  = round((rent_amount + domely_fee + STRIPE_FIXED) / (1 - STRIPE_RATE), 2)
+    processing_fee = round(gross_amount - rent_amount, 2)   # shown to tenant as line item
+    amount_cents  = int(gross_amount * 100)
+    app_fee_cents = int(domely_fee * 100)
     try:
         intent = s.PaymentIntent.create(
             amount=amount_cents,
@@ -4602,13 +4612,19 @@ async def create_rent_payment_intent(current_tenant: dict = Depends(get_current_
             application_fee_amount=app_fee_cents,
             transfer_data={"destination": landlord_stripe_id},
             metadata={
-                "tenant_id":   tenant_id,
-                "lease_id":    str(lease.get("id", "")),
-                "landlord_id": str(landlord.get("id", "")),
-                "month_year":  datetime.utcnow().strftime("%Y-%m"),
+                "tenant_id":    tenant_id,
+                "lease_id":     str(lease.get("id", "")),
+                "landlord_id":  str(landlord.get("id", "")),
+                "month_year":   datetime.utcnow().strftime("%Y-%m"),
+                "rent_amount":  str(rent_amount),
             },
         )
-        return {"client_secret": intent["client_secret"], "amount": rent_amount}
+        return {
+            "client_secret":  intent["client_secret"],
+            "amount":         gross_amount,     # total charged to tenant
+            "rent_amount":    rent_amount,       # base rent (what landlord receives)
+            "processing_fee": processing_fee,    # fees shown to tenant
+        }
     except Exception as e:
         logger.error("[Stripe PaymentIntent] %s", e)
         raise HTTPException(status_code=500, detail=str(e))

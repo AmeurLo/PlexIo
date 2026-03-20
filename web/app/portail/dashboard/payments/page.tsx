@@ -25,6 +25,10 @@ const T = {
   cancel:     { fr: "Annuler",                en: "Cancel" },
   payTitle:   { fr: "Payer votre loyer",      en: "Pay your rent" },
   noStripe:   { fr: "Le propriétaire n'a pas encore configuré les paiements en ligne.", en: "Your landlord hasn't set up online payments yet." },
+  rent:       { fr: "Loyer",                  en: "Rent" },
+  fee:        { fr: "Frais de traitement",    en: "Processing fee" },
+  total:      { fr: "Total",                  en: "Total" },
+  feeNote:    { fr: "Les frais couvrent Stripe (2,9%+0,30$) + Domely (1%)", en: "Fees cover Stripe (2.9%+$0.30) + Domely (1%)" },
 };
 
 const STATUS: Record<string, { fr: string; en: string; classes: string }> = {
@@ -36,11 +40,15 @@ const STATUS: Record<string, { fr: string; en: string; classes: string }> = {
 // ─── Inner checkout form (needs to be inside <Elements>) ─────────────────────
 function CheckoutForm({
   amount,
+  rentAmount,
+  processingFee,
   onSuccess,
   onCancel,
   lang,
 }: {
-  amount: number;
+  amount: number;        // total charged (rent + fees)
+  rentAmount: number;    // base rent (what landlord gets)
+  processingFee: number; // fees shown to tenant
   onSuccess: () => void;
   onCancel: () => void;
   lang: string;
@@ -70,10 +78,27 @@ function CheckoutForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      <div className="text-center mb-4">
-        <p className="text-[28px] font-bold text-gray-900 dark:text-white">{formatCurrency(amount)}</p>
-        <p className="text-[12px] text-gray-400 mt-0.5">{lang === "fr" ? "Loyer mensuel" : "Monthly rent"}</p>
+      {/* Fee breakdown */}
+      <div className="bg-gray-50 dark:bg-gray-800/60 rounded-xl p-4 space-y-2 text-[13px]">
+        <div className="flex justify-between text-gray-600 dark:text-gray-400">
+          <span>{lang === "fr" ? "Loyer" : "Rent"}</span>
+          <span>{formatCurrency(rentAmount)}</span>
+        </div>
+        <div className="flex justify-between text-gray-400">
+          <span>{lang === "fr" ? "Frais de traitement" : "Processing fee"}</span>
+          <span>{formatCurrency(processingFee)}</span>
+        </div>
+        <div className="border-t border-gray-200 dark:border-gray-700 pt-2 flex justify-between font-bold text-gray-900 dark:text-white text-[14px]">
+          <span>{lang === "fr" ? "Total" : "Total"}</span>
+          <span>{formatCurrency(amount)}</span>
+        </div>
+        <p className="text-[10px] text-gray-400 pt-0.5">
+          {lang === "fr"
+            ? "Frais : Stripe (2,9%+0,30$) + Domely (1%)"
+            : "Fees: Stripe (2.9%+$0.30) + Domely (1%)"}
+        </p>
       </div>
+
       <PaymentElement />
       {error && (
         <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-[13px] text-red-600 dark:text-red-400">
@@ -113,11 +138,13 @@ export default function TenantPaymentsPage() {
   const { lang, t } = useLanguage();
   const [payments, setPayments]           = useState<any[]>([]);
   const [loading, setLoading]             = useState(true);
-  const [showPayModal, setShowPayModal]   = useState(false);
-  const [clientSecret, setClientSecret]   = useState<string | null>(null);
-  const [payAmount, setPayAmount]         = useState(0);
-  const [intentLoading, setIntentLoading] = useState(false);
-  const [intentError, setIntentError]     = useState("");
+  const [showPayModal, setShowPayModal]     = useState(false);
+  const [clientSecret, setClientSecret]     = useState<string | null>(null);
+  const [payAmount, setPayAmount]           = useState(0);       // gross total
+  const [payRentAmount, setPayRentAmount]   = useState(0);       // base rent
+  const [payProcessingFee, setPayProcessingFee] = useState(0);  // fee line item
+  const [intentLoading, setIntentLoading]   = useState(false);
+  const [intentError, setIntentError]       = useState("");
   const [paySuccess, setPaySuccess]       = useState(false);
 
   const hasPendingPayment = payments.some(p => p.status === "pending" || p.status === "late");
@@ -134,9 +161,11 @@ export default function TenantPaymentsPage() {
     setIntentLoading(true);
     setIntentError("");
     try {
-      const { client_secret, amount } = await tenantApi.createPaymentIntent();
+      const { client_secret, amount, rent_amount, processing_fee } = await tenantApi.createPaymentIntent() as any;
       setClientSecret(client_secret);
       setPayAmount(amount);
+      setPayRentAmount(rent_amount ?? amount);
+      setPayProcessingFee(processing_fee ?? 0);
       setShowPayModal(true);
     } catch (e: any) {
       setIntentError(e.message ?? (lang === "fr" ? "Erreur de création" : "Creation failed"));
@@ -297,6 +326,8 @@ export default function TenantPaymentsPage() {
             >
               <CheckoutForm
                 amount={payAmount}
+                rentAmount={payRentAmount}
+                processingFee={payProcessingFee}
                 onSuccess={handlePaySuccess}
                 onCancel={() => { setShowPayModal(false); setClientSecret(null); }}
                 lang={lang}
