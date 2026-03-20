@@ -965,231 +965,404 @@ async def get_tenant_documents_landlord(tenant_id: str, current_user: dict = Dep
 # ===========================
 
 def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
-    """Generate an official-style Quebec Bail de logement (TAL Form 2) as PDF bytes."""
+    """
+    Generate an official Quebec Bail de logement PDF modelled on the TAL form
+    (Tribunal administratif du logement - sections A through I).
+    Uses only latin-1-safe characters to stay compatible with Helvetica built-in font.
+    """
     from fpdf import FPDF
 
-    W = 180       # usable width (mm) — A4 with 15mm margins
-    LM = 15       # left margin
-    COL = W / 2   # half column width for two-column sections
-    TEAL = (30, 122, 110)
+    # ── constants ────────────────────────────────────────────────────────────
+    PW   = 210          # A4 width mm
+    PH   = 297          # A4 height mm
+    LM   = 12           # left margin
+    RM   = 12           # right margin
+    TM   = 12           # top margin
+    W    = PW - LM - RM # usable width = 186 mm
+    HALF = W / 2
+    ROW  = 6.5          # standard row height
+    HDR  = 5.5          # section header height
+    GRAY = (220, 220, 220)
+    BLK  = (0, 0, 0)
+    MID  = (100, 100, 100)
+    LGRAY= (245, 245, 245)
+
+    today_str = datetime.now().strftime("%d/%m/%Y")
 
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(LM, 15, LM)
+    pdf.set_margins(LM, TM, RM)
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.set_auto_page_break(auto=True, margin=18)
 
-    today_str = datetime.now().strftime("%d %B %Y")
+    # ── reusable helpers ─────────────────────────────────────────────────────
 
-    # ── helpers ──────────────────────────────────────────────────────────────
+    def set_font(style: str = "", size: float = 8):
+        pdf.set_font("Helvetica", style, size)
 
-    def section_hdr(title: str):
-        pdf.set_font("Helvetica", "B", 9)
-        pdf.set_fill_color(*TEAL)
+    def section_header(letter: str, title: str, w: float = W):
+        """Bold dark-gray header band, letter + title."""
+        set_font("B", 8.5)
+        pdf.set_fill_color(50, 50, 50)
         pdf.set_text_color(255, 255, 255)
-        pdf.cell(W, 6, f"  {title}", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
-        pdf.set_text_color(0, 0, 0)
+        pdf.cell(w, HDR, f"  {letter}  {title}", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_text_color(*BLK)
         pdf.set_fill_color(255, 255, 255)
 
-    def field(label: str, value: str, fw: float = W, lw: float = 52):
-        pdf.set_font("Helvetica", "B", 8)
-        pdf.set_fill_color(248, 249, 250)
-        pdf.cell(lw, 5.5, f" {label}", border="B", fill=True)
-        pdf.set_font("Helvetica", "", 8)
+    def labeled_row(label: str, value: str, w: float = W, lw: float = 55, last: bool = False):
+        """Label (bold, gray bg) + value cell, full-width bordered row."""
+        border_type = "1" if last else "LRB"
+        set_font("B", 7.5)
+        pdf.set_fill_color(*LGRAY)
+        pdf.cell(lw, ROW, f"  {label}", border=border_type, fill=True)
+        set_font("", 8)
         pdf.set_fill_color(255, 255, 255)
-        pdf.cell(fw - lw, 5.5, f" {value}", border="B", new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(w - lw, ROW, f"  {value}", border=border_type, new_x="LMARGIN", new_y="NEXT")
 
-    def chk(x: float, y: float, checked: bool = False, size: float = 3.5):
+    def two_col_row(lbl1: str, val1: str, lbl2: str, val2: str, lw: float = 38):
+        """Two labeled fields side by side."""
+        hw = HALF
+        set_font("B", 7.5)
+        pdf.set_fill_color(*LGRAY)
+        pdf.cell(lw, ROW, f"  {lbl1}", border="LRB", fill=True)
+        set_font("", 8)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.cell(hw - lw, ROW, f"  {val1}", border="LRB")
+        set_font("B", 7.5)
+        pdf.set_fill_color(*LGRAY)
+        pdf.cell(lw, ROW, f"  {lbl2}", border="LRB", fill=True)
+        set_font("", 8)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.cell(hw - lw, ROW, f"  {val2}", border="LRB", new_x="LMARGIN", new_y="NEXT")
+
+    def chk_box(x: float, y: float, checked: bool = False, size: float = 3.2):
+        pdf.set_draw_color(*BLK)
         pdf.rect(x, y, size, size)
         if checked:
-            pdf.line(x, y, x + size, y + size)
-            pdf.line(x + size, y, x, y + size)
+            pdf.set_draw_color(*BLK)
+            pdf.line(x + 0.4, y + 0.4, x + size - 0.4, y + size - 0.4)
+            pdf.line(x + size - 0.4, y + 0.4, x + 0.4, y + size - 0.4)
 
-    def chk_label(label: str, checked: bool, x: float):
-        y = pdf.get_y()
-        chk(x, y + 0.8, checked)
-        pdf.set_xy(x + 4.5, y)
-        pdf.set_font("Helvetica", "", 8)
-        pdf.cell(0, 5.5, label)
+    def chk_inline(label: str, checked: bool, x: float, y: float, gap: float = 5.5):
+        chk_box(x, y + 1.0)
+        pdf.set_xy(x + 4.0, y)
+        set_font("", 8)
+        pdf.cell(gap + len(label) * 1.6, ROW, label)
 
-    # ── HEADER ───────────────────────────────────────────────────────────────
-    pdf.set_font("Helvetica", "B", 17)
-    pdf.set_text_color(*TEAL)
-    pdf.cell(W, 9, "BAIL DE LOGEMENT", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(90, 90, 90)
-    pdf.cell(W, 5, "Tribunal administratif du logement - Province de Quebec", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "I", 7.5)
-    pdf.cell(W, 4.5, f"Généré le {today_str} par Domely · domely.app", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(4)
+    def blank_lines(n: int = 3):
+        for _ in range(n):
+            set_font("", 8)
+            pdf.cell(W, ROW + 0.5, "", border="B", new_x="LMARGIN", new_y="NEXT")
 
-    # ── SECTIONS 1 & 2: PARTIES (two columns) ────────────────────────────────
-    pdf.set_font("Helvetica", "B", 9)
-    pdf.set_fill_color(*TEAL)
-    pdf.set_text_color(255, 255, 255)
-    pdf.cell(COL, 6, "  1. PROPRIÉTAIRE / BAILLEUR", border=0, fill=True)
-    pdf.cell(COL, 6, "  2. LOCATAIRE(S)", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-
+    # ── extracted data ───────────────────────────────────────────────────────
     landlord_name  = landlord.get("full_name", "")
+    landlord_addr  = landlord.get("address", "")
+    landlord_city  = landlord.get("city", "")
+    landlord_phone = landlord.get("phone", "")
     landlord_email = landlord.get("email", "")
-    tenant_name    = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip()
-    tenant_email   = tenant.get("email", "") or ""
-    tenant_phone   = tenant.get("phone", "") or ""
 
-    party_rows = [
-        ("Nom :",       landlord_name,  tenant_name),
-        ("Courriel :",  landlord_email, tenant_email),
-        ("Téléphone :", "",             tenant_phone),
-    ]
-    lbl_w = 24
-    for lbl, left_val, right_val in party_rows:
-        pdf.set_font("Helvetica", "B", 7.5)
-        pdf.set_fill_color(248, 249, 250)
-        pdf.cell(lbl_w, 5.5, f" {lbl}", border="B", fill=True)
-        pdf.set_font("Helvetica", "", 7.5)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.cell(COL - lbl_w, 5.5, f" {left_val}", border="B")
-        pdf.set_font("Helvetica", "B", 7.5)
-        pdf.set_fill_color(248, 249, 250)
-        pdf.cell(lbl_w, 5.5, f" {lbl}", border="B", fill=True)
-        pdf.set_font("Helvetica", "", 7.5)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.cell(COL - lbl_w, 5.5, f" {right_val}", border="B", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
+    tenant_name  = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip()
+    tenant_addr  = tenant.get("address", "")
+    tenant_city  = tenant.get("city", "")
+    tenant_phone = tenant.get("phone", "") or ""
+    tenant_email = tenant.get("email", "") or ""
 
-    # ── SECTION 3: LOGEMENT LOUÉ ─────────────────────────────────────────────
-    section_hdr("3. LOGEMENT LOUÉ")
-    address_full = f"{prop.get('address', '')}  -  App. {unit.get('unit_number', '')}"
-    city_prov    = f"{prop.get('city', '')} ({prop.get('province', 'QC')})  ·  {prop.get('postal_code', '')}"
-    field("Adresse :", address_full)
-    field("Ville / Province :", city_prov)
+    prop_addr    = prop.get("address", "")
+    prop_city    = prop.get("city", "")
+    prop_prov    = prop.get("province", "QC")
+    prop_postal  = prop.get("postal_code", "")
+    unit_no      = unit.get("unit_number", "")
+    bedrooms     = str(unit.get("bedrooms", ""))
+    bathrooms    = str(unit.get("bathrooms", ""))
+    sq_ft        = unit.get("square_feet")
 
-    # Meublé / Non meublé checkboxes inline
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_fill_color(248, 249, 250)
-    pdf.cell(52, 5.5, " Type de logement :", border="B", fill=True)
-    y_now = pdf.get_y()
-    chk(LM + 54, y_now + 0.8, checked=False)
-    pdf.set_xy(LM + 59, y_now)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.cell(30, 5.5, "Non meublé")
-    chk(LM + 90, y_now + 0.8, checked=False)
-    pdf.set_xy(LM + 95, y_now)
-    pdf.cell(30, 5.5, "Meublé", new_x="LMARGIN", new_y="NEXT")
+    start_date   = lease.get("start_date", "")
+    end_date     = lease.get("end_date", "")
+    is_fixed     = bool(end_date)
+    rent_amount  = lease.get("rent_amount", 0) or 0
+    due_day      = lease.get("payment_due_day", 1) or 1
+    deposit      = lease.get("security_deposit", 0) or 0
+    notes        = (lease.get("notes") or "").strip()
 
-    sq = unit.get("square_feet")
-    rooms_str = f"{unit.get('bedrooms', '')} chambre(s)  ·  {unit.get('bathrooms', '')} salle(s) de bain" + (f"  ·  {sq} pi²" if sq else "")
-    field("Pièces :", rooms_str)
-    pdf.ln(4)
+    # ════════════════════════════════════════════════════════════════════════
+    # PAGE HEADER
+    # ════════════════════════════════════════════════════════════════════════
+    # Top border line
+    pdf.set_draw_color(*BLK)
+    pdf.set_line_width(0.6)
+    pdf.line(LM, TM, LM + W, TM)
+    pdf.set_line_width(0.2)
+    pdf.ln(2)
 
-    # ── SECTION 4: DURÉE DU BAIL ──────────────────────────────────────────────
-    section_hdr("4. DURÉE DU BAIL")
-    start_date = lease.get("start_date", "")
-    end_date   = lease.get("end_date", "")
-    is_fixed   = bool(end_date)
+    # Title block
+    set_font("B", 16)
+    pdf.cell(W, 9, "BAIL D'UN LOGEMENT", align="C", new_x="LMARGIN", new_y="NEXT")
+    set_font("B", 8.5)
+    pdf.cell(W, 5, "Tribunal administratif du logement", align="C", new_x="LMARGIN", new_y="NEXT")
+    set_font("", 7.5)
+    pdf.set_text_color(*MID)
+    pdf.cell(W, 4.5, "Province de Quebec  |  Loi sur le tribunal administratif du logement, RLRQ, c. T-15.01", align="C", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLK)
 
-    # Durée fixe / indéterminée
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.set_fill_color(248, 249, 250)
-    pdf.cell(52, 5.5, " Type de durée :", border="B", fill=True)
-    y_now = pdf.get_y()
-    chk(LM + 54, y_now + 0.8, checked=is_fixed)
-    pdf.set_xy(LM + 59, y_now)
-    pdf.set_font("Helvetica", "", 8)
-    pdf.cell(35, 5.5, "Durée fixe")
-    chk(LM + 94, y_now + 0.8, checked=not is_fixed)
-    pdf.set_xy(LM + 99, y_now)
-    pdf.cell(50, 5.5, "Durée indéterminée", new_x="LMARGIN", new_y="NEXT")
+    # Right-aligned form reference
+    pdf.set_xy(LM + W - 50, TM + 2)
+    set_font("", 7)
+    pdf.set_text_color(*MID)
+    pdf.cell(50, 4, f"Genere le {today_str} - domely.app", align="R")
+    pdf.set_text_color(*BLK)
 
-    field("Du (date début) :", start_date)
-    field("Au (date fin) :",   end_date if is_fixed else "Durée indéterminée")
-    pdf.ln(4)
-
-    # ── SECTION 5: LOYER ──────────────────────────────────────────────────────
-    section_hdr("5. LOYER MENSUEL")
-    rent_amount = lease.get("rent_amount", 0)
-    due_day     = lease.get("payment_due_day", 1)
-    deposit     = lease.get("security_deposit", 0)
-    field("Montant du loyer :",     f"${rent_amount:,.2f} / mois")
-    field("Payable le :",           f"{due_day}er de chaque mois")
-    field("Dépôt de garantie :",    f"${deposit:,.2f}" if deposit else "Aucun")
-    pdf.ln(4)
-
-    # ── SECTION 6: SERVICES INCLUS ────────────────────────────────────────────
-    section_hdr("6. SERVICES INCLUS DANS LE LOYER")
-    pdf.set_font("Helvetica", "I", 7.5)
-    pdf.set_text_color(120, 120, 120)
-    pdf.cell(W, 4.5, "  Cochez les services inclus dans le loyer :", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-
-    services = ["Chauffage", "Eau chaude", "Électricité", "Climatisation", "Stationnement", "Rangement"]
-    col_w_svc = W / 3
-    for idx, svc in enumerate(services):
-        col = idx % 3
-        row = idx // 3
-        if col == 0 and idx > 0:
-            pdf.ln(6)
-        x = LM + col * col_w_svc + 2
-        if col > 0:
-            pdf.set_xy(x, pdf.get_y())
-        chk_label(svc, checked=False, x=x)
-    pdf.ln(7)
-    pdf.ln(1)
-
-    # ── SECTION 7: CLAUSES PARTICULIÈRES ─────────────────────────────────────
-    section_hdr("7. CLAUSES PARTICULIÈRES")
-    notes = (lease.get("notes") or "").strip()
-    pdf.set_font("Helvetica", "", 8)
-    if notes:
-        pdf.multi_cell(W, 5, notes, border=0)
-    else:
-        for _ in range(4):
-            pdf.cell(W, 6.5, "", border="B", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(4)
-
-    # ── SECTION 8: SIGNATURES ─────────────────────────────────────────────────
-    section_hdr("8. SIGNATURES DES PARTIES")
-    pdf.ln(4)
-    pdf.set_font("Helvetica", "B", 8)
-    pdf.cell(COL, 5, "Propriétaire / Bailleur")
-    pdf.cell(COL, 5, "Locataire", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(10)
-
-    # Signature lines
-    sig_line_w = COL - 8
-    pdf.set_draw_color(100, 100, 100)
-    x1 = LM
-    x2 = LM + COL
-    y_sig = pdf.get_y()
-    pdf.line(x1, y_sig, x1 + sig_line_w, y_sig)
-    pdf.line(x2, y_sig, x2 + sig_line_w, y_sig)
-    pdf.set_font("Helvetica", "", 7.5)
-    pdf.set_text_color(120, 120, 120)
-    pdf.set_xy(x1, y_sig + 1)
-    pdf.cell(sig_line_w, 4.5, "Signature")
-    pdf.set_xy(x2, y_sig + 1)
-    pdf.cell(sig_line_w, 4.5, "Signature", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(7)
-
-    date_line_w = 50
-    y_date = pdf.get_y()
-    pdf.line(x1, y_date, x1 + date_line_w, y_date)
-    pdf.line(x2, y_date, x2 + date_line_w, y_date)
-    pdf.set_xy(x1, y_date + 1)
-    pdf.cell(date_line_w, 4.5, "Date")
-    pdf.set_xy(x2, y_date + 1)
-    pdf.cell(date_line_w, 4.5, "Date", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-
-    # ── FOOTER ───────────────────────────────────────────────────────────────
-    pdf.set_y(-13)
-    pdf.set_font("Helvetica", "I", 7)
-    pdf.set_text_color(160, 160, 160)
-    pdf.set_draw_color(220, 220, 220)
+    pdf.set_xy(LM, pdf.get_y() + 2)
+    pdf.set_line_width(0.5)
     pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
+    pdf.set_line_width(0.2)
+    pdf.ln(2)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # A - LOCATEUR (BAILLEUR / PROPRIETAIRE)
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("A", "LOCATEUR (BAILLEUR / PROPRIETAIRE)")
+    labeled_row("Nom et prenom(s) / Raison sociale :", landlord_name, lw=68)
+    two_col_row("Adresse :", landlord_addr, "Ville :", landlord_city, lw=22)
+    two_col_row("Province :", "Quebec", "Code postal :", "", lw=22)
+    two_col_row("Telephone :", landlord_phone, "Courriel :", landlord_email, lw=22)
     pdf.ln(1)
-    pdf.cell(W, 4.5, f"Genere par Domely - domely.app - {today_str} | Ce document est fourni a titre indicatif. Consultez le TAL pour le formulaire officiel.", align="C")
+
+    # ════════════════════════════════════════════════════════════════════════
+    # B - LOCATAIRE(S)
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("B", "LOCATAIRE(S)")
+    labeled_row("Nom et prenom(s) :", tenant_name, lw=68)
+    two_col_row("Adresse actuelle :", tenant_addr, "Ville :", tenant_city, lw=32)
+    two_col_row("Province :", "Quebec", "Code postal :", "", lw=22)
+    two_col_row("Telephone :", tenant_phone, "Courriel :", tenant_email, lw=22)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # C - LOGEMENT LOUE
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("C", "LOGEMENT LOUE")
+
+    # Address row
+    addr_display = f"{prop_addr}  App. {unit_no}" if unit_no else prop_addr
+    labeled_row("Adresse du logement :", addr_display, lw=55)
+    two_col_row("Ville :", prop_city, "Province :", prop_prov, lw=18)
+    two_col_row("Code postal :", prop_postal, "Nombre de pieces :", bedrooms, lw=28)
+
+    # Furnished checkboxes
+    y0 = pdf.get_y()
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(55, ROW, "  Type de logement :", border="LRB", fill=True)
+    pdf.set_fill_color(255, 255, 255)
+    set_font("", 8)
+    pdf.cell(W - 55, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
+    chk_inline("Non meuble", False, LM + 57, y0)
+    chk_inline("Meuble", False, LM + 95, y0)
+
+    # Bedrooms / bathrooms / sqft
+    rooms_val = f"{bedrooms} chambre(s)  |  {bathrooms} salle(s) de bain"
+    if sq_ft:
+        rooms_val += f"  |  {sq_ft} pi2"
+    labeled_row("Description :", rooms_val, lw=38)
+
+    # Parking + storage
+    y0 = pdf.get_y()
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(38, ROW, "  Stationnement :", border="LRB", fill=True)
+    pdf.set_fill_color(255, 255, 255)
+    set_font("", 8)
+    pdf.cell(HALF - 38, ROW, "", border="LRB")
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(38, ROW, "  Rangement :", border="LRB", fill=True)
+    pdf.set_fill_color(255, 255, 255)
+    set_font("", 8)
+    pdf.cell(W - HALF - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
+    chk_inline("Inclus", False, LM + 40, y0)
+    chk_inline("Non inclus", False, LM + 60, y0)
+    chk_inline("Inclus", False, LM + HALF + 40, y0)
+    chk_inline("Non inclus", False, LM + HALF + 60, y0)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # D - DUREE DU BAIL
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("D", "DUREE DU BAIL")
+
+    y0 = pdf.get_y()
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(38, ROW, "  Type de bail :", border="LRB", fill=True)
+    pdf.set_fill_color(255, 255, 255)
+    set_font("", 8)
+    pdf.cell(W - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
+    chk_inline("A duree fixe", is_fixed,    LM + 40, y0)
+    chk_inline("A duree indeterminee", not is_fixed, LM + 88, y0)
+
+    two_col_row("Du (debut) :", start_date, "Au (fin) :", end_date if is_fixed else "Duree indeterminee", lw=28)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # E - LOYER
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("E", "LOYER")
+
+    two_col_row("Loyer mensuel :", f"${rent_amount:,.2f}", "Payable le :", f"{due_day} de chaque mois", lw=32)
+    two_col_row("Depot de garantie :", f"${deposit:,.2f}" if deposit else "Aucun", "Mode de paiement :", "", lw=38)
+
+    # Services inclus
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(W, HDR - 0.5, "  Services et conditions inclus dans le loyer (cochez) :", border="LRB", fill=True, new_x="LMARGIN", new_y="NEXT")
+
+    services_list = [
+        ("Eau chaude",          False),
+        ("Chauffage",           False),
+        ("Electricite",         False),
+        ("Air conditionne",     False),
+        ("Stationnement int.",  False),
+        ("Stationnement ext.",  False),
+        ("Rangement",           False),
+        ("Cablodistribution",   False),
+        ("Internet",            False),
+    ]
+    col_w = W / 3
+    rows_svc = [services_list[i:i+3] for i in range(0, len(services_list), 3)]
+    for row_items in rows_svc:
+        y0 = pdf.get_y()
+        set_font("", 8)
+        for ci, (svc_label, svc_checked) in enumerate(row_items):
+            x0 = LM + ci * col_w
+            brd = "LRB" if ci < 2 else "LRB"
+            pdf.set_xy(x0, y0)
+            pdf.set_fill_color(255, 255, 255)
+            pdf.cell(col_w, ROW, "", border=brd, fill=True)
+            chk_inline(svc_label, svc_checked, x0 + 2, y0)
+        pdf.set_xy(LM, y0 + ROW)
+
+    # Autre service
+    labeled_row("Autre service inclus :", "", lw=55)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # F - TRAVAUX
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("F", "TRAVAUX A EFFECTUER AVANT L'ENTREE DANS LES LIEUX")
+    set_font("I", 7.5)
+    pdf.set_text_color(*MID)
+    pdf.cell(W, 5, "  Le locateur s'engage a effectuer les travaux suivants avant la prise de possession :", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLK)
+    blank_lines(2)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # G - AVIS : IMMEUBLE NOUVEAU OU CHANGEMENT D'AFFECTATION
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("G", "AVIS : IMMEUBLE NOUVEAU OU CHANGEMENT D'AFFECTATION")
+    set_font("", 7.5)
+    notice_text = (
+        "Le logement est situe dans un immeuble nouvellement bati ou dont l'affectation a ete "
+        "changee a des fins d'habitation au cours des 5 dernieres annees. Le loyer n'est pas fixe "
+        "par le tribunal pour la premiere periode de location (art. 1955 C.c.Q.)."
+    )
+    y0 = pdf.get_y()
+    pdf.set_fill_color(*LGRAY)
+    set_font("B", 7.5)
+    pdf.cell(38, ROW, "  Applicable :", border="LRB", fill=True)
+    pdf.set_fill_color(255, 255, 255)
+    set_font("", 8)
+    pdf.cell(W - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
+    chk_inline("Oui", False, LM + 40, y0)
+    chk_inline("Non", False, LM + 60, y0)
+    set_font("I", 7)
+    pdf.set_text_color(*MID)
+    pdf.multi_cell(W, 4.5, f"  {notice_text}", border=0)
+    pdf.set_text_color(*BLK)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # H - LOYER ANTERIEUR
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("H", "LOYER DU LOGEMENT AU COURS DES 12 MOIS PRECEDANT LE BAIL")
+    set_font("I", 7.5)
+    pdf.set_text_color(*MID)
+    pdf.cell(W, 4.5, "  Obligation du locateur de declarer le dernier loyer mensuel paye (art. 1896 C.c.Q.)", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLK)
+    two_col_row("Dernier loyer mensuel paye :", "$", "Date de fin de ce loyer :", "", lw=55)
+    pdf.ln(1)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # I - CLAUSES PARTICULIERES
+    # ════════════════════════════════════════════════════════════════════════
+    section_header("I", "CLAUSES PARTICULIERES")
+    set_font("I", 7.5)
+    pdf.set_text_color(*MID)
+    pdf.cell(W, 4.5, "  Toute clause contraire a la loi ou aux droits du locataire est nulle de plein droit.", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLK)
+    if notes:
+        set_font("", 8)
+        pdf.multi_cell(W, ROW, notes, border="1")
+    else:
+        blank_lines(4)
+    pdf.ln(2)
+
+    # ════════════════════════════════════════════════════════════════════════
+    # SIGNATURES
+    # ════════════════════════════════════════════════════════════════════════
+    pdf.set_line_width(0.5)
+    pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
+    pdf.set_line_width(0.2)
+    pdf.ln(3)
+
+    set_font("B", 8)
+    pdf.cell(W, 5, "SIGNATURES DES PARTIES", new_x="LMARGIN", new_y="NEXT")
+    pdf.ln(3)
+
+    # Signature block helper
+    sig_col = HALF - 4
+    def sig_block(name: str, role: str, x: float):
+        pdf.set_xy(x, pdf.get_y())
+        set_font("B", 7.5)
+        pdf.cell(sig_col, 4.5, role, new_x="LMARGIN", new_y="NEXT")
+        pdf.set_xy(x, pdf.get_y())
+        # Signature line
+        pdf.set_draw_color(*MID)
+        pdf.line(x, pdf.get_y() + 9, x + sig_col, pdf.get_y() + 9)
+        pdf.set_draw_color(*BLK)
+        pdf.set_xy(x, pdf.get_y() + 10)
+        set_font("", 7)
+        pdf.set_text_color(*MID)
+        pdf.cell(sig_col, 4, f"Signature  -  {name}")
+        pdf.set_text_color(*BLK)
+        pdf.set_xy(x, pdf.get_y() + 5)
+        # Date line
+        pdf.set_draw_color(*MID)
+        pdf.line(x, pdf.get_y() + 5, x + 50, pdf.get_y() + 5)
+        pdf.set_draw_color(*BLK)
+        pdf.set_xy(x, pdf.get_y() + 6)
+        set_font("", 7)
+        pdf.set_text_color(*MID)
+        pdf.cell(50, 4, "Date (JJ/MM/AAAA)")
+        pdf.set_text_color(*BLK)
+
+    y_sig = pdf.get_y()
+    sig_block(landlord_name, "LOCATEUR / BAILLEUR", LM)
+    pdf.set_y(y_sig)
+    sig_block(tenant_name,   "LOCATAIRE",           LM + HALF + 4)
+    pdf.ln(16)
+
+    # ── Note de bas de page ──────────────────────────────────────────────────
+    pdf.set_y(-16)
+    pdf.set_line_width(0.4)
+    pdf.set_draw_color(*GRAY)
+    pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
+    pdf.set_line_width(0.2)
+    pdf.ln(1.5)
+    set_font("I", 6.5)
+    pdf.set_text_color(*MID)
+    pdf.cell(W / 2, 4, "Ce document est fourni a titre indicatif par Domely (domely.app).")
+    pdf.cell(W / 2, 4, "Consultez le formulaire officiel du TAL : tal.gouv.qc.ca", align="R", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(*BLK)
 
     return bytes(pdf.output())
 
