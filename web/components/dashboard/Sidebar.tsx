@@ -18,12 +18,14 @@ const NAV_DAILY = [
   { href: "/dashboard/rent",        icon: "credit-card" as const, fr: "Loyers",      en: "Rent" },
   { href: "/dashboard/maintenance", icon: "wrench"      as const, fr: "Maintenance", en: "Maintenance" },
   { href: "/dashboard/messages",    icon: "chat"        as const, fr: "Messages",    en: "Messages" },
+  { href: "/dashboard/ai",          icon: "sparkles"    as const, fr: "Domely AI",   en: "Domely AI" },
 ];
 
 const NAV_PORTFOLIO = [
   { href: "/dashboard/properties",    icon: "home"     as const, fr: "Propriétés",       en: "Properties" },
   { href: "/dashboard/tenants",       icon: "users"    as const, fr: "Locataires",       en: "Tenants" },
   { href: "/dashboard/leases",        icon: "document" as const, fr: "Baux",             en: "Leases" },
+  { href: "/dashboard/documents",     icon: "document" as const, fr: "Documents",        en: "Documents" },
   { href: "/dashboard/applicants",    icon: "users"    as const, fr: "Candidats",        en: "Applicants" },
   { href: "/dashboard/vacancy",       icon: "home"     as const, fr: "Logements vacants", en: "Vacancy" },
   { href: "/dashboard/inspections",   icon: "document" as const, fr: "Inspections",      en: "Inspections" },
@@ -32,13 +34,11 @@ const NAV_PORTFOLIO = [
 const NAV_FINANCES = [
   { href: "/dashboard/expenses",    icon: "dollar"    as const, fr: "Finances",        en: "Finances" },
   { href: "/dashboard/insights",    icon: "chart-bar" as const, fr: "Analytiques",     en: "Analytics" },
-  { href: "/dashboard/mortgage",    icon: "building"  as const, fr: "Hypothèques",     en: "Mortgages" },
-  { href: "/dashboard/insurance",   icon: "shield"    as const, fr: "Assurances",      en: "Insurance" },
   { href: "/dashboard/automations", icon: "zap"       as const, fr: "Automatisations", en: "Automations" },
 ];
 
 const NAV_ADMIN = [
-  { href: "/dashboard/contractors", icon: "building" as const, fr: "Entrepreneurs", en: "Contractors" },
+  { href: "/dashboard/contractors", icon: "briefcase" as const, fr: "Entrepreneurs", en: "Contractors" },
   { href: "/dashboard/team",        icon: "users"    as const, fr: "Équipe",        en: "Team" },
   { href: "/dashboard/settings",    icon: "user"     as const, fr: "Paramètres",   en: "Settings" },
 ];

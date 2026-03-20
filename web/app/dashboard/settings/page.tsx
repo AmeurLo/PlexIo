@@ -32,11 +32,11 @@ const T = {
 
 export default function SettingsPage() {
   const { lang, setLang, t } = useLanguage();
-  const storedUser = getUser();
+  const [storedUser, setStoredUser] = useState<import("@/lib/auth").StoredUser | null>(null);
   const [form, setForm] = useState({
-    first_name: storedUser?.full_name?.split(" ")[0] ?? "",
-    last_name:  storedUser?.full_name?.split(" ").slice(1).join(" ") ?? "",
-    email:      storedUser?.email ?? "",
+    first_name: "",
+    last_name:  "",
+    email:      "",
     phone:      "",
   });
   const [saving, setSaving] = useState(false);
@@ -50,6 +50,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (!requireAuth()) return;
+    setStoredUser(getUser());
     api.getProfile().then((p: any) => {
       setForm({
         first_name: p.first_name ?? p.full_name?.split(" ")[0] ?? "",

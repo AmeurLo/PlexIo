@@ -132,7 +132,17 @@ export default function MessagesPage() {
           {loading ? (
             <div className="flex justify-center py-10"><div className="w-6 h-6 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /></div>
           ) : filtered.length === 0 ? (
-            <p className="text-[13px] text-gray-400 text-center py-10">{t(T.noConv)}</p>
+            <div className="flex flex-col items-center text-center px-6 py-10 gap-3">
+              <div className="w-12 h-12 bg-teal-50 dark:bg-teal-900/20 rounded-2xl flex items-center justify-center">
+                <Icon name="chat" size={20} className="text-teal-500" />
+              </div>
+              <p className="text-[13px] font-semibold text-gray-700 dark:text-gray-300">{t(T.noConv)}</p>
+              <p className="text-[12px] text-gray-400 leading-relaxed">
+                {lang === "fr"
+                  ? "Vos locataires peuvent vous écrire depuis leur portail. Vous pouvez aussi initier une conversation ci-dessus."
+                  : "Your tenants can message you from their portal. You can also start a conversation using the + button above."}
+              </p>
+            </div>
           ) : (
             filtered.map(conv => {
               const id = conv.id ?? conv._id;

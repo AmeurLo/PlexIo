@@ -80,7 +80,7 @@ export default function AIPage() {
                   ? "Posez vos questions sur vos propriétés, locataires, finances et plus encore."
                   : "Ask questions about your properties, tenants, finances and more."}
               </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-w-xl mx-auto mb-6">
                 {suggestions.map((s, i) => (
                   <button
                     key={i}
@@ -90,6 +90,11 @@ export default function AIPage() {
                     {s}
                   </button>
                 ))}
+              </div>
+              <div className="max-w-md mx-auto px-4 py-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-xl text-[12px] text-amber-700 dark:text-amber-400 text-center">
+                🔒 {lang === "fr"
+                  ? "Ne partagez pas d'informations personnelles identifiables (NAS, numéros de compte, mots de passe) dans ce chat."
+                  : "Do not share personally identifiable information (SIN, account numbers, passwords) in this chat."}
               </div>
             </div>
           )}
@@ -152,7 +157,9 @@ export default function AIPage() {
           </button>
         </div>
         <p className="text-center text-[11px] text-gray-400 mt-2">
-          {lang === "fr" ? "Alimenté par Claude · Entrée pour envoyer" : "Powered by Claude · Enter to send"}
+          {lang === "fr"
+            ? "Ne partagez pas d'infos personnelles sensibles · Entrée pour envoyer"
+            : "Do not share sensitive personal info · Enter to send"}
         </p>
       </div>
     </div>

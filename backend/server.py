@@ -1665,53 +1665,48 @@ class ScanReceiptRequest(BaseModel):
 @api_router.post("/expenses/scan-receipt")
 async def scan_receipt(data: ScanReceiptRequest, current_user: dict = Depends(get_current_user)):
     """Use Claude Vision (or mock) to extract expense data from a receipt photo."""
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
 
-    if anthropic_key:
+    if openrouter_key:
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=anthropic_key)
+            import httpx
             # Detect image type from base64 header or default to jpeg
             img_data = data.image_base64
             if img_data.startswith("data:"):
-                header, img_data = img_data.split(",", 1)
-                media_type = header.split(";")[0].split(":")[1]
+                data_url = img_data  # already a full data URL
             else:
-                media_type = "image/jpeg"
+                data_url = f"data:image/jpeg;base64,{img_data}"
 
-            message = client.messages.create(
-                model="claude-haiku-4-5-20251001",
-                max_tokens=512,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": media_type,
-                                "data": img_data,
-                            }
-                        },
-                        {
-                            "type": "text",
-                            "text": (
-                                "You are analyzing a receipt or expense document. "
-                                "Extract the following fields and return ONLY valid JSON (no markdown, no explanation):\n"
-                                "{\n"
-                                '  "title": "short description of what was purchased",\n'
-                                '  "amount": 0.00,\n'
-                                '  "date": "YYYY-MM-DD",\n'
-                                '  "category": one of [maintenance, insurance, property_tax, utilities, mortgage, cleaning, renovation, other],\n'
-                                '  "notes": "any extra details from the receipt"\n'
-                                "}\n"
-                                "If a field cannot be determined, use null. For date, use today if not visible."
-                            )
-                        }
-                    ]
-                }]
-            )
-            text = message.content[0].text.strip()
+            async with httpx.AsyncClient(timeout=30) as http:
+                resp = await http.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "https://domely.ca",
+                        "X-Title": "Domely AI",
+                    },
+                    json={
+                        "model": "anthropic/claude-haiku-4-5",
+                        "max_tokens": 512,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": data_url}},
+                                {"type": "text", "text": (
+                                    "You are analyzing a receipt or expense document. "
+                                    "Extract the following fields and return ONLY valid JSON (no markdown, no explanation):\n"
+                                    '{"title":"short description","amount":0.00,"date":"YYYY-MM-DD",'
+                                    '"category":"one of [maintenance,insurance,property_tax,utilities,mortgage,cleaning,renovation,other]",'
+                                    '"notes":"any extra details"}\n'
+                                    "If a field cannot be determined, use null. For date, use today if not visible."
+                                )}
+                            ]
+                        }],
+                    },
+                )
+                resp.raise_for_status()
+            text = resp.json()["choices"][0]["message"]["content"].strip()
             result = json.loads(text)
             # Sanitize
             if result.get("amount") and not isinstance(result["amount"], (int, float)):
@@ -2605,8 +2600,8 @@ async def ai_chat(data: AIChatRequest, current_user: dict = Depends(get_current_
     """Real AI chat powered by Claude. Receives conversation history + screen context,
     fetches the user's live portfolio data, and returns a grounded assistant response."""
 
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not anthropic_key or anthropic_key.startswith("sk-ant-your-key"):
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if not openrouter_key or openrouter_key.startswith("sk-or-your-key"):
         return {"response": "Domely AI n'est pas encore configuré. Veuillez contacter l'équipe Domely. / Domely AI is not yet configured. Please contact the Domely team."}
 
     user_id = current_user["id"]
@@ -2669,23 +2664,29 @@ INSTRUCTIONS:
 - Current screen context: {data.context}
 """
 
-    # ── Call Claude ───────────────────────────────────────────────────────────
+    # ── Call via OpenRouter (OpenAI-compatible) ───────────────────────────────
     try:
-        import anthropic as anthropic_sdk
-        client_ai = anthropic_sdk.Anthropic(api_key=anthropic_key)
-
-        claude_messages = [
-            {"role": m.role, "content": m.content}
-            for m in data.messages
+        import httpx
+        messages_payload = [{"role": "system", "content": system_prompt}] + [
+            {"role": m.role, "content": m.content} for m in data.messages
         ]
-
-        response = client_ai.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
-            system=system_prompt,
-            messages=claude_messages,
-        )
-        answer = response.content[0].text
+        async with httpx.AsyncClient(timeout=30) as http:
+            resp = await http.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openrouter_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://domely.ca",
+                    "X-Title": "Domely AI",
+                },
+                json={
+                    "model": "anthropic/claude-haiku-4-5",
+                    "max_tokens": 600,
+                    "messages": messages_payload,
+                },
+            )
+            resp.raise_for_status()
+            answer = resp.json()["choices"][0]["message"]["content"]
         return {"response": answer}
 
     except Exception as e:

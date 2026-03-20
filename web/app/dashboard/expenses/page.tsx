@@ -60,6 +60,7 @@ export default function FinancesPage() {
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [expForm, setExpForm] = useState({ ...emptyExpense });
   const [deleteExpense, setDeleteExpense] = useState<Expense | null>(null);
+  const [scanningReceipt, setScanningReceipt] = useState(false);
 
   // ── Mortgages ──────────────────────────────────────────────────────────────
   const [mortgages, setMortgages] = useState<Mortgage[]>([]);
@@ -110,6 +111,32 @@ export default function FinancesPage() {
     });
     setFormError(""); setShowModal(true);
   }
+  function handleScanReceipt(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanningReceipt(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const base64 = reader.result as string;
+        const scanned = await api.scanReceipt(base64);
+        setExpForm(p => ({
+          ...p,
+          title: scanned.title ?? p.title,
+          amount: scanned.amount != null ? String(scanned.amount) : p.amount,
+          category: scanned.category ?? p.category,
+          date: scanned.date?.slice(0, 10) ?? p.date,
+          notes: scanned.notes ?? p.notes,
+        }));
+      } catch {
+        setFormError(lang === "fr" ? "Impossible de lire le reçu. Réessayez." : "Could not read receipt. Please try again.");
+      } finally {
+        setScanningReceipt(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   async function saveExpense() {
     if (!expForm.title.trim()) { setFormError(lang === "fr" ? "Titre requis." : "Title required."); return; }
     if (!expForm.amount || isNaN(Number(expForm.amount))) { setFormError(lang === "fr" ? "Montant invalide." : "Invalid amount."); return; }
@@ -531,6 +558,33 @@ export default function FinancesPage() {
             <FormField label="Notes">
               <textarea className={inputClass + " resize-none"} rows={2} value={expForm.notes} onChange={e => setExpForm(p => ({...p, notes: e.target.value}))} />
             </FormField>
+            <div>
+              <label className="block text-[13px] font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                {lang === "fr" ? "Numériser un reçu" : "Scan a receipt"}
+              </label>
+              <label className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border cursor-pointer transition-all text-[13px] font-medium ${
+                scanningReceipt
+                  ? "bg-teal-50 dark:bg-teal-900/20 border-teal-200 dark:border-teal-800 text-teal-600 cursor-wait"
+                  : "bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-teal-400 hover:text-teal-600"
+              }`}>
+                <input type="file" accept="image/*,application/pdf" className="sr-only" disabled={scanningReceipt} onChange={handleScanReceipt} />
+                {scanningReceipt ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
+                    {lang === "fr" ? "Analyse en cours…" : "Analysing…"}
+                  </>
+                ) : (
+                  <>
+                    <span className="text-[16px]">📷</span>
+                    {lang === "fr" ? "Choisir une photo ou PDF" : "Choose a photo or PDF"}
+                    <span className="ml-auto text-[11px] font-semibold px-1.5 py-0.5 bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-400 rounded">IA</span>
+                  </>
+                )}
+              </label>
+              <p className="text-[11px] text-gray-400 mt-1">
+                {lang === "fr" ? "L'IA extrait automatiquement le titre, montant, date et catégorie." : "AI automatically extracts title, amount, date and category."}
+              </p>
+            </div>
           </div>
         )}
 

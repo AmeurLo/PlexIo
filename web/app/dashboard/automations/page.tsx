@@ -8,78 +8,60 @@ import { Icon } from "@/lib/icons";
 import PageHeader from "@/components/dashboard/PageHeader";
 
 const T = {
-  title:    { fr: "Automatisations",    en: "Automations" },
-  sub:      { fr: "Gérez vos rappels automatiques", en: "Manage your automatic reminders" },
-  active:   { fr: "Active",            en: "Active" },
-  inactive: { fr: "Inactive",          en: "Inactive" },
-  saving:   { fr: "Enregistrement…",   en: "Saving…" },
-  noAuto:   { fr: "Aucune automatisation disponible.", en: "No automations available." },
+  title:    { fr: "Automatisations",              en: "Automations" },
+  sub:      { fr: "18 automatisations disponibles — activez celles dont vous avez besoin", en: "18 automations available — enable the ones you need" },
+  active:   { fr: "Active",                       en: "Active" },
+  inactive: { fr: "Inactive",                     en: "Inactive" },
 };
 
-const DEFAULT_AUTOMATIONS = [
+const AUTOMATION_GROUPS = [
   {
-    key: "rent_reminder_3_days",
-    icon: "credit-card" as const,
-    fr: "Rappel de loyer (3 jours avant)",
-    en: "Rent reminder (3 days before)",
-    descFr: "Envoie un rappel par email/SMS au locataire 3 jours avant l'échéance du loyer.",
-    descEn: "Sends an email/SMS reminder to the tenant 3 days before rent is due.",
+    categoryFr: "Loyers & Paiements",
+    categoryEn: "Rent & Payments",
+    items: [
+      { key: "rent_reminder",       icon: "credit-card" as const, fr: "Rappel de loyer",              en: "Rent reminder",              descFr: "Envoyer un rappel au locataire avant la date d'échéance mensuelle.",          descEn: "Send a reminder to the tenant before the monthly rent due date." },
+      { key: "late_alert",          icon: "credit-card" as const, fr: "Alerte retard de paiement",    en: "Late payment alert",         descFr: "Vous notifier et relancer le locataire en retard de paiement.",               descEn: "Notify you and follow up with the tenant on overdue payments." },
+      { key: "payment_receipt",     icon: "credit-card" as const, fr: "Reçu automatique",             en: "Automatic receipt",          descFr: "Envoyer un reçu de paiement au locataire dès la confirmation.",               descEn: "Send a payment receipt to the tenant upon confirmation." },
+      { key: "e_transfer_reminder", icon: "credit-card" as const, fr: "Instructions de virement",     en: "Transfer instructions",      descFr: "Rappeler les instructions Interac e-Transfer à chaque début de mois.",        descEn: "Remind tenants of Interac e-Transfer instructions each month." },
+    ],
   },
   {
-    key: "rent_reminder_day_of",
-    icon: "credit-card" as const,
-    fr: "Rappel de loyer (jour J)",
-    en: "Rent reminder (due day)",
-    descFr: "Envoie un rappel le jour même de l'échéance du loyer.",
-    descEn: "Sends a reminder on the actual rent due date.",
+    categoryFr: "Baux & Renouvellements",
+    categoryEn: "Leases & Renewals",
+    items: [
+      { key: "lease_renewal",   icon: "document" as const, fr: "Avis de renouvellement",           en: "Renewal notice",             descFr: "Vous rappeler de préparer le renouvellement avant l'échéance du bail.",      descEn: "Remind you to prepare lease renewal before expiry." },
+      { key: "rent_increase",   icon: "document" as const, fr: "Génération avis de hausse (TAL)",  en: "Rent increase notice (TAL)", descFr: "Préparer automatiquement l'avis de hausse conforme au formulaire TAL.",     descEn: "Automatically prepare a TAL-compliant rent increase notice." },
+      { key: "non_renewal",     icon: "document" as const, fr: "Délai non-renouvellement (90j)",   en: "Non-renewal deadline (90d)", descFr: "Vous alerter du délai légal de 90 jours pour un avis de non-renouvellement.", descEn: "Alert you of the 90-day legal deadline for a non-renewal notice." },
+      { key: "lease_signature", icon: "document" as const, fr: "Rappel signature de bail",         en: "Lease signature reminder",   descFr: "Relancer le locataire si un bail n'a pas été signé dans les délais.",        descEn: "Follow up if a lease hasn't been signed within the deadline." },
+    ],
   },
   {
-    key: "late_rent_notification",
-    icon: "credit-card" as const,
-    fr: "Notification de loyer en retard",
-    en: "Late rent notification",
-    descFr: "Alerte le propriétaire dès qu'un loyer n'est pas payé après l'échéance.",
-    descEn: "Alerts the landlord when a rent payment is overdue.",
+    categoryFr: "Entretien",
+    categoryEn: "Maintenance",
+    items: [
+      { key: "maintenance_assign",   icon: "wrench" as const, fr: "Assignation automatique",    en: "Auto-assignment",        descFr: "Attribuer les nouveaux tickets à votre équipe selon la catégorie.",       descEn: "Assign new tickets to your team based on issue category." },
+      { key: "maintenance_followup", icon: "wrench" as const, fr: "Suivi d'inactivité",          en: "Inactivity follow-up",   descFr: "Relancer votre équipe si un ticket reste sans mise à jour.",             descEn: "Follow up with your team if a ticket has no updates." },
+      { key: "maintenance_tenant",   icon: "wrench" as const, fr: "Mise à jour locataire",       en: "Tenant update",          descFr: "Tenir le locataire informé de l'avancement de son ticket.",             descEn: "Keep the tenant informed of their maintenance ticket progress." },
+      { key: "maintenance_complete", icon: "wrench" as const, fr: "Confirmation de fermeture",   en: "Closure confirmation",   descFr: "Demander la confirmation du locataire avant de clore un ticket.",        descEn: "Request tenant confirmation before closing a ticket." },
+    ],
   },
   {
-    key: "lease_expiry_60_days",
-    icon: "document" as const,
-    fr: "Expiration de bail (60 jours)",
-    en: "Lease expiry (60 days)",
-    descFr: "Rappel 60 jours avant l'expiration d'un bail.",
-    descEn: "Reminder 60 days before a lease expires.",
+    categoryFr: "Finances",
+    categoryEn: "Finances",
+    items: [
+      { key: "mortgage_renewal",  icon: "dollar" as const,    fr: "Renouvellement hypothèque",  en: "Mortgage renewal",   descFr: "Vous alerter avant l'échéance de vos prêts hypothécaires.",         descEn: "Alert you before your mortgage maturity date." },
+      { key: "insurance_renewal", icon: "shield" as const,    fr: "Renouvellement assurance",   en: "Insurance renewal",  descFr: "Rappel avant l'expiration de vos polices d'assurance.",             descEn: "Reminder before your insurance policies expire." },
+      { key: "monthly_report",    icon: "chart-bar" as const, fr: "Rapport mensuel",            en: "Monthly report",     descFr: "Recevoir un résumé financier chaque début de mois.",                descEn: "Receive a financial summary at the start of each month." },
+    ],
   },
   {
-    key: "lease_expiry_30_days",
-    icon: "document" as const,
-    fr: "Expiration de bail (30 jours)",
-    en: "Lease expiry (30 days)",
-    descFr: "Rappel 30 jours avant l'expiration d'un bail.",
-    descEn: "Reminder 30 days before a lease expires.",
-  },
-  {
-    key: "maintenance_followup",
-    icon: "wrench" as const,
-    fr: "Suivi de maintenance",
-    en: "Maintenance follow-up",
-    descFr: "Rappel si une demande de maintenance reste ouverte plus de 7 jours.",
-    descEn: "Reminder if a maintenance request remains open for more than 7 days.",
-  },
-  {
-    key: "monthly_report",
-    icon: "chart-bar" as const,
-    fr: "Rapport mensuel",
-    en: "Monthly report",
-    descFr: "Rapport mensuel de loyers, dépenses et occupation envoyé par email.",
-    descEn: "Monthly rent, expenses and occupancy report sent by email.",
-  },
-  {
-    key: "insurance_expiry_30_days",
-    icon: "shield" as const,
-    fr: "Expiration d'assurance (30 jours)",
-    en: "Insurance expiry (30 days)",
-    descFr: "Rappel 30 jours avant l'expiration d'une assurance.",
-    descEn: "Reminder 30 days before an insurance policy expires.",
+    categoryFr: "Portail locataire",
+    categoryEn: "Tenant Portal",
+    items: [
+      { key: "portal_welcome",           icon: "users" as const, fr: "Accueil nouveau locataire",   en: "New tenant welcome",      descFr: "Envoyer automatiquement les identifiants du portail à la signature du bail.", descEn: "Automatically send portal credentials upon lease signing." },
+      { key: "portal_document",          icon: "users" as const, fr: "Notification de document",    en: "Document notification",   descFr: "Alerter le locataire lorsqu'un nouveau document est disponible.",            descEn: "Alert the tenant when a new document is available." },
+      { key: "portal_maintenance_reply", icon: "users" as const, fr: "Réponse aux demandes",        en: "Request acknowledgement", descFr: "Envoyer un accusé de réception lors d'une demande d'entretien.",             descEn: "Send an acknowledgement when a maintenance request is submitted." },
+    ],
   },
 ];
 
@@ -112,52 +94,72 @@ export default function AutomationsPage() {
     try {
       await api.toggleAutomation(key, !current);
       setAutomations(prev => ({ ...prev, [key]: !current }));
-    } catch (e: any) { showToast(e.message ?? (lang === "fr" ? "Erreur de sauvegarde" : "Save error"), "error"); }
-    finally { setSaving(null); }
+    } catch (e: any) {
+      showToast(e.message ?? (lang === "fr" ? "Erreur de sauvegarde" : "Save error"), "error");
+    } finally {
+      setSaving(null);
+    }
   }
+
+  const activeCount = Object.values(automations).filter(Boolean).length;
 
   return (
     <div className="p-6 max-w-3xl space-y-6">
-      <PageHeader title={t(T.title)} subtitle={t(T.sub)} />
+      <PageHeader
+        title={t(T.title)}
+        subtitle={t(T.sub)}
+        actions={activeCount > 0 ? [{
+          label: `${activeCount} ${lang === "fr" ? "active" : "active"}${activeCount > 1 ? "s" : ""}`,
+          onClick: () => {},
+        }] : undefined}
+      />
 
       {loading ? (
-        <div className="flex justify-center py-20"><div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" /></div>
+        <div className="flex justify-center py-20">
+          <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+        </div>
       ) : (
-        <div className="space-y-3">
-          {DEFAULT_AUTOMATIONS.map(auto => {
-            const isActive = automations[auto.key] ?? false;
-            const isSaving = saving === auto.key;
-            return (
-              <div key={auto.key} className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-5">
-                <div className="flex items-start gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? "bg-teal-100 dark:bg-teal-900/30" : "bg-gray-100 dark:bg-gray-800"}`}>
-                    <Icon name={auto.icon} size={18} className={isActive ? "text-teal-600 dark:text-teal-400" : "text-gray-400"} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-3">
-                      <h3 className="font-semibold text-gray-900 dark:text-white text-[14px]">
-                        {lang === "fr" ? auto.fr : auto.en}
-                      </h3>
-                      {/* Toggle */}
-                      <button
-                        onClick={() => toggleAutomation(auto.key)}
-                        disabled={isSaving}
-                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0 ${isActive ? "bg-teal-600" : "bg-gray-200 dark:bg-gray-700"} ${isSaving ? "opacity-50" : ""}`}
-                      >
-                        <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${isActive ? "translate-x-6" : "translate-x-1"}`} />
-                      </button>
+        <div className="space-y-8">
+          {AUTOMATION_GROUPS.map(group => (
+            <div key={group.categoryFr}>
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-3">
+                {lang === "fr" ? group.categoryFr : group.categoryEn}
+              </p>
+              <div className="space-y-2">
+                {group.items.map(auto => {
+                  const isActive = automations[auto.key] ?? false;
+                  const isSaving = saving === auto.key;
+                  return (
+                    <div key={auto.key}
+                      className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-4">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isActive ? "bg-teal-100 dark:bg-teal-900/30" : "bg-gray-100 dark:bg-gray-800"}`}>
+                          <Icon name={auto.icon} size={16} className={isActive ? "text-teal-600 dark:text-teal-400" : "text-gray-400"} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-3">
+                            <h3 className="font-semibold text-gray-900 dark:text-white text-[13px]">
+                              {lang === "fr" ? auto.fr : auto.en}
+                            </h3>
+                            <button
+                              onClick={() => toggleAutomation(auto.key)}
+                              disabled={isSaving}
+                              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${isActive ? "bg-teal-600" : "bg-gray-200 dark:bg-gray-700"} ${isSaving ? "opacity-50" : ""}`}
+                            >
+                              <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform ${isActive ? "translate-x-[18px]" : "translate-x-0.5"}`} />
+                            </button>
+                          </div>
+                          <p className="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">
+                            {lang === "fr" ? auto.descFr : auto.descEn}
+                          </p>
+                        </div>
+                      </div>
                     </div>
-                    <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-0.5">
-                      {lang === "fr" ? auto.descFr : auto.descEn}
-                    </p>
-                    <span className={`mt-2 inline-block text-[11px] font-semibold px-2 py-0.5 rounded-full ${isActive ? "bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400" : "bg-gray-100 dark:bg-gray-800 text-gray-400"}`}>
-                      {isActive ? t(T.active) : t(T.inactive)}
-                    </span>
-                  </div>
-                </div>
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       )}
     </div>

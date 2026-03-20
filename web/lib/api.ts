@@ -160,6 +160,9 @@ export const api = {
   updateExpense: (id: string, data: Partial<Expense>) =>
     apiFetch<Expense>(`/expenses/${id}`, { method: "PUT", ...body(data) }),
   deleteExpense: (id: string) => apiFetch<void>(`/expenses/${id}`, { method: "DELETE" }),
+  scanReceipt: (imageBase64: string) =>
+    apiFetch<{ title: string | null; amount: number | null; date: string | null; category: string | null; notes: string | null }>(
+      "/expenses/scan-receipt", { method: "POST", ...body({ image_base64: imageBase64 }) }),
   getPropertyFinancials: (id: string, monthYear?: string, period?: "monthly" | "ytd") =>
     apiFetch<PropertyFinancials>(`/properties/${id}/financials${qs({ month_year: monthYear, period })}`),
 
