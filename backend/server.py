@@ -1626,12 +1626,27 @@ async def get_rent_payment(payment_id: str, current_user: dict = Depends(get_cur
         raise HTTPException(status_code=404, detail="Payment not found")
     return RentPayment(**payment)
 
+@api_router.put("/rent-payments/{payment_id}")
+async def update_rent_payment(payment_id: str, data: dict, current_user: dict = Depends(get_current_user)):
+    payment = await db.rent_payments.find_one({"id": payment_id, "user_id": current_user["id"]})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    # Only allow updating safe fields
+    allowed = {"amount", "payment_date", "payment_method", "month_year", "status", "notes",
+               "lease_id", "tenant_id", "unit_id", "due_date"}
+    update = {k: v for k, v in data.items() if k in allowed}
+    if not update:
+        raise HTTPException(status_code=400, detail="No valid fields to update")
+    await db.rent_payments.update_one({"id": payment_id}, {"$set": update})
+    updated = await db.rent_payments.find_one({"id": payment_id})
+    return updated
+
 @api_router.delete("/rent-payments/{payment_id}")
 async def delete_rent_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
     payment = await db.rent_payments.find_one({"id": payment_id, "user_id": current_user["id"]})
     if not payment:
         raise HTTPException(status_code=404, detail="Payment not found")
-    
+
     await db.rent_payments.delete_one({"id": payment_id})
     return {"message": "Payment deleted"}
 

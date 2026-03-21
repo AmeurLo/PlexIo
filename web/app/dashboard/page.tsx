@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
+import { useToast } from "@/lib/ToastContext";
 import { requireAuth, getUser } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/format";
@@ -39,6 +40,7 @@ const T = {
 
 export default function OverviewPage() {
   const { lang, t } = useLanguage();
+  const { showToast } = useToast();
   const [firstName, setFirstName] = useState("");
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,7 +51,11 @@ export default function OverviewPage() {
   const loadStats = () => {
     api.getDashboard()
       .then(setStats)
-      .catch(e => setError(e.message))
+      .catch(e => {
+        const msg = e instanceof Error ? e.message : String(e);
+        setError(msg);
+        showToast(msg, "error");
+      })
       .finally(() => setLoading(false));
   };
 

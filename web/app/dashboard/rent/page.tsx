@@ -6,7 +6,7 @@ import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
 import { formatCurrency, formatDate, currentMonthYear, downloadCsv } from "@/lib/format";
-import type { RentPayment, Property } from "@/lib/types";
+import type { RentPayment, Property, Lease } from "@/lib/types";
 import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
 import EmptyState from "@/components/dashboard/EmptyState";
@@ -37,15 +37,28 @@ const T = {
   total:      { fr: "Total perçu",        en: "Total collected" },
   pending:    { fr: "En attente",         en: "Pending" },
   all:        { fr: "Tous",              en: "All" },
+  lease:      { fr: "Bail",              en: "Lease" },
   confirmRecv: { fr: "Confirmer réception", en: "Confirm receipt" },
   tenantConf:  { fr: "✉ Locataire a confirmé paiement", en: "✉ Tenant confirmed payment" },
 };
 
-const METHODS = ["bank_transfer", "cheque", "cash", "e_transfer", "credit_card"];
+const METHODS = ["bank_transfer", "cheque", "cash", "e_transfer", "etransfer", "credit_card"];
+
+const STATUS_OPTIONS = [
+  { value: "paid",                 fr: "Payé",            en: "Paid" },
+  { value: "pending",              fr: "En attente",      en: "Pending" },
+  { value: "late",                 fr: "En retard",       en: "Late" },
+  { value: "partial",              fr: "Partiel",         en: "Partial" },
+  { value: "pending_confirmation", fr: "À confirmer",     en: "To confirm" },
+];
+
+const STATUS_FILTERS = ["all", "pending_confirmation", "pending", "paid", "late", "partial"];
 
 const emptyForm = {
-  tenant_id: "", property_id: "", amount: "", due_date: "", payment_date: "",
-  status: "pending", payment_method: "bank_transfer", notes: "", month_year: currentMonthYear(),
+  lease_id: "", tenant_id: "", unit_id: "",
+  amount: "", payment_date: new Date().toISOString().slice(0, 10),
+  status: "paid", payment_method: "bank_transfer",
+  notes: "", month_year: currentMonthYear(),
 };
 
 export default function RentPage() {
@@ -54,6 +67,7 @@ export default function RentPage() {
   const [payments, setPayments] = useState<RentPayment[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
   const [tenants, setTenants] = useState<any[]>([]);
+  const [leases, setLeases] = useState<Lease[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
@@ -65,8 +79,8 @@ export default function RentPage() {
 
   useEffect(() => {
     if (!requireAuth()) return;
-    Promise.all([api.getRentPayments(), api.getProperties(), api.getTenants()])
-      .then(([rp, ps, ts]) => { setPayments(rp); setProperties(ps); setTenants(ts); })
+    Promise.all([api.getRentPayments(), api.getProperties(), api.getTenants(), api.getLeases()])
+      .then(([rp, ps, ts, ls]) => { setPayments(rp); setProperties(ps); setTenants(ts); setLeases(ls); })
       .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
@@ -78,43 +92,92 @@ export default function RentPage() {
   function openEdit(p: RentPayment) {
     setEditing(p);
     setForm({
-      tenant_id: p.tenant_id ?? "", property_id: p.property_id ?? "",
-      amount: String(p.amount ?? ""), due_date: p.due_date?.slice(0, 10) ?? "",
-      payment_date: p.payment_date?.slice(0, 10) ?? "", status: p.status ?? "pending",
-      payment_method: p.payment_method ?? "bank_transfer", notes: p.notes ?? "",
+      lease_id: p.lease_id ?? "",
+      tenant_id: p.tenant_id ?? "",
+      unit_id: p.unit_id ?? "",
+      amount: String(p.amount ?? ""),
+      payment_date: p.payment_date?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+      status: p.status ?? "paid",
+      payment_method: p.payment_method ?? "bank_transfer",
+      notes: p.notes ?? "",
       month_year: p.month_year ?? currentMonthYear(),
     });
     setFormError(""); setShowModal(true);
   }
 
+  function handleLeaseChange(leaseId: string) {
+    const lease = leases.find(l => (l.id ?? l._id) === leaseId);
+    if (lease) {
+      setForm(prev => ({
+        ...prev,
+        lease_id: leaseId,
+        tenant_id: lease.tenant_id ?? "",
+        unit_id: lease.unit_id ?? "",
+        // Pre-fill amount from lease rent if creating new
+        amount: prev.amount || String(lease.rent_amount ?? (lease as any).monthly_rent ?? ""),
+      }));
+    } else {
+      setForm(prev => ({ ...prev, lease_id: leaseId }));
+    }
+  }
+
   async function handleSave() {
-    if (!form.amount || isNaN(Number(form.amount))) { setFormError(lang === "fr" ? "Montant invalide." : "Invalid amount."); return; }
+    if (!form.amount || isNaN(Number(form.amount))) {
+      setFormError(lang === "fr" ? "Montant invalide." : "Invalid amount.");
+      return;
+    }
+    if (!editing && !form.lease_id) {
+      setFormError(lang === "fr" ? "Sélectionnez un bail." : "Please select a lease.");
+      return;
+    }
     setSaving(true); setFormError("");
     try {
-      const payload = { ...form, amount: Number(form.amount) };
-      if (editing) { await api.updateRentPayment(editing.id, payload as any); }
-      else { await api.createRentPayment(payload as any); }
+      if (editing) {
+        // Update: only editable fields
+        await api.updateRentPayment(editing.id ?? (editing as any)._id, {
+          amount: Number(form.amount),
+          payment_date: form.payment_date,
+          payment_method: form.payment_method,
+          month_year: form.month_year,
+          status: form.status as any,
+          notes: form.notes || undefined,
+        });
+      } else {
+        await api.createRentPayment({
+          lease_id: form.lease_id,
+          tenant_id: form.tenant_id,
+          unit_id: form.unit_id,
+          amount: Number(form.amount),
+          payment_date: form.payment_date,
+          payment_method: form.payment_method,
+          month_year: form.month_year,
+          notes: form.notes || undefined,
+        });
+      }
       setShowModal(false); load();
-    } catch (e: any) { setFormError(e.message); }
+    } catch (e: any) { setFormError(e.message ?? String(e)); }
     finally { setSaving(false); }
   }
 
   async function markPaid(p: RentPayment) {
     try {
-      await api.updateRentPayment(p.id ?? p._id, { status: "paid", payment_date: new Date().toISOString().slice(0, 10) });
+      await api.updateRentPayment(p.id ?? (p as any)._id, {
+        status: "paid",
+        payment_date: new Date().toISOString().slice(0, 10),
+      });
       load();
     } catch (e: any) { showToast(e instanceof Error ? e.message : String(e), "error"); }
   }
 
   function handleExport() {
     const rows = filtered.map(p => ({
-      [t(T.tenant)]: p.tenant_name ?? p.tenant_id,
-      [t(T.property)]: p.property_name ?? p.property_id,
+      [t(T.tenant)]: p.tenant_name ?? tenantName(p.tenant_id ?? ""),
+      [t(T.property)]: p.property_name ?? propName(p.property_id ?? ""),
       [t(T.amount)]: p.amount,
-      [t(T.due)]: p.due_date,
       [t(T.paid)]: p.payment_date ?? "",
       [t(T.status)]: p.status,
       [t(T.method)]: p.payment_method ?? "",
+      [t(T.month)]: p.month_year ?? "",
     }));
     if (rows.length) downloadCsv(rows, `loyers-${currentMonthYear()}.csv`);
   }
@@ -123,10 +186,18 @@ export default function RentPage() {
 
   const filtered = payments.filter(p => statusFilter === "all" || p.status === statusFilter);
   const totalCollected = filtered.filter(p => p.status === "paid").reduce((s, p) => s + (p.amount ?? 0), 0);
-  const totalPending = filtered.filter(p => p.status !== "paid").reduce((s, p) => s + (p.amount ?? 0), 0);
+  const totalPending   = filtered.filter(p => p.status !== "paid").reduce((s, p) => s + (p.amount ?? 0), 0);
 
-  const tenantName = (id: string) => { const t = tenants.find(t => t.id === id || t._id === id); return t ? `${t.first_name} ${t.last_name}` : id; };
-  const propName = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
+  const tenantName = (id: string) => { const ten = tenants.find(t => t.id === id || t._id === id); return ten ? `${ten.first_name} ${ten.last_name}` : id; };
+  const propName   = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
+
+  // Build a display label for each lease in the selector
+  const leaseLabel = (l: Lease) => {
+    const tName = (l as any).tenant_name ?? tenantName(l.tenant_id ?? "");
+    const pName = (l as any).property_name ?? propName(l.property_id ?? "");
+    const unitNo = l.unit_number ?? "";
+    return [tName, pName, unitNo].filter(Boolean).join(" — ");
+  };
 
   return (
     <div className="p-6 max-w-6xl space-y-6">
@@ -151,21 +222,28 @@ export default function RentPage() {
         </div>
       </div>
 
-      {/* Filter */}
+      {/* Filters */}
       <div className="flex gap-2 flex-wrap items-center">
-        {["all", "pending_confirmation", "pending", "paid", "late"].map(s => (
-          <button
-            key={s}
-            onClick={() => setStatusFilter(s)}
-            className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
-              statusFilter === s ? "bg-teal-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-teal-400"
-            }`}
-          >
-            {s === "all" ? t(T.all) : s === "pending_confirmation"
-              ? <span className="flex items-center gap-1">✉ {lang === "fr" ? "À confirmer" : "To confirm"}{payments.filter(p => p.status === "pending_confirmation").length > 0 && <span className="ml-1 bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">{payments.filter(p => p.status === "pending_confirmation").length}</span>}</span>
-              : <StatusBadge status={s} lang={lang} />}
-          </button>
-        ))}
+        {STATUS_FILTERS.map(s => {
+          const count = s === "pending_confirmation" ? payments.filter(p => p.status === "pending_confirmation").length : 0;
+          return (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3.5 py-1.5 rounded-full text-[12px] font-medium transition-all ${
+                statusFilter === s ? "bg-teal-600 text-white" : "bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:border-teal-400"
+              }`}
+            >
+              {s === "all"
+                ? t(T.all)
+                : <span className="flex items-center gap-1">
+                    <StatusBadge status={s} lang={lang} />
+                    {count > 0 && <span className="ml-1 bg-blue-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center">{count}</span>}
+                  </span>
+              }
+            </button>
+          );
+        })}
       </div>
 
       {loading ? (
@@ -182,31 +260,36 @@ export default function RentPage() {
                   <th className="px-5 py-3 text-left">{t(T.tenant)}</th>
                   <th className="px-5 py-3 text-left">{t(T.property)}</th>
                   <th className="px-5 py-3 text-right">{t(T.amount)}</th>
-                  <th className="px-5 py-3 text-left">{t(T.due)}</th>
+                  <th className="px-5 py-3 text-left">{t(T.paid)}</th>
                   <th className="px-5 py-3 text-left">{t(T.status)}</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
                 {filtered.map(p => (
-                  <tr key={p.id ?? p._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                  <tr key={p.id ?? (p as any)._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-5 py-3 font-medium text-gray-800 dark:text-gray-200">{p.tenant_name || tenantName(p.tenant_id ?? "")}</td>
                     <td className="px-5 py-3 text-gray-500">{p.property_name || propName(p.property_id ?? "")}</td>
                     <td className="px-5 py-3 text-right font-semibold text-gray-900 dark:text-white">{formatCurrency(p.amount ?? 0)}</td>
-                    <td className="px-5 py-3 text-gray-500">{p.due_date ? formatDate(p.due_date) : "—"}</td>
+                    <td className="px-5 py-3 text-gray-500">{p.payment_date ? formatDate(p.payment_date) : "—"}</td>
                     <td className="px-5 py-3"><StatusBadge status={p.status ?? "pending"} lang={lang} /></td>
                     <td className="px-5 py-3">
-                      <div className="flex gap-2 justify-end">
+                      <div className="flex gap-2 justify-end items-center">
                         {p.status === "pending_confirmation" && (
                           <span className="text-[11px] text-blue-600 dark:text-blue-400 font-medium italic mr-1">{t(T.tenantConf)}</span>
                         )}
                         {p.status !== "paid" && (
-                          <button onClick={() => setConfirmPay(p)} className={`text-[12px] hover:underline whitespace-nowrap font-medium ${p.status === "pending_confirmation" ? "text-blue-600 dark:text-blue-400" : "text-teal-700"}`}>
+                          <button
+                            onClick={() => setConfirmPay(p)}
+                            className={`text-[12px] hover:underline whitespace-nowrap font-medium ${p.status === "pending_confirmation" ? "text-blue-600 dark:text-blue-400" : "text-teal-700"}`}
+                          >
                             {p.status === "pending_confirmation" ? t(T.confirmRecv) : t(T.markPaid)}
                           </button>
                         )}
-                        <Link href={`/dashboard/rent/${p.id}/receipt`}
-                          className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                        <Link
+                          href={`/dashboard/rent/${p.id ?? (p as any)._id}/receipt`}
+                          className="text-[12px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                        >
                           {lang === "fr" ? "Reçu" : "Receipt"}
                         </Link>
                         <button onClick={() => openEdit(p)} className="text-[12px] text-gray-500 hover:underline">{lang === "fr" ? "Modifier" : "Edit"}</button>
@@ -220,10 +303,10 @@ export default function RentPage() {
           {/* Mobile */}
           <div className="md:hidden divide-y divide-gray-50 dark:divide-gray-800">
             {filtered.map(p => (
-              <div key={p.id ?? p._id} className="p-4 flex items-center gap-3">
+              <div key={p.id ?? (p as any)._id} className="p-4 flex items-center gap-3">
                 <div className="flex-1 min-w-0">
                   <p className="font-medium text-gray-800 dark:text-gray-200 text-[14px] truncate">{p.tenant_name || tenantName(p.tenant_id ?? "")}</p>
-                  <p className="text-[12px] text-gray-400">{p.due_date ? formatDate(p.due_date) : "—"}</p>
+                  <p className="text-[12px] text-gray-400">{p.payment_date ? formatDate(p.payment_date) : "—"}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   <span className="font-semibold text-[14px] text-gray-900 dark:text-white">{formatCurrency(p.amount ?? 0)}</span>
@@ -238,6 +321,7 @@ export default function RentPage() {
         </div>
       )}
 
+      {/* Mark Paid confirm */}
       <ConfirmDialog
         isOpen={!!confirmPay}
         title={lang === "fr" ? "Confirmer le paiement" : "Confirm Payment"}
@@ -248,6 +332,7 @@ export default function RentPage() {
         onCancel={() => setConfirmPay(null)}
       />
 
+      {/* Add / Edit modal */}
       <Modal
         isOpen={showModal}
         onClose={() => setShowModal(false)}
@@ -263,18 +348,31 @@ export default function RentPage() {
       >
         <div className="space-y-4">
           {formError && <p className="text-[13px] text-red-500">{formError}</p>}
-          <FormField label={lang === "fr" ? "Locataire" : "Tenant"}>
-            <select className={selectClass} value={form.tenant_id} onChange={e => f("tenant_id", e.target.value)}>
-              <option value="">— {lang === "fr" ? "Sélectionner" : "Select"} —</option>
-              {tenants.map(ten => <option key={ten.id ?? ten._id} value={ten.id ?? ten._id}>{ten.first_name} {ten.last_name}</option>)}
-            </select>
-          </FormField>
-          <FormField label={lang === "fr" ? "Propriété" : "Property"}>
-            <select className={selectClass} value={form.property_id} onChange={e => f("property_id", e.target.value)}>
-              <option value="">— {lang === "fr" ? "Sélectionner" : "Select"} —</option>
-              {properties.map(p => <option key={p.id ?? p._id} value={p.id ?? p._id}>{p.name}</option>)}
-            </select>
-          </FormField>
+
+          {/* Lease selector (only when creating) */}
+          {!editing && (
+            <FormField label={t(T.lease)} required>
+              <select className={selectClass} value={form.lease_id} onChange={e => handleLeaseChange(e.target.value)}>
+                <option value="">— {lang === "fr" ? "Sélectionner un bail" : "Select a lease"} —</option>
+                {leases.filter(l => l.status === "active" || !l.status).map(l => (
+                  <option key={l.id ?? (l as any)._id} value={l.id ?? (l as any)._id}>
+                    {leaseLabel(l)}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+          )}
+
+          {/* If editing, show tenant/property as read-only context */}
+          {editing && (
+            <div className="px-3 py-2 bg-gray-50 dark:bg-gray-800 rounded-xl text-[13px] text-gray-500 dark:text-gray-400">
+              {editing.tenant_name || tenantName(editing.tenant_id ?? "")}
+              {(editing.property_name || propName(editing.property_id ?? "")) && (
+                <> · {editing.property_name || propName(editing.property_id ?? "")}</>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <FormField label={`${t(T.amount)} ($)`} required>
               <input className={inputClass} type="number" min={0} value={form.amount} onChange={e => f("amount", e.target.value)} placeholder="1200" />
@@ -283,26 +381,26 @@ export default function RentPage() {
               <input className={inputClass} value={form.month_year} onChange={e => f("month_year", e.target.value)} placeholder="2024-01" />
             </FormField>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label={t(T.due)}>
-              <input className={inputClass} type="date" value={form.due_date} onChange={e => f("due_date", e.target.value)} />
-            </FormField>
-            <FormField label={t(T.paid)}>
-              <input className={inputClass} type="date" value={form.payment_date} onChange={e => f("payment_date", e.target.value)} />
-            </FormField>
-          </div>
+
+          <FormField label={t(T.paid)}>
+            <input className={inputClass} type="date" value={form.payment_date} onChange={e => f("payment_date", e.target.value)} />
+          </FormField>
+
           <div className="grid grid-cols-2 gap-3">
             <FormField label={t(T.status)}>
               <select className={selectClass} value={form.status} onChange={e => f("status", e.target.value)}>
-                {["pending", "paid", "late", "partial"].map(s => <option key={s} value={s}>{s}</option>)}
+                {STATUS_OPTIONS.map(s => (
+                  <option key={s.value} value={s.value}>{lang === "fr" ? s.fr : s.en}</option>
+                ))}
               </select>
             </FormField>
             <FormField label={t(T.method)}>
               <select className={selectClass} value={form.payment_method} onChange={e => f("payment_method", e.target.value)}>
-                {METHODS.map(m => <option key={m} value={m}>{m.replace("_", " ")}</option>)}
+                {METHODS.map(m => <option key={m} value={m}>{m.replace(/_/g, " ")}</option>)}
               </select>
             </FormField>
           </div>
+
           <FormField label={t(T.notes)}>
             <textarea className={inputClass + " resize-none"} rows={2} value={form.notes} onChange={e => f("notes", e.target.value)} />
           </FormField>

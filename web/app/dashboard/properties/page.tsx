@@ -309,7 +309,7 @@ export default function PropertiesPage() {
                       {t(T.manageUnits)} ({p.total_units ?? 0})
                     </button>
                     <Link
-                      href={`/dashboard/properties/${p.id}/financials`}
+                      href={`/dashboard/properties/${p.id ?? (p as any)._id}/financials`}
                       className="px-3 py-1.5 text-[12px] font-medium text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-lg transition-colors"
                     >
                       {t(T.finances)}
