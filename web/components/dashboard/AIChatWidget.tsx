@@ -43,6 +43,13 @@ export default function AIChatWidget() {
     }
   }, [open, messages.length]);
 
+  // Allow sidebar "Domely AI" click to open widget from any page
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("domely:openAI", handler);
+    return () => window.removeEventListener("domely:openAI", handler);
+  }, []);
+
   // Persist history to localStorage
   useEffect(() => {
     if (messages.length === 0) return;
@@ -57,8 +64,14 @@ export default function AIChatWidget() {
     } catch {}
   }, []);
 
-  // Hide on dedicated AI page + messages page (has its own send button at bottom-right)
-  if (pathname === "/dashboard/ai" || pathname === "/dashboard/messages") return null;
+  // On the dedicated AI page, hide entirely (it's the full page)
+  // On messages page, keep the panel but hide only the floating trigger button
+  const isAiPage = pathname === "/dashboard/ai";
+  const hideTrigger = isAiPage || pathname === "/dashboard/messages";
+  if (isAiPage) return null;
+
+  // Listen for sidebar "Domely AI" click to open widget from any page
+  // (registered once in the outer component — see useEffect below)
 
   async function send(text?: string) {
     const content = (text ?? input).trim();
@@ -208,10 +221,10 @@ export default function AIChatWidget() {
         </div>
       </div>
 
-      {/* Floating button */}
+      {/* Floating button — hidden on /messages (use sidebar to open) */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="fixed bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center"
+        className={`fixed bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center ${hideTrigger ? "hidden" : ""}`}
         style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
         aria-label="Domely AI">
         <div className={`transition-all duration-200 ${open ? "opacity-0 scale-50 absolute" : "opacity-100 scale-100"}`}>
