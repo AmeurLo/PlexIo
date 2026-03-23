@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import asyncio
 import certifi
 import os
 import logging
@@ -67,6 +68,7 @@ class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     email: EmailStr
     full_name: str
+    phone: Optional[str] = None
     plan: str = "free"
     plan_status: str = "active"
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -414,12 +416,15 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 class UserProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     email: Optional[str] = None
+    phone: Optional[str] = None
 
 @api_router.patch("/auth/me", response_model=User)
 async def update_me(data: UserProfileUpdate, current_user: dict = Depends(get_current_user)):
     update_fields: dict = {}
     if data.full_name is not None:
         update_fields["full_name"] = data.full_name.strip()
+    if data.phone is not None:
+        update_fields["phone"] = data.phone.strip()
     if data.email is not None:
         new_email = data.email.strip().lower()
         existing = await db.users.find_one({"email": new_email, "id": {"$ne": current_user["id"]}})
@@ -431,6 +436,21 @@ async def update_me(data: UserProfileUpdate, current_user: dict = Depends(get_cu
     await db.users.update_one({"id": current_user["id"]}, {"$set": update_fields})
     updated = await db.users.find_one({"id": current_user["id"]})
     return User(**updated)
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+@api_router.post("/auth/change-password")
+async def change_password(data: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+    """Change password for authenticated user (requires current password)."""
+    if not pwd_context.verify(data.current_password, current_user.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Le nouveau mot de passe doit contenir au moins 8 caractères")
+    hashed = pwd_context.hash(data.new_password)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"hashed_password": hashed}})
+    return {"ok": True, "message": "Mot de passe mis à jour avec succès."}
 
 class PasswordResetRequest(BaseModel):
     email: EmailStr
@@ -5984,9 +6004,23 @@ async def delete_signature(
 
 # ════════════════════════════════════════════════════════════════════════════
 
+@app.get("/api/setup-demo")
+async def setup_demo_public():
+    """Public idempotent endpoint — recreates demo account if missing."""
+    await ensure_demo_account()
+    return {"ok": True, "email": DEMO_EMAIL, "password": DEMO_PASSWORD}
+
 @app.on_event("startup")
 async def startup():
     scheduler.add_job(run_daily_automations, "cron", hour=8, minute=0, id="daily_automations")
     scheduler.start()
     logger.info("[Scheduler] APScheduler started — daily automations at 08:00")
-    await ensure_demo_account()
+    # Retry demo account creation with backoff in case MongoDB isn't ready yet
+    for attempt in range(3):
+        try:
+            await ensure_demo_account()
+            break
+        except Exception as e:
+            logger.warning("[Demo] Attempt %d failed: %s", attempt + 1, e)
+            if attempt < 2:
+                await asyncio.sleep(3 * (attempt + 1))
