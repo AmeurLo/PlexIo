@@ -84,10 +84,12 @@ function SettingsContent() {
     api.getStripeConnectStatus().then(s => setStripeStatus(s)).catch(() => {});
     // If returning from Stripe onboarding, show toast and refresh status
     const stripeParam = searchParams?.get("stripe");
+    let timer: ReturnType<typeof setTimeout> | undefined;
     if (stripeParam === "connected") {
       showToast(lang === "fr" ? "Stripe connecté avec succès !" : "Stripe connected successfully!", "success");
-      setTimeout(() => api.getStripeConnectStatus().then(s => setStripeStatus(s)).catch(() => {}), 1500);
+      timer = setTimeout(() => api.getStripeConnectStatus().then(s => setStripeStatus(s)).catch(() => {}), 1500);
     }
+    return () => { if (timer !== undefined) clearTimeout(timer); };
   }, []);
 
   async function handleSaveProfile() {
@@ -183,8 +185,18 @@ function SettingsContent() {
             <FormField label={t(T.newPwd)}>
               <input className={inputClass} type="password" value={pwdForm.new_password} onChange={e => pf("new_password", e.target.value)} placeholder="≥ 8 chars" />
             </FormField>
-            <FormField label={t(T.confirmPwd)}>
-              <input className={inputClass} type="password" value={pwdForm.confirm} onChange={e => pf("confirm", e.target.value)} />
+            <FormField
+              label={t(T.confirmPwd)}
+              error={pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password
+                ? (lang === "fr" ? "Ne correspond pas" : "Doesn't match")
+                : undefined}
+            >
+              <input
+                className={inputClass + (pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password ? " !border-red-300 focus:!ring-red-400" : "")}
+                type="password"
+                value={pwdForm.confirm}
+                onChange={e => pf("confirm", e.target.value)}
+              />
             </FormField>
           </div>
           {pwdError && <p className="text-[13px] text-red-500">{pwdError}</p>}
@@ -233,7 +245,9 @@ function SettingsContent() {
             </div>
             <div className="flex items-center gap-3">
               <a
-                href="https://dashboard.stripe.com"
+                href={stripeStatus.account_id
+                  ? `https://dashboard.stripe.com/connect/accounts/${stripeStatus.account_id}`
+                  : "https://dashboard.stripe.com"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-[13px] text-teal-600 dark:text-teal-400 font-medium hover:underline"

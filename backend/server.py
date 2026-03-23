@@ -378,10 +378,13 @@ async def register(user_data: UserCreate):
     user_dict["hashed_password"] = hashed_password
     
     await db.users.insert_one(user_dict)
-    
+
+    # Send welcome email (fire-and-forget)
+    asyncio.create_task(_send_welcome_email(user.email, user.full_name))
+
     # Create token
     token = create_token(user.id, user.email)
-    
+
     return TokenResponse(access_token=token, user=user)
 
 @api_router.post("/auth/login", response_model=TokenResponse)
@@ -964,405 +967,917 @@ async def get_tenant_documents_landlord(tenant_id: str, current_user: dict = Dep
 # QUEBEC BAIL PDF GENERATOR
 # ===========================
 
+# ── Official TAL form cache (in-process) ─────────────────────────────────────
+_TAL_PDF_CACHE: bytes | None = None
+
+def _fetch_tal_base_pdf() -> bytes:
+    """Download the official TAL 'Bail de logement' Form 5 from LégisQuébec (cached)."""
+    global _TAL_PDF_CACHE
+    if _TAL_PDF_CACHE is not None:
+        return _TAL_PDF_CACHE
+    import urllib.request
+    url = (
+        "https://www.legisquebec.gouv.qc.ca/fr/ressource/rc/"
+        "T-15.01R3_FR_005_003.pdf?langCont=fr&cible=FEE9CE4C4DD99734E08B1B34E19B058C"
+    )
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+        "Referer":    "https://www.legisquebec.gouv.qc.ca/fr/document/rc/T-15.01,%20r.%203",
+    })
+    import ssl as _ssl
+    try:
+        import certifi as _certifi
+        _ctx = _ssl.create_default_context(cafile=_certifi.where())
+    except Exception:
+        _ctx = _ssl.create_default_context()
+    with urllib.request.urlopen(req, timeout=20, context=_ctx) as resp:
+        data = resp.read()
+    if len(data) < 10000 or not data.startswith(b"%PDF"):
+        raise ValueError(f"Unexpected response ({len(data)} bytes)")
+    _TAL_PDF_CACHE = data
+    return _TAL_PDF_CACHE
+
+
+def _rl_safe(text: str) -> str:
+    """Sanitize text for Helvetica (latin-1 only) in reportlab."""
+    _repl = str.maketrans({
+        '\u2014': '-', '\u2013': '-', '\u2012': '-',
+        '\u2018': "'", '\u2019': "'",
+        '\u201c': '"', '\u201d': '"',
+        '\u2026': '...',
+        '\u00a0': ' ',
+    })
+    t = text.translate(_repl)
+    return t.encode('latin-1', errors='replace').decode('latin-1')
+
+
+def _make_tal_overlay(page_size: tuple, fields: list) -> bytes:
+    """
+    Build a single-page transparent PDF overlay using reportlab.
+    fields: list of:
+        ('text',     x, y, text, fontsize)
+        ('checkbox', x, y, size)   — filled dark-blue square
+    Filled data is rendered in Domely ink-blue (#1A3D9E) so it is
+    visually distinct from the pre-printed form text.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    import io
+    pw, ph = page_size
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(pw, ph))
+    # Domely ink-blue: distinguishes filled data from printed form text
+    INK_R, INK_G, INK_B = 0.102, 0.239, 0.620   # #1A3D9E
+    c.setFillColorRGB(INK_R, INK_G, INK_B)
+    for item in fields:
+        kind = item[0]
+        if kind == 'checkbox':
+            _, x, y, sz = item
+            c.setFillColorRGB(INK_R, INK_G, INK_B)
+            c.rect(x, y, sz, sz, fill=1, stroke=0)
+        elif kind == 'text':
+            _, x, y, text, fs = item
+            if text and str(text).strip():
+                c.setFillColorRGB(INK_R, INK_G, INK_B)
+                c.setFont("Helvetica-Bold", fs)
+                c.drawString(x, y, _rl_safe(str(text).strip())[:80])
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
+def _fill_tal_form(
+    base_pdf: bytes,
+    lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict,
+) -> bytes:
+    """
+    Overlay lease data onto the official TAL Bail de logement PDF (Form 5).
+    Page dimensions: 612 × 1080 pt (letter, non-standard height).
+    """
+    from pypdf import PdfReader, PdfWriter
+    import io
+
+    # ── helper ──────────────────────────────────────────────────────────────
+    def g(d: dict, *keys):
+        for k in keys:
+            v = d.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return ""
+
+    # ── Data ────────────────────────────────────────────────────────────────
+    land_name    = g(landlord, "full_name", "name")
+    land_addr    = g(landlord, "address")
+    land_apt     = g(landlord, "unit_number")
+    land_city    = g(landlord, "city")
+    land_postal  = g(landlord, "postal_code")
+    land_phone   = g(landlord, "phone")
+    land_email   = g(landlord, "email")
+
+    ten_fname    = g(tenant, "first_name")
+    ten_lname    = g(tenant, "last_name")
+    ten_name     = f"{ten_fname} {ten_lname}".strip()
+    ten_addr     = g(tenant, "address")
+    ten_city     = g(tenant, "city")
+    ten_postal   = g(tenant, "postal_code")
+    ten_phone    = g(tenant, "phone")
+    ten_email    = g(tenant, "email")
+
+    unit_no      = g(unit, "unit_number")
+    rooms        = g(unit, "bedrooms")
+    prop_addr    = g(prop, "address")
+    prop_city    = g(prop, "city")
+    prop_postal  = g(prop, "postal_code")
+
+    dwelling_addr = f"{prop_addr}, App. {unit_no}" if unit_no else prop_addr
+
+    start_date   = g(lease, "start_date")
+    end_date     = g(lease, "end_date")
+    is_fixed     = bool(end_date)
+    rent_amount  = float(lease.get("rent_amount") or 0)
+    due_day      = int(lease.get("payment_due_day") or 1)
+
+    # French number format: 1 250,00
+    rent_str = f"{rent_amount:,.2f}".replace(",", "\xa0").replace(".", ",")
+
+    # ── Page dimensions ──────────────────────────────────────────────────────
+    PW, PH = 612.0, 1080.0
+    FS = 8.5          # standard field font size
+    FS_SM = 7.5       # smaller for tight fields
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Page 1 — Section A (parties), B (dwelling), C (duration)
+    # Y coords from pypdf visitor_text extraction (baseline from bottom, y=0 at page foot).
+    # Data placed ~12 pt BELOW each label baseline → lands in the blank writing area.
+    #
+    # Verified label y positions (page 0):
+    #   Section A: Nom=802.3 | No Rue=781.6 | Munic=760.6 | Tel=739.2 | Email=718.8
+    #   Section B: No Rue App.=508.6 | Munic/CP/Pièces=487.8
+    #   Section C: Du...au / commençant le = 100.0
+    # ════════════════════════════════════════════════════════════════════════
+    p1 = [
+        # ── Section A — Landlord (left column, labels at x=36.3) ──
+        # Each label row is ~21 pt tall; data goes 12 pt below label baseline.
+        ('text',  40, 790, land_name,                                    FS),
+        ('text',  40, 769, f"{land_addr}  {land_apt}".strip(),           FS),
+        ('text',  40, 748, land_city,                                    FS),
+        ('text', 200, 748, land_postal,                                  FS),
+        ('text',  40, 727, land_phone,                                   FS),
+        ('text',  40, 706, land_email,                                   FS_SM),
+
+        # ── Section A — Tenant (right column, labels at x=315.1) ──
+        ('text', 320, 790, ten_name,                                     FS),
+        ('text', 320, 769, ten_addr,                                     FS),
+        ('text', 320, 748, ten_city,                                     FS),
+        ('text', 468, 748, ten_postal,                                   FS),
+        ('text', 320, 727, ten_phone,                                    FS),
+        ('text', 320, 706, ten_email,                                    FS_SM),
+
+        # ── Section B — Dwelling ──
+        # "Adresse" section label at y=516.6; "No Rue App." field label at y=508.6
+        # "Rue" label at x=153.31 (ends ≈x=167); address data starts after it at x=182.
+        # "App." label at x=539.81; we embed the apt number in dwelling_addr for simplicity.
+        ('text', 182, 508, dwelling_addr,                                FS),
+        # "Municipalité Code postal Nombre de pièces" row at y=487.8.
+        # This is an INLINE row: each label + blank spans the full page width.
+        # Exact label positions from raw PDF content stream (Td operator analysis):
+        #   "Municipalité"    label at x=36.31  (ends ≈ x=90)
+        #   "Code postal"     label at x=360.31 (= 36.31 + 40.5×8), ends ≈ x=403
+        #   "Nombre de pièces" label at x=499.10 (= 360.31 + 17.349×8), ends ≈ x=568
+        # Blank areas (where data should go):
+        #   Municipalité blank:   x=90  → x=360  (270pt wide) → city at x=95
+        #   Code postal blank:    x=403 → x=499  ( 96pt wide) → postal at x=408
+        #   Nombre de pièces blank: x=568 → x=612 ( 44pt wide) → rooms at x=572
+        ('text',  95, 487, prop_city,                                    FS),
+        ('text', 408, 487, prop_postal,                                  FS),
+        ('text', 572, 487, rooms,                                        FS),
+
+        # ── Section C — Lease duration ──
+        # "Du au" inline at y=100; "commençant le" inline at y=100.
+        # Data on the same line, after the printed prefix text.
+        ('text',  55, 100, start_date if is_fixed else "",               FS),
+        ('text', 175, 100, end_date   if is_fixed else "",               FS),
+        ('text', 380, 100, start_date if not is_fixed else "",           FS),
+    ]
+    # Checkboxes: small filled square to the left of each duration-type label.
+    # "BAIL À DURÉE FIXE" at x=36.3, y=137.1 → checkbox at x=27, y=134
+    # "BAIL À DURÉE INDÉTERMINÉE" at x=315.1, y=136.8 → checkbox at x=305, y=134
+    if is_fixed:
+        p1.append(('checkbox', 27.0, 134.0, 5.0))
+    else:
+        p1.append(('checkbox', 305.0, 134.0, 5.0))
+
+    # ════════════════════════════════════════════════════════════════════════
+    # Page 3 (index 2) — Section D: Loyer
+    # Positions verified via raw content-stream Tm/Td extraction:
+    #
+    #   RENT ROW (y=985.25):
+    #     "Le loyer est de" at x=36  →  rent amount field blank x≈115..204
+    #     Checkbox circle "Par mois"  at x=216, y=986.45 (glyph <0046>)
+    #     Checkbox circle "Par semaine" at x=270, y=986.45
+    #
+    #   DATE ROW (y=846.32):
+    #     "Le loyer sera payé le " at x=45 ; period at x=203.
+    #     "Jour Mois Année" label below at y=838.19 :
+    #       Jour  box  x≈122 – 157
+    #       Mois  box  x≈157 – 181
+    #       Année box  x≈181 – 203
+    #
+    #   RECURRING PAYMENT ROW (y=814.32):
+    #     Checkbox circle "Du mois"    at x=198, y=815.52
+    #     Checkbox circle "De la semaine" at x=252, y=815.52
+    # ════════════════════════════════════════════════════════════════════════
+
+    # Split start_date (YYYY-MM-DD) into Jour / Mois / Année components
+    try:
+        _yr, _mo, _dy = start_date.split('-')
+    except Exception:
+        _yr, _mo, _dy = start_date, '', ''
+
+    p3 = [
+        # Rent amount — placed in the blank between "Le loyer est de " and "$."
+        ('text', 115, 985, rent_str, FS),
+
+        # "Par mois" checkbox — circle glyph at x=216, y=986.45;
+        # fill with a 5.5pt square offset slightly inward
+        ('checkbox', 213.5, 983.0, 5.5),
+
+        # First payment date — split across Jour / Mois / Année sub-boxes
+        ('text', 122, 846, _dy, FS),
+        ('text', 157, 846, _mo, FS),
+        ('text', 181, 846, _yr, FS),
+
+        # Recurring payment: "Du mois" (monthly) — circle at x=198, y=815.52;
+        # fill with 5.5pt square centred inside the circle
+        ('checkbox', 195.0, 812.5, 5.5),
+    ]
+
+    overlays = {0: p1, 2: p3}
+
+    # ── Merge ────────────────────────────────────────────────────────────────
+    reader = PdfReader(io.BytesIO(base_pdf))
+    writer = PdfWriter()
+    for i, page in enumerate(reader.pages):
+        if i in overlays:
+            ov_bytes = _make_tal_overlay((PW, PH), overlays[i])
+            ov_page  = PdfReader(io.BytesIO(ov_bytes)).pages[0]
+            page.merge_page(ov_page)
+        writer.add_page(page)
+
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def _append_signature_page(pdf_bytes: bytes, signatures: list) -> bytes:
+    """
+    Append a professional e-signature certificate page to the bail PDF.
+    Shows each party's signature image, name, timestamp and a Domely verification ID.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.utils import ImageReader
+    from pypdf import PdfReader, PdfWriter
+    import io, base64, hashlib
+
+    W, H = 612, 792   # standard letter pt
+
+    # ── Build signature page ──────────────────────────────────────────────
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    # Domely colours
+    BLUE_R, BLUE_G, BLUE_B   = 0.102, 0.239, 0.620   # #1A3D9E  (header / accents)
+    LIGHT_R, LIGHT_G, LIGHT_B = 0.945, 0.953, 0.984  # #F1F3FB  (box background)
+
+    # ── Header bar ────────────────────────────────────────────────────────
+    c.setFillColorRGB(BLUE_R, BLUE_G, BLUE_B)
+    c.rect(0, H - 72, W, 72, fill=1, stroke=0)
+
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 17)
+    c.drawString(36, H - 32, "SIGNATURES \xc9LECTRONIQUES")
+    c.setFont("Helvetica", 9)
+    c.drawString(36, H - 50, "Bail de logement \u2014 Certifi\xe9 par Domely")
+
+    sig_ids = [s.get("id", "") for s in signatures]
+    ver_id  = hashlib.sha256("|".join(sig_ids).encode()).hexdigest()[:16].upper()
+    c.setFont("Helvetica", 7.5)
+    c.setFillColorRGB(0.8, 0.85, 1.0)
+    c.drawRightString(W - 36, H - 50, f"ID : {ver_id}")
+
+    # ── Signature panels ──────────────────────────────────────────────────
+    landlord_sig = next((s for s in signatures if s.get("signer_type") == "landlord"), None)
+    tenant_sig   = next((s for s in signatures if s.get("signer_type") == "tenant"),   None)
+
+    panels = [
+        ("LOCATEUR",   landlord_sig, 36),
+        ("LOCATAIRE",  tenant_sig,   318),
+    ]
+
+    for label, sig, x_left in panels:
+        box_w = 258
+        box_h = 170
+        y_box = H - 92 - box_h
+
+        # Role label
+        c.setFillColorRGB(BLUE_R, BLUE_G, BLUE_B)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(x_left, H - 85, label)
+
+        # Box background
+        c.setFillColorRGB(LIGHT_R, LIGHT_G, LIGHT_B)
+        c.setStrokeColorRGB(0.78, 0.82, 0.92)
+        c.rect(x_left, y_box, box_w, box_h, fill=1, stroke=1)
+
+        if sig and sig.get("signature_data"):
+            raw = sig["signature_data"]
+            if raw.startswith("data:"):
+                raw = raw.split(",", 1)[1]
+            try:
+                img_bytes  = base64.b64decode(raw)
+                img_reader = ImageReader(io.BytesIO(img_bytes))
+                c.drawImage(
+                    img_reader,
+                    x_left + 8, y_box + 8,
+                    width=box_w - 16, height=box_h - 16,
+                    preserveAspectRatio=True, mask="auto",
+                )
+            except Exception:
+                pass   # silently skip if image decode fails
+        else:
+            c.setFillColorRGB(0.72, 0.72, 0.72)
+            c.setFont("Helvetica", 10)
+            c.drawCentredString(x_left + box_w / 2, y_box + box_h / 2 - 5, "Non sign\xe9")
+
+        # Name
+        c.setFillColorRGB(0.10, 0.10, 0.10)
+        c.setFont("Helvetica-Bold", 9)
+        c.drawString(x_left, y_box - 14, sig.get("signer_name", "\u2014") if sig else "\u2014")
+
+        # Timestamp
+        if sig and sig.get("signed_at"):
+            signed_str = sig["signed_at"][:19].replace("T", " ")
+            c.setFont("Helvetica", 8)
+            c.setFillColorRGB(0.45, 0.45, 0.45)
+            c.drawString(x_left, y_box - 26, f"Sign\xe9 le {signed_str} UTC")
+
+        # Checkmark badge if signed
+        if sig:
+            c.setFillColorRGB(0.06, 0.72, 0.42)
+            c.circle(x_left + box_w - 10, H - 88, 7, fill=1, stroke=0)
+            c.setFillColorRGB(1, 1, 1)
+            c.setFont("Helvetica-Bold", 9)
+            c.drawCentredString(x_left + box_w - 10, H - 90.5, "\u2713")
+
+    # ── Divider ───────────────────────────────────────────────────────────
+    y_div = H - 92 - 170 - 50
+    c.setStrokeColorRGB(0.82, 0.86, 0.94)
+    c.setLineWidth(0.5)
+    c.line(36, y_div, W - 36, y_div)
+
+    # ── Certificate footer ────────────────────────────────────────────────
+    c.setFillColorRGB(BLUE_R, BLUE_G, BLUE_B)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(36, y_div - 18, "\u2713  Document certifi\xe9 \xe9lectroniquement via Domely")
+
+    c.setFillColorRGB(0.38, 0.38, 0.38)
+    c.setFont("Helvetica", 7.5)
+    legal_lines = [
+        "Les parties ont consenti \xe0 la signature \xe9lectronique de ce bail conform\xe9ment \xe0 la Loi concernant le cadre",
+        "juridique des technologies de l\u2019information (L.R.Q., c. C-1.1). Ce document a valeur l\xe9gale.",
+        f"ID de v\xe9rification : {ver_id}  \u2014  domely.ca",
+    ]
+    for i, line in enumerate(legal_lines):
+        c.drawString(36, y_div - 32 - (i * 11), line)
+
+    c.save()
+    buf.seek(0)
+
+    # ── Append page to bail PDF ───────────────────────────────────────────
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for page in reader.pages:
+        writer.add_page(page)
+    sig_reader = PdfReader(io.BytesIO(buf.read()))
+    writer.add_page(sig_reader.pages[0])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
 def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
     """
-    Generate an official Quebec Bail de logement PDF modelled on the TAL form
-    (Tribunal administratif du logement - sections A through I).
-    Uses only latin-1-safe characters to stay compatible with Helvetica built-in font.
+    Generate a Quebec Bail de logement PDF.
+    Primary path: download the official TAL Form 5 from LégisQuébec and
+    overlay the lease data onto it using reportlab + pypdf merge.
+    Fallback: custom fpdf2 generator if the TAL form is unreachable.
+    """
+    try:
+        base_pdf = _fetch_tal_base_pdf()
+        return _fill_tal_form(base_pdf, lease, tenant, unit, prop, landlord)
+    except Exception as e:
+        logger.warning("[PDF] Official TAL form unavailable (%s) — using fallback generator", e)
+        return _generate_legacy_bail_pdf(lease, tenant, unit, prop, landlord)
+
+
+def _generate_legacy_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
+    """
+    Generate a Quebec Bail de logement PDF faithfully reproducing the TAL mandatory form
+    (Tribunal administratif du logement — sections A through I).
+    Layout, colours, legal text and structure match the official form.
+    Uses latin-1-safe characters for Helvetica compatibility.
     """
     from fpdf import FPDF
 
-    # ── constants ────────────────────────────────────────────────────────────
-    PW   = 210          # A4 width mm
-    PH   = 297          # A4 height mm
-    LM   = 12           # left margin
-    RM   = 12           # right margin
-    TM   = 12           # top margin
-    W    = PW - LM - RM # usable width = 186 mm
+    # ── Dimensions & constants ────────────────────────────────────────────
+    PW   = 216           # Letter width  mm (8.5 in)
+    PH   = 279           # Letter height mm (11 in)
+    LM   = 10
+    RM   = 10
+    TM   = 10
+    W    = PW - LM - RM  # 196 mm usable
     HALF = W / 2
-    ROW  = 6.5          # standard row height
-    HDR  = 5.5          # section header height
-    GRAY = (220, 220, 220)
-    BLK  = (0, 0, 0)
-    MID  = (100, 100, 100)
-    LGRAY= (245, 245, 245)
+    THIRD = W / 3
+    ROW  = 6.2           # standard data-row height
+    HDR  = 5.8           # section-header height
+    SHDR = 5.0           # sub-header height
 
-    today_str = datetime.now().strftime("%d/%m/%Y")
+    # Quebec government colour palette
+    QBLUE  = (0,   51,  102)   # Navy blue  — section headers
+    LBLUE  = (224, 233, 244)   # Light blue — sub-header / label bg
+    VLIGHT = (247, 249, 251)   # Very light — field label bg
+    WHITE  = (255, 255, 255)
+    BLK    = (0,   0,   0)
+    MID    = (90,  90,  90)
+    LGRAY  = (180, 180, 180)
+    RED    = (180, 0,   0)
 
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    today_str = datetime.now().strftime("%d %B %Y")
+
+    pdf = FPDF(orientation="P", unit="mm", format=(PW, PH))
     pdf.set_margins(LM, TM, RM)
-    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.set_draw_color(*LGRAY)
+    pdf.set_line_width(0.25)
     pdf.add_page()
 
-    # ── reusable helpers ─────────────────────────────────────────────────────
+    # ── Latin-1 sanitizer (Helvetica only supports chars < 256) ─────────
+    _REPL = str.maketrans({
+        '\u2014': '-', '\u2013': '-', '\u2012': '-',
+        '\u2018': "'", '\u2019': "'",
+        '\u201c': '"', '\u201d': '"',
+        '\u2026': '...',
+    })
+    def clean(t: str) -> str:
+        t = t.translate(_REPL)
+        return ''.join(c if ord(c) < 256 else '?' for c in t)
 
-    def set_font(style: str = "", size: float = 8):
+    # ── Font helpers ──────────────────────────────────────────────────────
+    def sf(style: str = "", size: float = 8):
         pdf.set_font("Helvetica", style, size)
 
-    def section_header(letter: str, title: str, w: float = W):
-        """Bold dark-gray header band, letter + title."""
-        set_font("B", 8.5)
-        pdf.set_fill_color(50, 50, 50)
-        pdf.set_text_color(255, 255, 255)
-        pdf.cell(w, HDR, f"  {letter}  {title}", border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
-        pdf.set_text_color(*BLK)
-        pdf.set_fill_color(255, 255, 255)
+    def tc(*rgb):
+        pdf.set_text_color(*rgb)
 
-    def labeled_row(label: str, value: str, w: float = W, lw: float = 55, last: bool = False):
-        """Label (bold, gray bg) + value cell, full-width bordered row."""
-        border_type = "1" if last else "LRB"
-        set_font("B", 7.5)
-        pdf.set_fill_color(*LGRAY)
-        pdf.cell(lw, ROW, f"  {label}", border=border_type, fill=True)
-        set_font("", 8)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.cell(w - lw, ROW, f"  {value}", border=border_type, new_x="LMARGIN", new_y="NEXT")
+    def fc(*rgb):
+        pdf.set_fill_color(*rgb)
 
-    def two_col_row(lbl1: str, val1: str, lbl2: str, val2: str, lw: float = 38):
-        """Two labeled fields side by side."""
-        hw = HALF
-        set_font("B", 7.5)
-        pdf.set_fill_color(*LGRAY)
-        pdf.cell(lw, ROW, f"  {lbl1}", border="LRB", fill=True)
-        set_font("", 8)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.cell(hw - lw, ROW, f"  {val1}", border="LRB")
-        set_font("B", 7.5)
-        pdf.set_fill_color(*LGRAY)
-        pdf.cell(lw, ROW, f"  {lbl2}", border="LRB", fill=True)
-        set_font("", 8)
-        pdf.set_fill_color(255, 255, 255)
-        pdf.cell(hw - lw, ROW, f"  {val2}", border="LRB", new_x="LMARGIN", new_y="NEXT")
+    def dc(*rgb):
+        pdf.set_draw_color(*rgb)
 
-    def chk_box(x: float, y: float, checked: bool = False, size: float = 3.2):
-        pdf.set_draw_color(*BLK)
-        pdf.rect(x, y, size, size)
+    # ── Core row helpers ──────────────────────────────────────────────────
+    def section_header(letter: str, title_fr: str, title_en: str = ""):
+        fc(*QBLUE); tc(*WHITE); sf("B", 8)
+        label = clean(f"  {letter}.   {title_fr}" + (f"  /  {title_en}" if title_en else ""))
+        pdf.cell(W, HDR, label, border=0, fill=True, new_x="LMARGIN", new_y="NEXT")
+        fc(*WHITE); tc(*BLK); dc(*LGRAY)
+
+    def sub_band(text_fr: str, text_en: str = ""):
+        fc(*LBLUE); tc(*BLK); sf("BI", 7)
+        label = clean(f"  {text_fr}" + (f"  /  {text_en}" if text_en else ""))
+        pdf.cell(W, SHDR, label, border="1", fill=True, new_x="LMARGIN", new_y="NEXT")
+        fc(*WHITE); sf("", 8)
+
+    def lbl_cell(text: str, w: float, h: float = ROW, border: str = "LTB"):
+        fc(*VLIGHT); sf("B", 7)
+        pdf.cell(w, h, clean(f"  {text}"), border=border, fill=True)
+        fc(*WHITE); sf("", 8)
+
+    def val_cell(text: str, w: float, h: float = ROW, border: str = "RTB", newline: bool = False):
+        nx = "LMARGIN" if newline else "RIGHT"
+        ny = "NEXT"    if newline else "TOP"
+        pdf.cell(w, h, clean(f"  {text}"), border=border, new_x=nx, new_y=ny)
+
+    def field_row(lbl: str, val: str, lw: float = 60, total_w: float = W):
+        lbl_cell(lbl, lw)
+        val_cell(val, total_w - lw, newline=True)
+
+    def two_col(lbl1: str, v1: str, lbl2: str, v2: str,
+                lw1: float = 30, lw2: float = 30):
+        hw = W / 2
+        lbl_cell(lbl1, lw1)
+        pdf.cell(hw - lw1, ROW, clean(f"  {v1}"), border="LTB")
+        lbl_cell(lbl2, lw2, border="LTB")
+        val_cell(v2, hw - lw2, newline=True)
+
+    def three_col(lbl1: str, v1: str, lbl2: str, v2: str, lbl3: str, v3: str,
+                  lw: float = 22):
+        t = THIRD
+        lbl_cell(lbl1, lw); pdf.cell(t - lw, ROW, clean(f"  {v1}"), border="LTB")
+        lbl_cell(lbl2, lw, border="LTB"); pdf.cell(t - lw, ROW, clean(f"  {v2}"), border="LTB")
+        lbl_cell(lbl3, lw, border="LTB")
+        val_cell(v3, t - lw, newline=True)
+
+    def chk(x: float, y: float, checked: bool = False, sz: float = 3.0):
+        dc(*BLK)
+        pdf.rect(x, y, sz, sz)
         if checked:
-            pdf.set_draw_color(*BLK)
-            pdf.line(x + 0.4, y + 0.4, x + size - 0.4, y + size - 0.4)
-            pdf.line(x + size - 0.4, y + 0.4, x + 0.4, y + size - 0.4)
+            pdf.line(x + 0.3, y + 0.3, x + sz - 0.3, y + sz - 0.3)
+            pdf.line(x + sz - 0.3, y + 0.3, x + 0.3, y + sz - 0.3)
+        dc(*LGRAY)
 
-    def chk_inline(label: str, checked: bool, x: float, y: float, gap: float = 5.5):
-        chk_box(x, y + 1.0)
+    def chk_label(label: str, checked: bool, x: float, y: float):
+        chk(x, y + 1.5, checked)
         pdf.set_xy(x + 4.0, y)
-        set_font("", 8)
-        pdf.cell(gap + len(label) * 1.6, ROW, label)
+        sf("", 7.5)
+        tc(*BLK)
+        pdf.cell(len(label) * 1.8 + 2, ROW, label)
 
-    def blank_lines(n: int = 3):
+    def blank_write_lines(n: int = 3, h: float = 7.0):
         for _ in range(n):
-            set_font("", 8)
-            pdf.cell(W, ROW + 0.5, "", border="B", new_x="LMARGIN", new_y="NEXT")
+            sf("", 8)
+            dc(*LGRAY)
+            pdf.cell(W, h, "", border="B", new_x="LMARGIN", new_y="NEXT")
 
-    # ── extracted data ───────────────────────────────────────────────────────
-    landlord_name  = landlord.get("full_name", "")
-    landlord_addr  = landlord.get("address", "")
-    landlord_city  = landlord.get("city", "")
-    landlord_phone = landlord.get("phone", "")
-    landlord_email = landlord.get("email", "")
+    def gap(mm: float = 1.5):
+        pdf.ln(mm)
 
-    tenant_name  = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip()
-    tenant_addr  = tenant.get("address", "")
-    tenant_city  = tenant.get("city", "")
-    tenant_phone = tenant.get("phone", "") or ""
-    tenant_email = tenant.get("email", "") or ""
+    # ── Data extraction ───────────────────────────────────────────────────
+    def s(d: dict, *keys, default=""):
+        for k in keys:
+            v = d.get(k)
+            if v is not None and str(v).strip():
+                return clean(str(v).strip())
+        return default
 
-    prop_addr    = prop.get("address", "")
-    prop_city    = prop.get("city", "")
-    prop_prov    = prop.get("province", "QC")
-    prop_postal  = prop.get("postal_code", "")
-    unit_no      = unit.get("unit_number", "")
-    bedrooms     = str(unit.get("bedrooms", ""))
-    bathrooms    = str(unit.get("bathrooms", ""))
-    sq_ft        = unit.get("square_feet")
+    landlord_name  = s(landlord, "full_name", "name")
+    landlord_addr  = s(landlord, "address")
+    landlord_city  = s(landlord, "city")
+    landlord_prov  = s(landlord, "province", default="Quebec")
+    landlord_postal= s(landlord, "postal_code")
+    landlord_phone = s(landlord, "phone")
+    landlord_email = s(landlord, "email")
 
-    start_date   = lease.get("start_date", "")
-    end_date     = lease.get("end_date", "")
-    is_fixed     = bool(end_date)
-    rent_amount  = lease.get("rent_amount", 0) or 0
-    due_day      = lease.get("payment_due_day", 1) or 1
-    deposit      = lease.get("security_deposit", 0) or 0
-    notes        = (lease.get("notes") or "").strip()
+    tenant_name    = f"{s(tenant,'first_name')} {s(tenant,'last_name')}".strip()
+    tenant_addr    = s(tenant, "address")
+    tenant_city    = s(tenant, "city")
+    tenant_prov    = s(tenant, "province", default="Quebec")
+    tenant_postal  = s(tenant, "postal_code")
+    tenant_phone   = s(tenant, "phone")
+    tenant_email   = s(tenant, "email")
 
-    # ════════════════════════════════════════════════════════════════════════
-    # PAGE HEADER
-    # ════════════════════════════════════════════════════════════════════════
-    # Top border line
-    pdf.set_draw_color(*BLK)
-    pdf.set_line_width(0.6)
-    pdf.line(LM, TM, LM + W, TM)
-    pdf.set_line_width(0.2)
-    pdf.ln(2)
+    prop_addr      = s(prop, "address")
+    prop_city      = s(prop, "city")
+    prop_prov      = s(prop, "province", default="QC")
+    prop_postal    = s(prop, "postal_code")
+    unit_no        = s(unit, "unit_number")
+    bedrooms       = s(unit, "bedrooms")
+    bathrooms      = s(unit, "bathrooms")
+    sq_ft          = s(unit, "square_feet")
 
-    # Title block
-    set_font("B", 16)
+    start_date     = s(lease, "start_date")
+    end_date       = s(lease, "end_date")
+    is_fixed       = bool(end_date)
+    rent_amount    = float(lease.get("rent_amount") or 0)
+    due_day        = int(lease.get("payment_due_day") or 1)
+    deposit        = float(lease.get("security_deposit") or 0)
+    notes          = (lease.get("notes") or "").strip()
+
+    # formatted address for the unit
+    unit_addr = prop_addr
+    if unit_no:
+        unit_addr = f"{prop_addr}, App. {unit_no}"
+
+    # ══════════════════════════════════════════════════════════════════════
+    # PAGE HEADER  —  mimics the government crown + title block
+    # ══════════════════════════════════════════════════════════════════════
+
+    # Blue top stripe
+    fc(*QBLUE); dc(*QBLUE)
+    pdf.rect(LM, TM, W, 8, style="F")
+
+    # Crown area (left): Gouvernement du Quebec
+    tc(*WHITE); sf("B", 6.5)
+    pdf.set_xy(LM + 1, TM + 0.8)
+    pdf.cell(50, 4, "Gouvernement du Quebec")
+    pdf.set_xy(LM + 1, TM + 4.5)
+    sf("", 6)
+    pdf.cell(50, 3, "Tribunal administratif du logement")
+
+    # Form number (right): obligatoire
+    sf("B", 6)
+    pdf.set_xy(LM + W - 54, TM + 1)
+    pdf.cell(54, 3, "Formulaire obligatoire - Mandatory form", align="R")
+    sf("", 5.5)
+    pdf.set_xy(LM + W - 54, TM + 4.5)
+    pdf.cell(54, 3, f"RLRQ, c. T-15.01, r. 3  |  Genere le {today_str}", align="R")
+
+    pdf.set_xy(LM, TM + 9)
+    fc(*WHITE); dc(*LGRAY); tc(*BLK)
+
+    # Title
+    gap(2)
+    sf("B", 17)
+    tc(*QBLUE)
     pdf.cell(W, 9, "BAIL D'UN LOGEMENT", align="C", new_x="LMARGIN", new_y="NEXT")
-    set_font("B", 8.5)
-    pdf.cell(W, 5, "Tribunal administratif du logement", align="C", new_x="LMARGIN", new_y="NEXT")
-    set_font("", 7.5)
-    pdf.set_text_color(*MID)
-    pdf.cell(W, 4.5, "Province de Quebec  |  Loi sur le tribunal administratif du logement, RLRQ, c. T-15.01", align="C", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*BLK)
+    tc(*BLK)
+    sf("", 7)
+    tc(*MID)
+    pdf.cell(W, 4, "Bail residentiels au Quebec - Art. 1851 et suivants du Code civil du Quebec", align="C", new_x="LMARGIN", new_y="NEXT")
+    tc(*BLK)
+    gap(1)
 
-    # Right-aligned form reference
-    pdf.set_xy(LM + W - 50, TM + 2)
-    set_font("", 7)
-    pdf.set_text_color(*MID)
-    pdf.cell(50, 4, f"Genere le {today_str} - domely.app", align="R")
-    pdf.set_text_color(*BLK)
-
-    pdf.set_xy(LM, pdf.get_y() + 2)
+    # Notice box
+    fc(255, 245, 220); dc(200, 150, 0)
     pdf.set_line_width(0.5)
-    pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
-    pdf.set_line_width(0.2)
-    pdf.ln(2)
+    pdf.rect(LM, pdf.get_y(), W, 8, style="FD")
+    pdf.set_line_width(0.25); dc(*LGRAY)
+    sf("B", 7); tc(120, 80, 0)
+    pdf.set_xy(LM + 2, pdf.get_y() + 1)
+    pdf.cell(W - 4, 3.5, "AVIS IMPORTANT / IMPORTANT NOTICE")
+    pdf.set_xy(LM + 2, pdf.get_y() + 3.5)
+    sf("", 6.5)
+    pdf.cell(W - 4, 3.5,
+        "Ce bail est obligatoire pour tout logement au Quebec. Remplir en double exemplaire - un exemplaire pour chaque partie.")
+    pdf.set_xy(LM, pdf.get_y() + 4)
+    fc(*WHITE); tc(*BLK)
+    gap(2)
 
-    # ════════════════════════════════════════════════════════════════════════
-    # A - LOCATEUR (BAILLEUR / PROPRIETAIRE)
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("A", "LOCATEUR (BAILLEUR / PROPRIETAIRE)")
-    labeled_row("Nom et prenom(s) / Raison sociale :", landlord_name, lw=68)
-    two_col_row("Adresse :", landlord_addr, "Ville :", landlord_city, lw=22)
-    two_col_row("Province :", "Quebec", "Code postal :", "", lw=22)
-    two_col_row("Telephone :", landlord_phone, "Courriel :", landlord_email, lw=22)
-    pdf.ln(1)
+    # ══════════════════════════════════════════════════════════════════════
+    # A — LOCATEUR  (BAILLEUR / PROPRIETAIRE)  /  LANDLORD
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("A", "LOCATEUR (BAILLEUR / PROPRIETAIRE)", "LANDLORD (LESSOR)")
+    field_row("Nom et prenom(s) ou raison sociale / Name or company :", landlord_name, lw=88)
+    two_col("Adresse / Address :", landlord_addr, "Ville / City :", landlord_city, lw1=35, lw2=28)
+    three_col("Province :", landlord_prov, "Code postal / Postal :", landlord_postal, "Pays / Country :", "Canada")
+    two_col("Telephone / Phone :", landlord_phone, "Courriel / Email :", landlord_email, lw1=35, lw2=28)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # B - LOCATAIRE(S)
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("B", "LOCATAIRE(S)")
-    labeled_row("Nom et prenom(s) :", tenant_name, lw=68)
-    two_col_row("Adresse actuelle :", tenant_addr, "Ville :", tenant_city, lw=32)
-    two_col_row("Province :", "Quebec", "Code postal :", "", lw=22)
-    two_col_row("Telephone :", tenant_phone, "Courriel :", tenant_email, lw=22)
-    pdf.ln(1)
+    # ══════════════════════════════════════════════════════════════════════
+    # B — LOCATAIRE(S)  /  TENANT(S)
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("B", "LOCATAIRE(S)", "TENANT(S)")
+    field_row("Nom et prenom(s) / Name(s) :", tenant_name, lw=70)
+    two_col("Adresse actuelle / Current address :", tenant_addr, "Ville / City :", tenant_city, lw1=55, lw2=28)
+    three_col("Province :", tenant_prov, "Code postal / Postal :", tenant_postal, "Telephone / Phone :", tenant_phone)
+    field_row("Courriel / Email :", tenant_email, lw=45)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # C - LOGEMENT LOUE
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("C", "LOGEMENT LOUE")
+    # ══════════════════════════════════════════════════════════════════════
+    # C — LOGEMENT LOUE  /  DWELLING RENTED
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("C", "LOGEMENT LOUE", "DWELLING RENTED")
 
-    # Address row
-    addr_display = f"{prop_addr}  App. {unit_no}" if unit_no else prop_addr
-    labeled_row("Adresse du logement :", addr_display, lw=55)
-    two_col_row("Ville :", prop_city, "Province :", prop_prov, lw=18)
-    two_col_row("Code postal :", prop_postal, "Nombre de pieces :", bedrooms, lw=28)
+    field_row("Adresse du logement / Address of dwelling :", unit_addr, lw=75)
+    three_col("Ville / City :", prop_city, "Province :", prop_prov, "Code postal / Postal :", prop_postal)
 
-    # Furnished checkboxes
+    # Type + furnished
     y0 = pdf.get_y()
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(55, ROW, "  Type de logement :", border="LRB", fill=True)
-    pdf.set_fill_color(255, 255, 255)
-    set_font("", 8)
-    pdf.cell(W - 55, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
-    chk_inline("Non meuble", False, LM + 57, y0)
-    chk_inline("Meuble", False, LM + 95, y0)
+    lbl_cell("Type de logement / Type of dwelling :", 70)
+    pdf.cell(W - 70, ROW, "", border="RTB", new_x="LMARGIN", new_y="NEXT")
+    chk_label("Chambre / Room",         False,  LM + 72,       y0)
+    chk_label("Appartement / Apt",      True,   LM + 108,      y0)
+    chk_label("Maison / House",         False,  LM + 148,      y0)
 
-    # Bedrooms / bathrooms / sqft
-    rooms_val = f"{bedrooms} chambre(s)  |  {bathrooms} salle(s) de bain"
+    y0 = pdf.get_y()
+    lbl_cell("Logement meuble / Furnished :", 55)
+    pdf.cell(W - 55, ROW, "", border="RTB", new_x="LMARGIN", new_y="NEXT")
+    chk_label("Oui / Yes", False, LM + 57, y0)
+    chk_label("Non / No",  True,  LM + 85, y0)
+
+    # Rooms
+    rooms_val = ""
+    if bedrooms:
+        rooms_val += f"{bedrooms} chambre(s)"
+    if bathrooms:
+        rooms_val += f"  |  {bathrooms} salle(s) de bain"
     if sq_ft:
         rooms_val += f"  |  {sq_ft} pi2"
-    labeled_row("Description :", rooms_val, lw=38)
+    two_col("Nb de pieces / Rooms :", bedrooms, "Description :", rooms_val, lw1=38, lw2=28)
 
-    # Parking + storage
+    # Parking
     y0 = pdf.get_y()
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(38, ROW, "  Stationnement :", border="LRB", fill=True)
-    pdf.set_fill_color(255, 255, 255)
-    set_font("", 8)
-    pdf.cell(HALF - 38, ROW, "", border="LRB")
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(38, ROW, "  Rangement :", border="LRB", fill=True)
-    pdf.set_fill_color(255, 255, 255)
-    set_font("", 8)
-    pdf.cell(W - HALF - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
-    chk_inline("Inclus", False, LM + 40, y0)
-    chk_inline("Non inclus", False, LM + 60, y0)
-    chk_inline("Inclus", False, LM + HALF + 40, y0)
-    chk_inline("Non inclus", False, LM + HALF + 60, y0)
-    pdf.ln(1)
+    hw = W / 2
+    lbl_cell("Stationnement / Parking :", 45); pdf.cell(hw - 45, ROW, "", border="LTB")
+    lbl_cell("Rangement / Storage :", 40, border="LTB"); pdf.cell(hw - 40, ROW, "", border="RTB", new_x="LMARGIN", new_y="NEXT")
+    chk_label("Inclus / Included",     False, LM + 47,      y0)
+    chk_label("Non inclus / Excluded", False, LM + 83,      y0)
+    chk_label("Inclus / Included",     False, LM + hw + 42, y0)
+    chk_label("Non inclus / Excluded", False, LM + hw + 74, y0)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # D - DUREE DU BAIL
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("D", "DUREE DU BAIL")
+    # ══════════════════════════════════════════════════════════════════════
+    # D — DUREE DU BAIL  /  TERM OF LEASE
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("D", "DUREE DU BAIL", "TERM OF LEASE")
 
     y0 = pdf.get_y()
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(38, ROW, "  Type de bail :", border="LRB", fill=True)
-    pdf.set_fill_color(255, 255, 255)
-    set_font("", 8)
-    pdf.cell(W - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
-    chk_inline("A duree fixe", is_fixed,    LM + 40, y0)
-    chk_inline("A duree indeterminee", not is_fixed, LM + 88, y0)
+    lbl_cell("Type de bail / Type of lease :", 50)
+    pdf.cell(W - 50, ROW, "", border="RTB", new_x="LMARGIN", new_y="NEXT")
+    chk_label("A duree fixe / Fixed term",          is_fixed,      LM + 52, y0)
+    chk_label("A duree indeterminee / Month-to-month", not is_fixed, LM + 120, y0)
 
-    two_col_row("Du (debut) :", start_date, "Au (fin) :", end_date if is_fixed else "Duree indeterminee", lw=28)
-    pdf.ln(1)
+    two_col("Du / From :", start_date,
+            "Au / To :", end_date if is_fixed else "Duree indeterminee / Indefinite",
+            lw1=22, lw2=18)
 
-    # ════════════════════════════════════════════════════════════════════════
-    # E - LOYER
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("E", "LOYER")
+    # Notice to quit
+    sf("I", 6.5); tc(*MID)
+    pdf.multi_cell(W, 4,
+        "  Avis de non-renouvellement : 3 mois avant l'echeance pour un bail a duree fixe d'un an ou plus (art. 1946 C.c.Q.)  /  "
+        "Notice of non-renewal: 3 months before expiry for a fixed-term lease of 1 year or more.", border="LRB")
+    tc(*BLK)
+    gap()
 
-    two_col_row("Loyer mensuel :", f"${rent_amount:,.2f}", "Payable le :", f"{due_day} de chaque mois", lw=32)
-    two_col_row("Depot de garantie :", f"${deposit:,.2f}" if deposit else "Aucun", "Mode de paiement :", "", lw=38)
+    # ══════════════════════════════════════════════════════════════════════
+    # E — LOYER  /  RENT
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("E", "LOYER", "RENT")
 
-    # Services inclus
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(W, HDR - 0.5, "  Services et conditions inclus dans le loyer (cochez) :", border="LRB", fill=True, new_x="LMARGIN", new_y="NEXT")
+    two_col("Loyer mensuel / Monthly rent :",
+            f"${rent_amount:,.2f}",
+            "Payable le / Due on :",
+            f"Le {due_day} de chaque mois / The {due_day}th of each month",
+            lw1=52, lw2=36)
 
-    services_list = [
-        ("Eau chaude",          False),
-        ("Chauffage",           False),
-        ("Electricite",         False),
-        ("Air conditionne",     False),
-        ("Stationnement int.",  False),
-        ("Stationnement ext.",  False),
-        ("Rangement",           False),
-        ("Cablodistribution",   False),
-        ("Internet",            False),
+    two_col("Depot de garantie / Security deposit :",
+            f"${deposit:,.2f}" if deposit else "Aucun / None",
+            "Mode de paiement / Payment method :", "",
+            lw1=60, lw2=52)
+
+    # Services
+    sub_band("Services et conditions inclus dans le loyer (cochez ce qui s'applique)",
+             "Services included in rent (check all that apply)")
+
+    services = [
+        ("Eau chaude / Hot water",       False),
+        ("Chauffage / Heating",          False),
+        ("Electricite / Electricity",    False),
+        ("Air climatise / A/C",          False),
+        ("Stationnement int. / Indoor parking", False),
+        ("Stationnement ext. / Outdoor parking",False),
+        ("Rangement / Storage",          False),
+        ("Cablodistribution / Cable TV", False),
+        ("Internet",                     False),
+        ("Eau / Water",                  False),
+        ("Eclairage / Lighting",         False),
+        ("Autre / Other",                False),
     ]
     col_w = W / 3
-    rows_svc = [services_list[i:i+3] for i in range(0, len(services_list), 3)]
+    rows_svc = [services[i:i+3] for i in range(0, len(services), 3)]
     for row_items in rows_svc:
         y0 = pdf.get_y()
-        set_font("", 8)
-        for ci, (svc_label, svc_checked) in enumerate(row_items):
+        sf("", 7.5)
+        for ci, (lbl, chkd) in enumerate(row_items):
             x0 = LM + ci * col_w
-            brd = "LRB" if ci < 2 else "LRB"
+            brd = "LRB"
             pdf.set_xy(x0, y0)
-            pdf.set_fill_color(255, 255, 255)
+            fc(*WHITE)
             pdf.cell(col_w, ROW, "", border=brd, fill=True)
-            chk_inline(svc_label, svc_checked, x0 + 2, y0)
+            chk_label(lbl, chkd, x0 + 2, y0)
         pdf.set_xy(LM, y0 + ROW)
 
-    # Autre service
-    labeled_row("Autre service inclus :", "", lw=55)
-    pdf.ln(1)
+    field_row("Autre condition / Other condition :", "", lw=60)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # F - TRAVAUX
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("F", "TRAVAUX A EFFECTUER AVANT L'ENTREE DANS LES LIEUX")
-    set_font("I", 7.5)
-    pdf.set_text_color(*MID)
-    pdf.cell(W, 5, "  Le locateur s'engage a effectuer les travaux suivants avant la prise de possession :", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*BLK)
-    blank_lines(2)
-    pdf.ln(1)
+    # ══════════════════════════════════════════════════════════════════════
+    # F — TRAVAUX  /  WORK TO BE DONE
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("F", "TRAVAUX A EFFECTUER AVANT L'ENTREE DANS LES LIEUX",
+                   "WORK TO BE DONE BEFORE OCCUPANCY")
+    sf("I", 6.5); tc(*MID)
+    pdf.cell(W, 4,
+        "  Le locateur s'engage a effectuer les travaux suivants avant la prise de possession / "
+        "Landlord undertakes to complete the following before occupancy :", new_x="LMARGIN", new_y="NEXT")
+    tc(*BLK)
+    blank_write_lines(2, h=7.5)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # G - AVIS : IMMEUBLE NOUVEAU OU CHANGEMENT D'AFFECTATION
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("G", "AVIS : IMMEUBLE NOUVEAU OU CHANGEMENT D'AFFECTATION")
-    set_font("", 7.5)
-    notice_text = (
-        "Le logement est situe dans un immeuble nouvellement bati ou dont l'affectation a ete "
-        "changee a des fins d'habitation au cours des 5 dernieres annees. Le loyer n'est pas fixe "
-        "par le tribunal pour la premiere periode de location (art. 1955 C.c.Q.)."
-    )
+    # ══════════════════════════════════════════════════════════════════════
+    # G — AVIS : IMMEUBLE NOUVEAU  /  NEW BUILDING NOTICE
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("G", "AVIS : IMMEUBLE NOUVEAU OU CHANGEMENT D'AFFECTATION",
+                   "NOTICE: NEW BUILDING OR CHANGE OF USE")
+
     y0 = pdf.get_y()
-    pdf.set_fill_color(*LGRAY)
-    set_font("B", 7.5)
-    pdf.cell(38, ROW, "  Applicable :", border="LRB", fill=True)
-    pdf.set_fill_color(255, 255, 255)
-    set_font("", 8)
-    pdf.cell(W - 38, ROW, "", border="LRB", new_x="LMARGIN", new_y="NEXT")
-    chk_inline("Oui", False, LM + 40, y0)
-    chk_inline("Non", False, LM + 60, y0)
-    set_font("I", 7)
-    pdf.set_text_color(*MID)
-    pdf.multi_cell(W, 4.5, f"  {notice_text}", border=0)
-    pdf.set_text_color(*BLK)
-    pdf.ln(1)
+    lbl_cell("Applicable :", 28)
+    pdf.cell(W - 28, ROW, "", border="RTB", new_x="LMARGIN", new_y="NEXT")
+    chk_label("Oui / Yes", False, LM + 30, y0)
+    chk_label("Non / No",  False, LM + 58, y0)
 
-    # ════════════════════════════════════════════════════════════════════════
-    # H - LOYER ANTERIEUR
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("H", "LOYER DU LOGEMENT AU COURS DES 12 MOIS PRECEDANT LE BAIL")
-    set_font("I", 7.5)
-    pdf.set_text_color(*MID)
-    pdf.cell(W, 4.5, "  Obligation du locateur de declarer le dernier loyer mensuel paye (art. 1896 C.c.Q.)", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*BLK)
-    two_col_row("Dernier loyer mensuel paye :", "$", "Date de fin de ce loyer :", "", lw=55)
-    pdf.ln(1)
+    sf("I", 6.5); tc(*MID)
+    pdf.multi_cell(W, 4,
+        "  Si applicable : le logement est situe dans un immeuble nouvellement bati ou dont l'affectation "
+        "a ete changee. Le loyer n'est pas fixe par le tribunal pour la 1re periode de location (art. 1955 C.c.Q.).", border=0)
+    tc(*BLK)
+    gap()
 
-    # ════════════════════════════════════════════════════════════════════════
-    # I - CLAUSES PARTICULIERES
-    # ════════════════════════════════════════════════════════════════════════
-    section_header("I", "CLAUSES PARTICULIERES")
-    set_font("I", 7.5)
-    pdf.set_text_color(*MID)
-    pdf.cell(W, 4.5, "  Toute clause contraire a la loi ou aux droits du locataire est nulle de plein droit.", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*BLK)
+    # ══════════════════════════════════════════════════════════════════════
+    # H — LOYER ANTERIEUR  /  PREVIOUS RENT
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("H", "LOYER DU LOGEMENT AU COURS DES 12 MOIS PRECEDANT LE BAIL",
+                   "RENT CHARGED IN THE 12 MONTHS PRECEDING THIS LEASE")
+    sf("I", 6.5); tc(*MID)
+    pdf.cell(W, 4,
+        "  Obligation du locateur de declarer le dernier loyer mensuel paye - art. 1896 C.c.Q.  /  "
+        "Landlord must disclose the last rent paid - art. 1896 C.c.Q.", new_x="LMARGIN", new_y="NEXT")
+    tc(*BLK)
+    two_col("Dernier loyer mensuel / Last monthly rent :", "$",
+            "Date de fin de ce loyer / End date of that rent :", "",
+            lw1=70, lw2=70)
+    gap()
+
+    # ══════════════════════════════════════════════════════════════════════
+    # I — CLAUSES PARTICULIERES  /  SPECIAL CONDITIONS
+    # ══════════════════════════════════════════════════════════════════════
+    section_header("I", "CLAUSES PARTICULIERES", "SPECIAL CONDITIONS")
+    sf("I", 6.5); tc(*MID)
+    pdf.cell(W, 4,
+        "  Toute clause contraire aux droits du locataire ou a la loi est nulle de plein droit (art. 1893 C.c.Q.).",
+        new_x="LMARGIN", new_y="NEXT")
+    tc(*BLK)
     if notes:
-        set_font("", 8)
-        pdf.multi_cell(W, ROW, notes, border="1")
+        sf("", 8)
+        pdf.multi_cell(W, ROW, clean(f"  {notes}"), border="1")
     else:
-        blank_lines(4)
-    pdf.ln(2)
+        blank_write_lines(5, h=7.0)
+    gap(2)
 
-    # ════════════════════════════════════════════════════════════════════════
+    # ══════════════════════════════════════════════════════════════════════
     # SIGNATURES
-    # ════════════════════════════════════════════════════════════════════════
-    pdf.set_line_width(0.5)
-    pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
-    pdf.set_line_width(0.2)
-    pdf.ln(3)
+    # ══════════════════════════════════════════════════════════════════════
+    fc(*QBLUE); tc(*WHITE); sf("B", 7.5)
+    pdf.cell(W, 5.5, "  SIGNATURES DES PARTIES  /  SIGNATURES OF THE PARTIES",
+             fill=True, new_x="LMARGIN", new_y="NEXT")
+    fc(*WHITE); tc(*BLK)
+    gap(2)
 
-    set_font("B", 8)
-    pdf.cell(W, 5, "SIGNATURES DES PARTIES", new_x="LMARGIN", new_y="NEXT")
-    pdf.ln(3)
+    sig_col = HALF - 6
 
-    # Signature block helper
-    sig_col = HALF - 4
-    def sig_block(name: str, role: str, x: float):
-        pdf.set_xy(x, pdf.get_y())
-        set_font("B", 7.5)
-        pdf.cell(sig_col, 4.5, role, new_x="LMARGIN", new_y="NEXT")
-        pdf.set_xy(x, pdf.get_y())
-        # Signature line
-        pdf.set_draw_color(*MID)
-        pdf.line(x, pdf.get_y() + 9, x + sig_col, pdf.get_y() + 9)
-        pdf.set_draw_color(*BLK)
-        pdf.set_xy(x, pdf.get_y() + 10)
-        set_font("", 7)
-        pdf.set_text_color(*MID)
-        pdf.cell(sig_col, 4, f"Signature  -  {name}")
-        pdf.set_text_color(*BLK)
-        pdf.set_xy(x, pdf.get_y() + 5)
-        # Date line
-        pdf.set_draw_color(*MID)
-        pdf.line(x, pdf.get_y() + 5, x + 50, pdf.get_y() + 5)
-        pdf.set_draw_color(*BLK)
-        pdf.set_xy(x, pdf.get_y() + 6)
-        set_font("", 7)
-        pdf.set_text_color(*MID)
-        pdf.cell(50, 4, "Date (JJ/MM/AAAA)")
-        pdf.set_text_color(*BLK)
+    def sig_block(name: str, role_fr: str, role_en: str, x: float, y: float):
+        pdf.set_xy(x, y)
+        sf("B", 7.5)
+        pdf.cell(sig_col, 4.5, f"{role_fr} / {role_en}")
+        pdf.set_xy(x, y + 5.5)
+        sf("", 7)
+        tc(*MID)
+        pdf.cell(sig_col, 3.5, "Signature :")
+        tc(*BLK)
+        # Signature box
+        dc(*LGRAY)
+        pdf.set_line_width(0.4)
+        pdf.rect(x, y + 9.5, sig_col, 12)
+        pdf.set_line_width(0.25)
+        # Nom imprime
+        pdf.set_xy(x, y + 22.5)
+        sf("", 6.5); tc(*MID)
+        pdf.cell(sig_col, 3.5, f"Nom imprime / Printed name :  {name}")
+        # Date
+        pdf.set_xy(x, y + 26.5)
+        pdf.cell(sig_col, 3.5, "Date (JJ/MM/AAAA) :")
+        dc(*LGRAY)
+        pdf.line(x + 38, y + 30, x + sig_col, y + 30)
+        tc(*BLK)
 
     y_sig = pdf.get_y()
-    sig_block(landlord_name, "LOCATEUR / BAILLEUR", LM)
-    pdf.set_y(y_sig)
-    sig_block(tenant_name,   "LOCATAIRE",           LM + HALF + 4)
-    pdf.ln(16)
+    sig_block(landlord_name, "LOCATEUR / BAILLEUR", "LANDLORD / LESSOR",   LM,              y_sig)
+    sig_block(tenant_name,   "LOCATAIRE",           "TENANT",              LM + HALF + 6,   y_sig)
 
-    # ── Note de bas de page ──────────────────────────────────────────────────
-    pdf.set_y(-16)
-    pdf.set_line_width(0.4)
-    pdf.set_draw_color(*GRAY)
+    pdf.set_y(y_sig + 36)
+    gap(2)
+
+    # ── Second tenant signature line ──────────────────────────────────────
+    sf("", 7); tc(*MID)
+    pdf.cell(W, 4,
+        "  Locataire supplementaire / Additional tenant (si applicable / if applicable) :", new_x="LMARGIN", new_y="NEXT")
+    blank_write_lines(1, h=10)
+    tc(*BLK)
+    gap(1)
+
+    # ── Pied de page ─────────────────────────────────────────────────────
+    pdf.set_auto_page_break(auto=False)   # prevent footer from spilling to a new page
+    pdf.set_y(PH - TM - 8)
+    dc(*LGRAY); pdf.set_line_width(0.4)
     pdf.line(LM, pdf.get_y(), LM + W, pdf.get_y())
-    pdf.set_line_width(0.2)
+    pdf.set_line_width(0.25)
     pdf.ln(1.5)
-    set_font("I", 6.5)
-    pdf.set_text_color(*MID)
-    pdf.cell(W / 2, 4, "Ce document est fourni a titre indicatif par Domely (domely.app).")
-    pdf.cell(W / 2, 4, "Consultez le formulaire officiel du TAL : tal.gouv.qc.ca", align="R", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(*BLK)
+    sf("I", 6); tc(*MID)
+    pdf.cell(W * 0.55, 4,
+        "Bail genere par Domely (domely.app) - Pour usage informatif.")
+    pdf.cell(W * 0.45, 4,
+        "Formulaire conforme au TAL - tal.gouv.qc.ca", align="R",
+        new_x="LMARGIN", new_y="NEXT")
+    tc(*BLK)
+    pdf.set_auto_page_break(auto=True, margin=12)
 
     return bytes(pdf.output())
 
@@ -1578,6 +2093,12 @@ async def generate_bail_endpoint(lease_id: str, current_user: dict = Depends(get
             prop=prop,
             landlord=current_user,
         )
+        # If signatures exist, append the certificate page
+        sigs = await db.signatures.find({"lease_id": lease_id}).to_list(10)
+        for s in sigs:
+            s.pop("_id", None)
+        if sigs:
+            pdf_bytes = _append_signature_page(pdf_bytes, sigs)
     except Exception as e:
         logger.error("[Bail PDF] Generation failed: %s", e)
         raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF.")
@@ -1637,9 +2158,88 @@ async def update_rent_payment(payment_id: str, data: dict, current_user: dict = 
     update = {k: v for k, v in data.items() if k in allowed}
     if not update:
         raise HTTPException(status_code=400, detail="No valid fields to update")
+
+    prev_status = payment.get("status", "")
     await db.rent_payments.update_one({"id": payment_id}, {"$set": update})
     updated = await db.rent_payments.find_one({"id": payment_id})
+
+    # ── Notify tenant when landlord confirms a pending payment ─────────────
+    new_status = update.get("status", prev_status)
+    if prev_status == "pending_confirmation" and new_status == "paid":
+        asyncio.create_task(_notify_tenant_payment_confirmed(updated))
+
     return updated
+
+
+async def _notify_tenant_payment_confirmed(payment: dict):
+    """Email the tenant when their manually declared rent payment is confirmed by the landlord."""
+    tenant_id = payment.get("tenant_id")
+    if not tenant_id:
+        return
+    tenant = await db.tenants.find_one({"id": tenant_id})
+    if not tenant or not tenant.get("email"):
+        return
+
+    tenant_email = tenant["email"]
+    tenant_first = (tenant.get("first_name") or "").split()[0] or "là"
+    amount = float(payment.get("amount") or 0)
+    amount_str = f"{amount:,.2f}".replace(",", " ")
+    month_year = payment.get("month_year", "")
+    try:
+        from datetime import datetime as _dt
+        month_display = _dt.strptime(month_year, "%Y-%m").strftime("%B %Y")
+    except Exception:
+        month_display = month_year
+
+    html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+        <tr><td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 36px;">
+          <div style="font-size:22px;font-weight:800;color:#fff;">Domely</div>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111827;">
+            ✅ Paiement confirmé, {tenant_first} !
+          </h2>
+          <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+            Votre propriétaire a confirmé la réception de votre paiement de loyer pour <strong>{month_display}</strong>.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+            <tr><td style="padding:20px 24px;">
+              <table width="100%" cellpadding="4">
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;width:40%;">Montant</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{amount_str} $</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Période</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{month_display}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Statut</td>
+                  <td style="font-size:13px;font-weight:700;color:#059669;">Payé ✓</td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+            Merci pour votre paiement. Consultez votre historique dans le portail locataire.
+          </p>
+        </td></tr>
+        <tr><td style="padding:20px 36px;border-top:1px solid #f3f4f6;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#9ca3af;">Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+    await _send_auto_email(
+        tenant_email,
+        f"Domely — Votre loyer de {month_display} a été confirmé ✓",
+        html,
+    )
 
 @api_router.delete("/rent-payments/{payment_id}")
 async def delete_rent_payment(payment_id: str, current_user: dict = Depends(get_current_user)):
@@ -4198,33 +4798,128 @@ async def tenant_confirm_payment(
     }
     await db.rent_payments.insert_one(payment_doc)
 
-    # Notify landlord by email if RESEND_API_KEY is set
-    RESEND_API_KEY = os.getenv("RESEND_API_KEY", "")
-    if RESEND_API_KEY and landlord:
+    # Notify landlord + send tenant confirmation
+    _resend_key = os.getenv("RESEND_API_KEY", "")
+    if _resend_key:
         tenant_name = f"{current_tenant.get('first_name', '')} {current_tenant.get('last_name', '')}".strip() or "Votre locataire"
         method_labels = {"etransfer": "virement Interac", "cash": "comptant", "cheque": "chèque", "other": "autre"}
         method_label = method_labels.get(data.method, data.method)
-        try:
-            import httpx
-            async with httpx.AsyncClient() as client:
-                await client.post(
-                    "https://api.resend.com/emails",
-                    headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
-                    json={
-                        "from": "Domely <notifications@domely.ca>",
-                        "to": landlord["email"],
-                        "subject": f"Domely — {tenant_name} a confirmé un paiement de loyer",
-                        "text": (
-                            f"Bonjour,\n\n{tenant_name} a confirmé avoir payé son loyer de {rent_amount}$ "
-                            f"pour {month_year} par {method_label}.\n\n"
-                            f"Note : {data.note or '(aucune)'}\n\n"
-                            f"Veuillez vérifier la réception et confirmer le paiement dans votre tableau de bord Domely.\n\n"
-                            f"https://domely.app/dashboard/rent\n\nL'équipe Domely"
-                        ),
-                    },
-                )
-        except Exception as e:
-            logger.warning("[TenantConfirm] Email notification failed: %s", e)
+        month_display = datetime.utcnow().strftime("%B %Y")
+        amount_str = f"{rent_amount:,.2f}".replace(",", " ")
+
+        # ── Email to landlord ──────────────────────────────────────────────
+        if landlord:
+            landlord_html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+        <tr><td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 36px;">
+          <div style="font-size:22px;font-weight:800;color:#fff;">Domely</div>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <h2 style="margin:0 0 16px;font-size:18px;font-weight:700;color:#111827;">
+            💳 {tenant_name} a déclaré un paiement
+          </h2>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+            <tr><td style="padding:20px 24px;">
+              <table width="100%" cellpadding="4">
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;width:40%;">Locataire</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{tenant_name}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Montant</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{amount_str} $</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Méthode</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{method_label}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Période</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{month_display}</td>
+                </tr>
+                {f'<tr><td style="font-size:13px;color:#6b7280;">Note</td><td style="font-size:13px;color:#374151;">{data.note}</td></tr>' if data.note else ''}
+              </table>
+            </td></tr>
+          </table>
+          <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+            Veuillez vérifier la réception du paiement et le confirmer dans votre tableau de bord.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+            <a href="https://domely.ca/dashboard/rent" style="display:inline-block;background:linear-gradient(135deg,#1E7A6E,#3FAF86);color:#fff;font-size:14px;font-weight:600;text-decoration:none;padding:13px 32px;border-radius:10px;">
+              Vérifier dans le tableau de bord →
+            </a>
+          </td></tr></table>
+        </td></tr>
+        <tr><td style="padding:20px 36px;border-top:1px solid #f3f4f6;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#9ca3af;">Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+            asyncio.create_task(_send_auto_email(
+                landlord["email"],
+                f"Domely — {tenant_name} a déclaré un paiement de {amount_str} $",
+                landlord_html,
+            ))
+
+        # ── Confirmation email to tenant ───────────────────────────────────
+        tenant_email = current_tenant.get("email", "")
+        tenant_first = current_tenant.get("first_name", "").split()[0] if current_tenant.get("first_name") else "là"
+        if tenant_email:
+            tenant_html = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+        <tr><td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 36px;">
+          <div style="font-size:22px;font-weight:800;color:#fff;">Domely</div>
+        </td></tr>
+        <tr><td style="padding:36px;">
+          <h2 style="margin:0 0 8px;font-size:18px;font-weight:700;color:#111827;">
+            ✅ Déclaration reçue, {tenant_first} !
+          </h2>
+          <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">
+            Nous avons bien reçu votre déclaration de paiement de loyer pour <strong>{month_display}</strong>.
+            Votre propriétaire sera notifié et confirmera la réception sous peu.
+          </p>
+          <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+            <tr><td style="padding:20px 24px;">
+              <table width="100%" cellpadding="4">
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;width:40%;">Montant déclaré</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{amount_str} $</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Méthode</td>
+                  <td style="font-size:13px;font-weight:600;color:#111827;">{method_label}</td>
+                </tr>
+                <tr>
+                  <td style="font-size:13px;color:#6b7280;">Statut</td>
+                  <td style="font-size:13px;font-weight:600;color:#f59e0b;">En attente de confirmation</td>
+                </tr>
+              </table>
+            </td></tr>
+          </table>
+          <p style="margin:0;font-size:13px;color:#9ca3af;line-height:1.6;">
+            Vous recevrez une notification quand votre propriétaire aura confirmé le paiement.
+          </p>
+        </td></tr>
+        <tr><td style="padding:20px 36px;border-top:1px solid #f3f4f6;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#9ca3af;">Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a></p>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</body></html>"""
+            asyncio.create_task(_send_auto_email(
+                tenant_email,
+                f"Domely — Votre déclaration de loyer pour {month_display} a été reçue",
+                tenant_html,
+            ))
 
     payment_doc.pop("_id", None)
     if isinstance(payment_doc.get("created_at"), datetime):
@@ -4376,11 +5071,158 @@ async def save_automations(data: AutomationsBatchUpdate, current_user: dict = De
     return {"ok": True, "saved": len(data.settings)}
 
 
+async def _send_welcome_email(to_email: str, full_name: str):
+    """Send a welcome email after successful registration. Silent no-op if key not set."""
+    key = os.getenv("RESEND_API_KEY")
+    if not key or not to_email:
+        logger.info("[Welcome] No RESEND_API_KEY — skipping welcome email to %s", to_email)
+        return
+    first = full_name.split()[0] if full_name else "là"
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:36px 40px;text-align:center;">
+            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Domely</div>
+            <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px;">Gestion locative simplifiée</div>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">
+              Bienvenue, {first} ! 👋
+            </h1>
+            <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
+              Votre compte Domely est prêt. Voici 3 étapes pour commencer à gérer vos propriétés en moins de 5 minutes.
+            </p>
+
+            <!-- Steps -->
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;padding:0;">
+                    <tr>
+                      <td style="padding:16px 20px;">
+                        <div style="display:flex;align-items:center;gap:12px;">
+                          <div style="width:32px;height:32px;background:linear-gradient(135deg,#1E7A6E,#3FAF86);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px;flex-shrink:0;">1</div>
+                          <div style="display:inline-block;vertical-align:middle;margin-left:12px;">
+                            <div style="font-size:14px;font-weight:600;color:#134e4a;">Ajoutez votre première propriété</div>
+                            <div style="font-size:12px;color:#0f766e;margin-top:2px;">Adresse, nombre de logements, etc.</div>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom:16px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;">
+                    <tr>
+                      <td style="padding:16px 20px;">
+                        <div style="width:32px;height:32px;background:linear-gradient(135deg,#1E7A6E,#3FAF86);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px;float:left;margin-right:12px;">2</div>
+                        <div style="overflow:hidden;">
+                          <div style="font-size:14px;font-weight:600;color:#134e4a;">Invitez vos locataires</div>
+                          <div style="font-size:12px;color:#0f766e;margin-top:2px;">Ils accèdent au portail locataire sans mot de passe.</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding-bottom:28px;">
+                  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;">
+                    <tr>
+                      <td style="padding:16px 20px;">
+                        <div style="width:32px;height:32px;background:linear-gradient(135deg,#1E7A6E,#3FAF86);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px;float:left;margin-right:12px;">3</div>
+                        <div style="overflow:hidden;">
+                          <div style="font-size:14px;font-weight:600;color:#134e4a;">Créez un bail &amp; activez les paiements</div>
+                          <div style="font-size:12px;color:#0f766e;margin-top:2px;">Générez le bail officiel TAL et recevez les loyers en ligne.</div>
+                        </div>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+
+            <!-- CTA -->
+            <table width="100%" cellpadding="0" cellspacing="0">
+              <tr>
+                <td align="center">
+                  <a href="https://domely.ca/dashboard" style="display:inline-block;background:linear-gradient(135deg,#1E7A6E,#3FAF86);color:#ffffff;font-size:15px;font-weight:600;text-decoration:none;padding:14px 36px;border-radius:12px;">
+                    Accéder à mon tableau de bord →
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="padding:24px 40px;border-top:1px solid #f3f4f6;text-align:center;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;">
+              Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a><br>
+              Vous recevez cet email car vous venez de créer un compte.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+    try:
+        import httpx
+        async with httpx.AsyncClient() as hc:
+            resp = await hc.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"from": "Domely <noreply@domely.ca>", "to": to_email,
+                      "subject": f"Bienvenue sur Domely, {first} ! 🏠", "html": html},
+                timeout=10,
+            )
+        logger.info("[Welcome] Email sent to %s — status %s", to_email, resp.status_code)
+    except Exception as e:
+        logger.warning("[Welcome] Email send failed to %s: %s", to_email, e)
+
+
+_EMAIL_FOOTER = """
+<table width="100%" cellpadding="0" cellspacing="0" style="margin-top:28px;border-top:1px solid #e5e7eb;">
+  <tr><td style="padding:18px 0;text-align:center;">
+    <p style="margin:0 0 6px;font-size:11px;color:#9ca3af;">
+      Vous recevez cet email car vous avez activé les notifications automatiques sur
+      <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">Domely</a>.
+    </p>
+    <a href="https://domely.ca/dashboard/automations"
+       style="font-size:11px;color:#6b7280;text-decoration:underline;">Gérer mes notifications</a>
+    &nbsp;&middot;&nbsp;
+    <a href="https://domely.ca/dashboard/settings"
+       style="font-size:11px;color:#6b7280;text-decoration:underline;">Paramètres du compte</a>
+  </td></tr>
+</table>"""
+
 async def _send_auto_email(to_email: str, subject: str, html_body: str):
-    """Generic Resend mailer for automation emails. Silent no-op if key not set."""
+    """Generic Resend mailer for automation emails. Appends opt-out footer. Silent no-op if key not set."""
     if not RESEND_API_KEY or not to_email:
         logger.info("[Automations] No RESEND_API_KEY or recipient — skipping email to %s", to_email)
         return
+    # Inject footer before </body> if present, otherwise append
+    if "</body>" in html_body:
+        full_html = html_body.replace("</body>", f"{_EMAIL_FOOTER}</body>", 1)
+    else:
+        full_html = html_body + _EMAIL_FOOTER
     import httpx
     async with httpx.AsyncClient() as client_http:
         try:
@@ -4388,7 +5230,7 @@ async def _send_auto_email(to_email: str, subject: str, html_body: str):
                 "https://api.resend.com/emails",
                 headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
                 json={"from": "Domely <noreply@domely.ca>", "to": to_email,
-                      "subject": subject, "html": html_body},
+                      "subject": subject, "html": full_html},
                 timeout=10,
             )
             logger.info("[Automations] Email sent to %s — status %s", to_email, resp.status_code)
@@ -5072,6 +5914,75 @@ async def ensure_demo_account():
     logger.info("[Demo] Demo account created — seeding data…")
     await seed_demo_data(demo_user)
     logger.info("[Demo] Done. Login: %s / %s", DEMO_EMAIL, DEMO_PASSWORD)
+
+# ════════════════════════════════════════════════════════════════════════════
+#  E-SIGNATURES
+# ════════════════════════════════════════════════════════════════════════════
+
+class SignatureSave(BaseModel):
+    signer_type: str          # "landlord" | "tenant"
+    signature_data: str       # base64 PNG data-URL (data:image/png;base64,…)
+    signer_name: str
+
+
+@api_router.post("/leases/{lease_id}/sign")
+async def save_signature(
+    lease_id: str,
+    body: SignatureSave,
+    current_user: dict = Depends(get_current_user),
+):
+    """Save (or replace) the landlord or tenant signature for a lease."""
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Bail introuvable")
+
+    # Replace any existing signature of the same type
+    await db.signatures.delete_many({"lease_id": lease_id, "signer_type": body.signer_type})
+
+    sig_id = str(uuid.uuid4())
+    doc = {
+        "id":             sig_id,
+        "lease_id":       lease_id,
+        "user_id":        current_user["id"],
+        "signer_type":    body.signer_type,
+        "signature_data": body.signature_data,
+        "signer_name":    body.signer_name,
+        "signed_at":      datetime.utcnow().isoformat() + "Z",
+    }
+    await db.signatures.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api_router.get("/leases/{lease_id}/signatures")
+async def get_signatures(
+    lease_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Return all e-signatures saved for a lease."""
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Bail introuvable")
+    sigs = await db.signatures.find({"lease_id": lease_id}).to_list(10)
+    for s in sigs:
+        s.pop("_id", None)
+    return sigs
+
+
+@api_router.delete("/signatures/{sig_id}")
+async def delete_signature(
+    sig_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete a specific e-signature."""
+    sig = await db.signatures.find_one({"id": sig_id, "user_id": current_user["id"]})
+    if not sig:
+        raise HTTPException(status_code=404, detail="Signature introuvable")
+    await db.signatures.delete_one({"id": sig_id})
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════════════════
 
 @app.on_event("startup")
 async def startup():

@@ -322,6 +322,45 @@ export default function MoreScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Finances</Text>
           <Card style={{ padding: 0, overflow: 'hidden' }}>
+            <TouchableOpacity style={styles.finShortcutCard} onPress={() => router.push('/rent-history')}>
+              <View style={styles.finShortcutLeft}>
+                <View style={[styles.finShortcutIcon, { backgroundColor: '#10B98118' }]}>
+                  <Ionicons name="cash-outline" size={20} color="#10B981" />
+                </View>
+                <View>
+                  <Text style={styles.finShortcutTitle}>Historique des loyers</Text>
+                  <Text style={styles.finShortcutSub}>Paiements reçus par mois</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+            </TouchableOpacity>
+            <View style={styles.finDivider} />
+            <TouchableOpacity style={styles.finShortcutCard} onPress={() => router.push('/expenses')}>
+              <View style={styles.finShortcutLeft}>
+                <View style={[styles.finShortcutIcon, { backgroundColor: '#EF444418' }]}>
+                  <Ionicons name="receipt-outline" size={20} color="#EF4444" />
+                </View>
+                <View>
+                  <Text style={styles.finShortcutTitle}>Dépenses</Text>
+                  <Text style={styles.finShortcutSub}>Suivi des charges et dépenses</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+            </TouchableOpacity>
+            <View style={styles.finDivider} />
+            <TouchableOpacity style={styles.finShortcutCard} onPress={() => router.push('/leases')}>
+              <View style={styles.finShortcutLeft}>
+                <View style={[styles.finShortcutIcon, { backgroundColor: '#6366F118' }]}>
+                  <Ionicons name="document-text-outline" size={20} color="#6366F1" />
+                </View>
+                <View>
+                  <Text style={styles.finShortcutTitle}>Baux</Text>
+                  <Text style={styles.finShortcutSub}>Gérer vos contrats de location</Text>
+                </View>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+            </TouchableOpacity>
+            <View style={styles.finDivider} />
             <TouchableOpacity style={styles.finShortcutCard} onPress={() => router.push('/mortgage')}>
               <View style={styles.finShortcutLeft}>
                 <View style={[styles.finShortcutIcon, { backgroundColor: '#3B82F618' }]}>
@@ -481,6 +520,7 @@ const styles = StyleSheet.create({
   section: { marginBottom: theme.spacing.lg },
   sectionTitle: { fontSize: 16, fontWeight: '600', color: theme.colors.textPrimary, marginBottom: theme.spacing.sm },
   finShortcutCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: theme.spacing.md },
+  finDivider: { height: 1, backgroundColor: theme.colors.borderLight, marginLeft: 56 },
   finShortcutLeft: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
   finShortcutIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: theme.colors.primaryLight, alignItems: 'center', justifyContent: 'center' },
   finShortcutTitle: { fontSize: 15, fontWeight: '600', color: theme.colors.textPrimary },

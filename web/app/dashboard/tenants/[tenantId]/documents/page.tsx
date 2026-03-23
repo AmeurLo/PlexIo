@@ -122,14 +122,14 @@ export default function TenantDocumentsPage() {
                       onClick={() => handleGenerateBail(doc.id)}
                       disabled={generatingBail === doc.id}
                       className="inline-flex items-center gap-1.5 text-[12px] font-medium text-violet-600 dark:text-violet-400 hover:underline disabled:opacity-50 flex-shrink-0"
-                      title={lang === "fr" ? "Télécharger le bail PDF" : "Download lease PDF"}
+                      title={lang === "fr" ? "Télécharger le bail PDF (format Québec seulement)" : "Download lease PDF (Quebec format only)"}
                     >
                       {generatingBail === doc.id ? (
                         <span className="w-3.5 h-3.5 border border-violet-500 border-t-transparent rounded-full animate-spin" />
                       ) : (
                         <span className="text-base">⬇️</span>
                       )}
-                      PDF
+                      PDF (QC)
                     </button>
                   )}
 

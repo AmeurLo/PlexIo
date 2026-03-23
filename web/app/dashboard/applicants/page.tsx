@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
@@ -22,7 +22,7 @@ const COLUMNS: Array<{ status: string; fr: string; en: string; color: string }> 
 
 const T = {
   title:    { fr: "Candidats",         en: "Applicants" },
-  sub:      { fr: "Tableau kanban",    en: "Kanban board" },
+  sub:      { fr: "Suivi des candidatures", en: "Application pipeline" },
   add:      { fr: "Ajouter",          en: "Add" },
   edit:     { fr: "Modifier",         en: "Edit" },
   delete:   { fr: "Supprimer",        en: "Delete" },
@@ -63,6 +63,8 @@ export default function ApplicantsPage() {
   const [formError, setFormError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Applicant | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const dragId = useRef<string | null>(null);
+  const [dragOver, setDragOver] = useState<string | null>(null);
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -131,8 +133,23 @@ export default function ApplicantsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 overflow-x-auto">
           {COLUMNS.map(col => {
             const colApplicants = applicants.filter(a => a.status === col.status);
+            const isOver = dragOver === col.status;
             return (
-              <div key={col.status} className={`rounded-2xl border p-4 ${col.color}`}>
+              <div
+                key={col.status}
+                className={`rounded-2xl border p-4 transition-all ${col.color} ${isOver ? "ring-2 ring-teal-400 ring-offset-1 scale-[1.01]" : ""}`}
+                onDragOver={e => { e.preventDefault(); setDragOver(col.status); }}
+                onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(null); }}
+                onDrop={e => {
+                  e.preventDefault();
+                  setDragOver(null);
+                  const id = dragId.current;
+                  if (!id) return;
+                  const a = applicants.find(ap => (ap.id ?? ap._id) === id);
+                  if (a && a.status !== col.status) moveStatus(a, col.status);
+                  dragId.current = null;
+                }}
+              >
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-[13px] font-semibold text-gray-700 dark:text-gray-300">
                     {lang === "fr" ? col.fr : col.en}
@@ -141,7 +158,16 @@ export default function ApplicantsPage() {
                 </div>
                 <div className="space-y-2">
                   {colApplicants.map(a => (
-                    <div key={a.id ?? a._id} className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-3 shadow-sm">
+                    <div
+                      key={a.id ?? a._id}
+                      draggable
+                      onDragStart={e => {
+                        dragId.current = a.id ?? a._id ?? null;
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragEnd={() => { dragId.current = null; setDragOver(null); }}
+                      className="bg-white dark:bg-gray-900 rounded-xl border border-gray-100 dark:border-gray-700 p-3 shadow-sm cursor-grab active:cursor-grabbing active:shadow-md active:scale-[1.02] transition-transform select-none"
+                    >
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-800 dark:text-gray-200 text-[13px] truncate">{a.full_name}</p>
@@ -149,6 +175,8 @@ export default function ApplicantsPage() {
                           {a.property_id && <p className="text-[11px] text-gray-400 truncate">{propName(a.property_id)}</p>}
                           {a.applied_at && <p className="text-[11px] text-gray-400">{formatDate(a.applied_at)}</p>}
                         </div>
+                        {/* Drag handle hint */}
+                        <div className="text-gray-300 dark:text-gray-600 mt-0.5 flex-shrink-0" aria-hidden>⠿</div>
                       </div>
                       <div className="flex gap-1 mt-2 flex-wrap">
                         {COLUMNS.filter(c => c.status !== col.status).map(target => (
@@ -169,6 +197,12 @@ export default function ApplicantsPage() {
                       </div>
                     </div>
                   ))}
+                  {/* Drop zone hint when column is empty and dragging */}
+                  {colApplicants.length === 0 && isOver && (
+                    <div className="h-16 rounded-xl border-2 border-dashed border-teal-400 flex items-center justify-center">
+                      <p className="text-[11px] text-teal-500">{lang === "fr" ? "Déposer ici" : "Drop here"}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             );

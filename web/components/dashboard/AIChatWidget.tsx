@@ -43,8 +43,22 @@ export default function AIChatWidget() {
     }
   }, [open, messages.length]);
 
-  // Hide on the dedicated AI page (after all hooks)
-  if (pathname === "/dashboard/ai") return null;
+  // Persist history to localStorage
+  useEffect(() => {
+    if (messages.length === 0) return;
+    try { localStorage.setItem("domely_ai_history", JSON.stringify(messages.slice(-40))); } catch {}
+  }, [messages]);
+
+  // Restore history on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("domely_ai_history");
+      if (saved) setMessages(JSON.parse(saved));
+    } catch {}
+  }, []);
+
+  // Hide on dedicated AI page + messages page (has its own send button at bottom-right)
+  if (pathname === "/dashboard/ai" || pathname === "/dashboard/messages") return null;
 
   async function send(text?: string) {
     const content = (text ?? input).trim();

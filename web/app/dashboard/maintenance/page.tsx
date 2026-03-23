@@ -57,6 +57,7 @@ export default function MaintenancePage() {
   const { showToast } = useToast();
   const [requests, setRequests] = useState<MaintenanceRequest[]>([]);
   const [properties, setProperties] = useState<Property[]>([]);
+  const [contractors, setContractors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState("all");
   const [showModal, setShowModal] = useState(false);
@@ -69,8 +70,8 @@ export default function MaintenancePage() {
 
   useEffect(() => {
     if (!requireAuth()) return;
-    Promise.all([api.getMaintenanceRequests(), api.getProperties()])
-      .then(([rs, ps]) => { setRequests(rs); setProperties(ps); })
+    Promise.all([api.getMaintenanceRequests(), api.getProperties(), api.getContractors()])
+      .then(([rs, ps, cs]) => { setRequests(rs); setProperties(ps); setContractors(cs as any[]); })
       .catch(e => showToast(e instanceof Error ? e.message : String(e), "error"))
       .finally(() => setLoading(false));
   }, []);
@@ -164,6 +165,7 @@ export default function MaintenancePage() {
                     {r.unit_number && <span>· {lang === "fr" ? "Unité" : "Unit"} {r.unit_number}</span>}
                     {r.created_at && <span>· {formatDate(r.created_at)}</span>}
                     {r.estimated_cost && <span>· ${r.estimated_cost}</span>}
+                    {r.assigned_contractor && <span>· 🔧 {r.assigned_contractor}</span>}
                   </div>
                 </div>
                 <div className="flex gap-2 flex-shrink-0">
@@ -224,7 +226,22 @@ export default function MaintenancePage() {
             </FormField>
           </div>
           <FormField label={t(T.contractor)}>
-            <input className={inputClass} value={form.assigned_contractor} onChange={e => f("assigned_contractor", e.target.value)} />
+            {contractors.length > 0 ? (
+              <select
+                className={selectClass}
+                value={form.assigned_contractor}
+                onChange={e => f("assigned_contractor", e.target.value)}
+              >
+                <option value="">—</option>
+                {contractors.map(c => {
+                  const cid = c.id ?? c._id;
+                  const label = [c.name, c.specialty ? `(${c.specialty})` : ""].filter(Boolean).join(" ");
+                  return <option key={cid} value={c.name ?? cid}>{label}</option>;
+                })}
+              </select>
+            ) : (
+              <input className={inputClass} value={form.assigned_contractor} onChange={e => f("assigned_contractor", e.target.value)} placeholder={lang === "fr" ? "Nom ou entreprise…" : "Name or company…"} />
+            )}
           </FormField>
         </div>
       </Modal>

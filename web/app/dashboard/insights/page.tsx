@@ -7,6 +7,36 @@ import { formatCurrency } from "@/lib/format";
 import type { PortfolioInsights, PropertyPerformance, PropertyHealthScore, HealthScoreResponse } from "@/lib/types";
 import StatCard from "@/components/dashboard/StatCard";
 import PageHeader from "@/components/dashboard/PageHeader";
+import { SkeletonCard } from "@/components/dashboard/SkeletonCard";
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+} from "recharts";
+
+// ─── Build 6-month cash flow from raw data ────────────────────────────────────
+function buildMonthlyCashFlow(payments: any[], expenses: any[], lang: string) {
+  const months: { key: string; label: string; collected: number; expenses: number; net: number }[] = [];
+  const now = new Date();
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString(lang === "fr" ? "fr-CA" : "en-CA", { month: "short", year: "2-digit" });
+    months.push({ key, label, collected: 0, expenses: 0, net: 0 });
+  }
+  for (const p of payments) {
+    if (p.status !== "paid") continue;
+    const d = p.payment_date ?? p.created_at;
+    if (!d) continue;
+    const m = months.find(x => x.key === (d as string).slice(0, 7));
+    if (m) m.collected += p.amount ?? 0;
+  }
+  for (const e of expenses) {
+    const d = e.date ?? e.expense_date ?? e.created_at;
+    if (!d) continue;
+    const m = months.find(x => x.key === (d as string).slice(0, 7));
+    if (m) m.expenses += e.amount ?? 0;
+  }
+  return months.map(m => ({ ...m, net: m.collected - m.expenses }));
+}
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const T = {
@@ -62,18 +92,35 @@ export default function InsightsPage() {
   const [health, setHealth]         = useState<HealthScoreResponse | null>(null);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
+  const [cashFlowData, setCashFlowData] = useState<ReturnType<typeof buildMonthlyCashFlow>>([]);
 
   useEffect(() => {
     if (!requireAuth()) return;
-    Promise.all([api.getInsights(), api.getHealthScores()])
-      .then(([ins, hlt]) => { setInsights(ins); setHealth(hlt); })
+    Promise.all([
+      api.getInsights(),
+      api.getHealthScores(),
+      api.getRentPayments(),
+      api.getExpenses(),
+    ])
+      .then(([ins, hlt, payments, expenses]) => {
+        setInsights(ins);
+        setHealth(hlt);
+        setCashFlowData(buildMonthlyCashFlow(payments as any[], expenses as any[], lang));
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [lang]);
 
   if (loading) return (
-    <div className="flex justify-center py-20">
-      <div className="w-8 h-8 border-2 border-teal-500 border-t-transparent rounded-full animate-spin" />
+    <div className="p-6 max-w-6xl space-y-6">
+      <div className="h-8 w-40 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        {[0,1,2,3,4,5].map(i => <SkeletonCard key={i} />)}
+      </div>
+      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 p-6 animate-pulse">
+        <div className="h-4 w-48 bg-gray-100 dark:bg-gray-800 rounded mb-5" />
+        <div className="h-[220px] bg-gray-100 dark:bg-gray-800 rounded-xl" />
+      </div>
     </div>
   );
 
@@ -112,6 +159,46 @@ export default function InsightsPage() {
         <StatCard icon="check"       label={t(T.collections)}    value={`${Math.round(d.collection_rate ?? 0)}%`} />
         <StatCard icon="wrench"      label={t(T.maintenanceCost)} value={formatCurrency(d.maintenance_expenses ?? 0)} />
       </div>
+
+      {/* ── 6-month cash flow chart ──────────────────────────────────────────── */}
+      {cashFlowData.some(m => m.collected > 0 || m.expenses > 0) && (
+        <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6">
+          <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white mb-5">
+            {lang === "fr" ? "Flux de trésorerie — 6 derniers mois" : "Cash Flow — Last 6 months"}
+          </h3>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={cashFlowData} margin={{ top: 0, right: 0, left: -10, bottom: 0 }} barGap={4}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#9ca3af" }} axisLine={false} tickLine={false} />
+              <YAxis
+                tick={{ fontSize: 11, fill: "#9ca3af" }}
+                axisLine={false}
+                tickLine={false}
+                tickFormatter={v => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+              />
+              <Tooltip
+                formatter={(value: unknown, name: unknown) => {
+                  const label = name === "collected" ? (lang === "fr" ? "Loyers perçus" : "Rent collected")
+                    : name === "expenses" ? (lang === "fr" ? "Dépenses" : "Expenses")
+                    : (lang === "fr" ? "Flux net" : "Net flow");
+                  return [formatCurrency(Number(value ?? 0)), label];
+                }}
+                contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
+              />
+              <Legend
+                formatter={(v) =>
+                  v === "collected" ? (lang === "fr" ? "Loyers perçus" : "Rent collected")
+                  : v === "expenses" ? (lang === "fr" ? "Dépenses" : "Expenses")
+                  : (lang === "fr" ? "Net" : "Net")
+                }
+                wrapperStyle={{ fontSize: 12 }}
+              />
+              <Bar dataKey="collected" fill="#14b8a6" radius={[4, 4, 0, 0]} maxBarSize={32} />
+              <Bar dataKey="expenses"  fill="#f97316" radius={[4, 4, 0, 0]} maxBarSize={32} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* ── Portfolio health scores ────────────────────────────────────────────── */}
       {healthScores.length > 0 && (

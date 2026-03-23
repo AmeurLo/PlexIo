@@ -23,6 +23,7 @@ const NAV_DAILY = [
 
 const NAV_PORTFOLIO = [
   { href: "/dashboard/properties",    icon: "home"     as const, fr: "Propriétés",       en: "Properties" },
+  { href: "/dashboard/units",         icon: "home"     as const, fr: "Unités",           en: "Units" },
   { href: "/dashboard/tenants",       icon: "users"    as const, fr: "Locataires",       en: "Tenants" },
   { href: "/dashboard/leases",        icon: "document" as const, fr: "Baux",             en: "Leases" },
   { href: "/dashboard/documents",     icon: "document" as const, fr: "Documents",        en: "Documents" },

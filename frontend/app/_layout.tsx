@@ -85,6 +85,9 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="unit-timeline" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="property-financials" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="expenses" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="leases" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="rent-history" options={{ headerShown: false, presentation: 'card' }} />
       </Stack>
     </>
   );
