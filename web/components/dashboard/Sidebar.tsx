@@ -18,11 +18,11 @@ const NAV_DAILY = [
   { href: "/dashboard/rent",        icon: "credit-card" as const, fr: "Loyers",      en: "Rent" },
   { href: "/dashboard/maintenance", icon: "wrench"      as const, fr: "Maintenance", en: "Maintenance" },
   { href: "/dashboard/messages",    icon: "chat"        as const, fr: "Messages",    en: "Messages" },
-  { href: "/dashboard/ai",          icon: "sparkles"    as const, fr: "Domely AI",   en: "Domely AI" },
 ];
 
 const NAV_PORTFOLIO = [
   { href: "/dashboard/properties",    icon: "home"     as const, fr: "Propriétés",       en: "Properties" },
+  { href: "/dashboard/units",         icon: "home"     as const, fr: "Unités",           en: "Units" },
   { href: "/dashboard/tenants",       icon: "users"    as const, fr: "Locataires",       en: "Tenants" },
   { href: "/dashboard/leases",        icon: "document" as const, fr: "Baux",             en: "Leases" },
   { href: "/dashboard/documents",     icon: "document" as const, fr: "Documents",        en: "Documents" },
@@ -107,6 +107,14 @@ export default function Sidebar({ onClose }: Props) {
         {/* Daily — what you check every day */}
         <SectionLabel fr="Quotidien" en="Daily" />
         {NAV_DAILY.map(item => <NavLink key={item.href} {...item} />)}
+        {/* Domely AI — opens the floating chat widget from any page */}
+        <button
+          onClick={() => { window.dispatchEvent(new CustomEvent("domely:openAI")); onClose?.(); }}
+          className="group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-150 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-800 dark:hover:text-gray-200"
+        >
+          <Icon name="sparkles" size={16} strokeWidth={1.6} className="text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
+          <span className="tracking-[-0.01em]">{lang === "fr" ? "Domely AI" : "Domely AI"}</span>
+        </button>
 
         {/* Portfolio — your properties, tenants and tenant pipeline */}
         <SectionLabel fr="Portefeuille" en="Portfolio" />

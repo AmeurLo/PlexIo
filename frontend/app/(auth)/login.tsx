@@ -19,10 +19,14 @@ import { api } from '../../src/services/api';
 import { useAuthStore } from '../../src/store/authStore';
 import { useTranslation } from '../../src/i18n/useTranslation';
 
+const DEMO_EMAIL    = 'demo@domely.app';
+const DEMO_PASSWORD = 'Demo1234!';
+
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const { setAuth } = useAuthStore();
   const { t } = useTranslation();
@@ -43,6 +47,19 @@ export default function LoginScreen() {
       Alert.alert(t('loginFailed') as string, message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDemoLogin = async () => {
+    setDemoLoading(true);
+    try {
+      const response = await api.login(DEMO_EMAIL, DEMO_PASSWORD);
+      await setAuth(response.user, response.access_token);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      Alert.alert('Demo', 'Demo account unavailable. Please try again later.');
+    } finally {
+      setDemoLoading(false);
     }
   };
 
@@ -136,6 +153,27 @@ export default function LoginScreen() {
                 </Text>
               </TouchableOpacity>
             </LinearGradient>
+
+            {/* Divider */}
+            <View style={styles.dividerRow}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>ou</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Try Demo button */}
+            <TouchableOpacity
+              style={styles.demoButton}
+              onPress={handleDemoLogin}
+              disabled={demoLoading}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.demoIcon}>🏠</Text>
+              <Text style={styles.demoButtonText}>
+                {demoLoading ? 'Chargement…' : 'Essayer la démo'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={styles.demoHint}>Compte de démonstration pré-rempli</Text>
           </View>
 
           <View style={styles.footer}>
@@ -235,5 +273,46 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontSize: 15,
     fontWeight: '600',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    gap: 10,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: theme.colors.border ?? '#E5E7EB',
+  },
+  dividerText: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    fontWeight: '500',
+  },
+  demoButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.md,
+    borderWidth: 1.5,
+    borderColor: theme.colors.primary,
+    backgroundColor: 'transparent',
+  },
+  demoIcon: {
+    fontSize: 18,
+  },
+  demoButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: theme.colors.primary,
+  },
+  demoHint: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginTop: 6,
   },
 });

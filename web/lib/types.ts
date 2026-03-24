@@ -460,3 +460,13 @@ export const PROPERTY_TYPES = [
   { value: "commercial", fr: "Commercial",           en: "Commercial" },
   { value: "other",      fr: "Autre",               en: "Other" },
 ] as const;
+
+export interface LeaseSignature {
+  id: string;
+  lease_id: string;
+  user_id: string;
+  signer_type: "landlord" | "tenant";
+  signature_data: string;   // base64 PNG data-URL
+  signer_name: string;
+  signed_at: string;        // ISO 8601
+}

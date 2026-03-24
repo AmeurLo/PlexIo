@@ -4,6 +4,7 @@ import type {
   RentPayment, RentOverview, MaintenanceRequestWithDetails,
   Reminder, Expense, PropertyFinancials, Notification,
   Contractor, TeamMember, Mortgage, Insurance, Inspection, Applicant,
+  LeaseSignature,
 } from "./types";
 
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
@@ -303,4 +304,23 @@ export const api = {
     if (!res.ok) throw new Error("Génération du bail échouée");
     return res.blob();
   },
+
+  // ── E-Signatures ─────────────────────────────────────────────────────────
+
+  getSignatures: (leaseId: string) =>
+    apiFetch<LeaseSignature[]>(`/leases/${leaseId}/signatures`),
+
+  saveSignature: (
+    leaseId: string,
+    signerType: "landlord" | "tenant",
+    signatureData: string,
+    signerName: string,
+  ) =>
+    apiFetch<LeaseSignature>(`/leases/${leaseId}/sign`, {
+      method: "POST",
+      body: JSON.stringify({ signer_type: signerType, signature_data: signatureData, signer_name: signerName }),
+    }),
+
+  deleteSignature: (sigId: string) =>
+    apiFetch<{ ok: boolean }>(`/signatures/${sigId}`, { method: "DELETE" }),
 };
