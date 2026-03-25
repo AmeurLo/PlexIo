@@ -3,15 +3,17 @@ import { useEffect, useRef } from "react";
 import { Icon } from "@/lib/icons";
 
 interface Props {
-  isOpen: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   title: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
   maxWidth?: string;
+  wide?: boolean;
 }
 
-export default function Modal({ isOpen, onClose, title, children, footer, maxWidth = "max-w-lg" }: Props) {
+export default function Modal({ isOpen = true, onClose, title, children, footer, maxWidth, wide }: Props) {
+  const resolvedMax = maxWidth ?? (wide ? "max-w-2xl" : "max-w-lg");
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -35,7 +37,7 @@ export default function Modal({ isOpen, onClose, title, children, footer, maxWid
       {/* Panel */}
       <div
         ref={ref}
-        className={`relative w-full ${maxWidth} bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 max-h-[90vh] flex flex-col animate-slide-up sm:animate-scale-in`}
+        className={`relative w-full ${resolvedMax} bg-white dark:bg-gray-900 rounded-t-3xl sm:rounded-2xl shadow-2xl border border-gray-100 dark:border-gray-800 max-h-[90vh] flex flex-col animate-slide-up sm:animate-scale-in`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">

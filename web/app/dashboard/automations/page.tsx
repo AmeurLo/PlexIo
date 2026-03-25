@@ -4,8 +4,12 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { Icon } from "@/lib/icons";
+import { Icon, type IconName } from "@/lib/icons";
 import PageHeader from "@/components/dashboard/PageHeader";
+
+interface AutomationItem {
+  key: string; icon: IconName; fr: string; en: string; descFr: string; descEn: string;
+}
 
 const T = {
   title:    { fr: "Automatisations",              en: "Automations" },
@@ -72,7 +76,7 @@ const AUTOMATION_GROUPS = [
 ];
 
 // Flat map for quick lookup by key
-const ALL_AUTOMATIONS = AUTOMATION_GROUPS.flatMap(g => g.items);
+const ALL_AUTOMATIONS: AutomationItem[] = AUTOMATION_GROUPS.flatMap(g => g.items as AutomationItem[]);
 
 const LOG_KEY = "domely_automation_log";
 const MAX_LOG = 20;
