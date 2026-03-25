@@ -10,6 +10,7 @@ import StatCard from "@/components/dashboard/StatCard";
 import StatusBadge from "@/components/dashboard/StatusBadge";
 import { SkeletonCard, SkeletonRow } from "@/components/dashboard/SkeletonCard";
 import type { DashboardStats } from "@/lib/types";
+import WelcomeVideo from "@/components/dashboard/WelcomeVideo";
 
 // Map alert type keywords → destination page
 function alertLink(msg: string): string {
@@ -143,6 +144,9 @@ export default function OverviewPage() {
           {t(T.hello)}{firstName ? `, ${firstName}` : ""} 👋
         </h1>
       </div>
+
+      {/* ── Welcome video — shown to new users until dismissed ── */}
+      <WelcomeVideo hidden={(stats?.total_properties ?? 0) > 0} />
 
       {/* ── Onboarding checklist — visible until all 3 setup steps done ── */}
       {(() => {
