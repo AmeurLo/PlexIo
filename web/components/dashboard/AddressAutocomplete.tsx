@@ -3,8 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { inputClass } from "@/components/dashboard/FormField";
 
 interface AddressSuggestion {
-  display: string;
-  address: string;
+  label: string;      // full formatted label shown in dropdown
+  address: string;    // street line only (e.g. "45 Rue Chevalier")
   city: string;
   province: string;
   postal_code: string;
@@ -34,9 +34,22 @@ const PROV_MAP: Record<string, string> = {
 };
 
 function toProvCode(name: string): string {
-  if (!name) return "QC";
-  const key = name.toLowerCase().trim();
-  return PROV_MAP[key] ?? name.toUpperCase().slice(0, 2);
+  if (!name) return "";
+  const lower = name.toLowerCase().trim();
+  return PROV_MAP[lower] ?? name.toUpperCase().slice(0, 2);
+}
+
+/** Ensure postal code is formatted as "A1A 1A1" */
+function formatPostal(raw: string): string {
+  const clean = raw.replace(/\s+/g, "").toUpperCase();
+  if (clean.length === 6) return `${clean.slice(0, 3)} ${clean.slice(3)}`;
+  return clean;
+}
+
+/** Extract a leading house number from the user's raw query (e.g. "45" from "45 rue X") */
+function extractHouseNum(q: string): string {
+  const m = q.trim().match(/^(\d+[-/]?\d*)\s+/);
+  return m ? m[1] : "";
 }
 
 export default function AddressAutocomplete({ value, onChange, placeholder }: Props) {
@@ -63,7 +76,7 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
 
   function handleInput(val: string) {
     setQuery(val);
-    onChange(val, "", "", ""); // pass raw text up while typing
+    onChange(val, "", "", "");
     if (timer.current) clearTimeout(timer.current);
     if (val.trim().length < 4) { setSuggestions([]); setOpen(false); return; }
     timer.current = setTimeout(() => fetchSuggestions(val), 350);
@@ -72,28 +85,56 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
   async function fetchSuggestions(q: string) {
     setLoading(true);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&countrycodes=ca&format=json&limit=6&addressdetails=1`;
-      const res = await fetch(url, { headers: { "Accept-Language": "fr,en" } });
-      const data = await res.json();
+      const url = [
+        "https://nominatim.openstreetmap.org/search",
+        `?q=${encodeURIComponent(q)}`,
+        "&countrycodes=ca",
+        "&format=json",
+        "&limit=8",
+        "&addressdetails=1",
+      ].join("");
+
+      const res = await fetch(url, {
+        headers: {
+          "Accept-Language": "fr,en",
+          "User-Agent": "Domely/1.0 (domely.ca)",
+        },
+      });
+      const data: any[] = await res.json();
+
+      // Preserve the house number the user typed (Nominatim rarely returns one for CA)
+      const typedNum = extractHouseNum(q);
+
+      const seen = new Set<string>();
       const mapped: AddressSuggestion[] = data
-        .filter((item: any) => item.address)
-        .map((item: any) => {
+        .filter(item => item.address?.road) // must have a road
+        .map(item => {
           const a = item.address;
-          const houseNumber = a.house_number ?? "";
-          const road = a.road ?? a.pedestrian ?? a.footway ?? "";
-          const streetLine = [houseNumber, road].filter(Boolean).join(" ");
-          const city = a.city ?? a.town ?? a.village ?? a.municipality ?? "";
+          const apiNum   = a.house_number ?? "";
+          const road     = a.road ?? a.pedestrian ?? a.footway ?? "";
+          // Prefer the number the user typed; fall back to what the API returned
+          const num      = apiNum || typedNum;
+          const street   = [num, road].filter(Boolean).join(" ");
+          const city     = a.city ?? a.town ?? a.village ?? a.municipality ?? a.county ?? "";
           const province = toProvCode(a.state ?? "");
-          const postal = (a.postcode ?? "").replace(/\s/g, " ").toUpperCase();
-          return {
-            display: item.display_name,
-            address: streetLine,
+          const postal   = formatPostal(a.postcode ?? "");
+
+          // Full label shown in dropdown: "45 Rue Chevalier, Montréal, QC H4K 1N5"
+          const label = [
+            street,
             city,
-            province,
-            postal_code: postal,
-          };
+            [province, postal].filter(Boolean).join(" "),
+          ].filter(Boolean).join(", ");
+
+          return { label, address: street, city, province, postal_code: postal };
         })
-        .filter((s: AddressSuggestion) => s.address);
+        .filter(s => {
+          if (!s.address) return false;
+          if (seen.has(s.label)) return false;
+          seen.add(s.label);
+          return true;
+        });
+
       setSuggestions(mapped);
       setOpen(mapped.length > 0);
     } catch {
@@ -117,7 +158,7 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
           className={inputClass}
           value={query}
           onChange={e => handleInput(e.target.value)}
-          placeholder={placeholder ?? "123 rue Principale"}
+          placeholder={placeholder ?? "45 Rue Principale, Montréal"}
           autoComplete="off"
         />
         {loading && (
@@ -136,9 +177,13 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
                 onMouseDown={() => select(s)}
                 className="w-full text-left px-4 py-3 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-colors border-b border-gray-50 dark:border-gray-800 last:border-0"
               >
-                <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200">{s.address}</p>
+                {/* Street address line */}
+                <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+                  {s.address}
+                </p>
+                {/* City · province · postal */}
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  {[s.city, s.province, s.postal_code].filter(Boolean).join(", ")}
+                  {[s.city, s.province, s.postal_code].filter(Boolean).join(" · ")}
                 </p>
               </button>
             </li>
