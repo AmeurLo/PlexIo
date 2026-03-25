@@ -323,4 +323,31 @@ export const api = {
 
   deleteSignature: (sigId: string) =>
     apiFetch<{ ok: boolean }>(`/signatures/${sigId}`, { method: "DELETE" }),
+
+  // ── Admin ──────────────────────────────────────────────────────────────────
+  adminGetStats: () =>
+    apiFetch<{
+      total_users: number; free_users: number; pro_users: number; team_users: number;
+      total_properties: number; total_tenants: number; total_leases: number;
+    }>("/admin/stats"),
+
+  adminListUsers: () =>
+    apiFetch<{
+      id: string; email: string; full_name: string; phone: string;
+      plan: string; plan_status: string; is_admin: boolean;
+      created_at: string; properties: number; tenants: number;
+    }[]>("/admin/users"),
+
+  adminUpdatePlan: (userId: string, plan: string, plan_status = "active") =>
+    apiFetch<{ ok: boolean }>(`/admin/users/${userId}/plan`, {
+      method: "PATCH", ...body({ plan, plan_status }),
+    }),
+
+  adminToggleAdmin: (userId: string) =>
+    apiFetch<{ ok: boolean; is_admin: boolean }>(`/admin/users/${userId}/toggle-admin`, {
+      method: "PATCH",
+    }),
+
+  adminDeleteUser: (userId: string) =>
+    apiFetch<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
 };

@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Icon, type IconName } from "@/lib/icons";
 import { useLanguage } from "@/lib/LanguageContext";
+import { getUser } from "@/lib/auth";
 
 // ─── Navigation groups ────────────────────────────────────────────────────────
 // Daily:     what a landlord checks every day — rent, maintenance, messages.
@@ -48,6 +50,11 @@ interface Props { onClose?: () => void }
 export default function Sidebar({ onClose }: Props) {
   const pathname = usePathname();
   const { lang } = useLanguage();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    setIsAdmin(getUser()?.is_admin === true);
+  }, []);
 
   function NavLink({ href, icon, fr, en }: { href: string; icon: IconName; fr: string; en: string }) {
     const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
@@ -127,6 +134,11 @@ export default function Sidebar({ onClose }: Props) {
         {/* Admin — people you work with + app settings */}
         <SectionLabel fr="Admin" en="Admin" />
         {NAV_ADMIN.map(item => <NavLink key={item.href} {...item} />)}
+
+        {/* Super-admin panel — only visible to admins */}
+        {isAdmin && (
+          <NavLink href="/dashboard/admin" icon="shield" fr="Administration" en="Admin Panel" />
+        )}
 
       </nav>
 

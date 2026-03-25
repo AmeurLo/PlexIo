@@ -7,6 +7,7 @@ export interface StoredUser {
   full_name: string;
   plan?: string;
   plan_status?: string;
+  is_admin?: boolean;
 }
 
 export function getToken(): string | null {

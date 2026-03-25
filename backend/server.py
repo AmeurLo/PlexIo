@@ -71,6 +71,7 @@ class User(BaseModel):
     phone: Optional[str] = None
     plan: str = "free"
     plan_status: str = "active"
+    is_admin: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class TokenResponse(BaseModel):
@@ -361,6 +362,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    if not current_user.get("is_admin", False):
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
 
 # ===========================
 # AUTH ROUTES
@@ -5886,6 +5892,99 @@ async def internal_update_connect_status(body: dict, request: Request):
 # ===========================
 # HEALTH CHECK
 # ===========================
+
+# ===========================
+# ADMIN ROUTES
+# ===========================
+
+class AdminPlanUpdate(BaseModel):
+    plan: str          # "free" | "pro" | "team"
+    plan_status: str = "active"   # "active" | "cancelled" | "past_due"
+
+@api_router.get("/admin/stats")
+async def admin_get_stats(_admin: dict = Depends(require_admin)):
+    """Platform-wide overview stats for the admin panel."""
+    total_users      = await db.users.count_documents({})
+    free_users       = await db.users.count_documents({"plan": "free"})
+    pro_users        = await db.users.count_documents({"plan": "pro"})
+    team_users       = await db.users.count_documents({"plan": "team"})
+    total_properties = await db.properties.count_documents({})
+    total_tenants    = await db.tenants.count_documents({})
+    total_leases     = await db.leases.count_documents({})
+    return {
+        "total_users":      total_users,
+        "free_users":       free_users,
+        "pro_users":        pro_users,
+        "team_users":       team_users,
+        "total_properties": total_properties,
+        "total_tenants":    total_tenants,
+        "total_leases":     total_leases,
+    }
+
+@api_router.get("/admin/users")
+async def admin_list_users(_admin: dict = Depends(require_admin)):
+    """Return all users with per-user property / tenant counts."""
+    users_raw = await db.users.find({}, {"hashed_password": 0}).to_list(length=2000)
+    result = []
+    for u in users_raw:
+        prop_count   = await db.properties.count_documents({"user_id": u["id"]})
+        tenant_count = await db.tenants.count_documents({"user_id": u["id"]})
+        result.append({
+            "id":           u["id"],
+            "email":        u["email"],
+            "full_name":    u.get("full_name", ""),
+            "phone":        u.get("phone", ""),
+            "plan":         u.get("plan", "free"),
+            "plan_status":  u.get("plan_status", "active"),
+            "is_admin":     u.get("is_admin", False),
+            "created_at":   u.get("created_at", "").isoformat() if hasattr(u.get("created_at", ""), "isoformat") else str(u.get("created_at", "")),
+            "properties":   prop_count,
+            "tenants":      tenant_count,
+        })
+    # Sort newest first
+    result.sort(key=lambda x: x["created_at"], reverse=True)
+    return result
+
+@api_router.patch("/admin/users/{user_id}/plan")
+async def admin_update_plan(user_id: str, data: AdminPlanUpdate, _admin: dict = Depends(require_admin)):
+    """Change a user's plan and plan_status."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"plan": data.plan, "plan_status": data.plan_status}}
+    )
+    return {"ok": True}
+
+@api_router.patch("/admin/users/{user_id}/toggle-admin")
+async def admin_toggle_admin(user_id: str, _admin: dict = Depends(require_admin)):
+    """Grant or revoke admin status for a user."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    new_val = not user.get("is_admin", False)
+    await db.users.update_one({"id": user_id}, {"$set": {"is_admin": new_val}})
+    return {"ok": True, "is_admin": new_val}
+
+@api_router.delete("/admin/users/{user_id}")
+async def admin_delete_user(user_id: str, _admin: dict = Depends(require_admin)):
+    """Permanently delete a user account and ALL their data."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.get("is_admin", False):
+        raise HTTPException(status_code=400, detail="Cannot delete an admin account")
+    # Cascade delete all user data
+    for collection in [
+        db.properties, db.units, db.tenants, db.leases,
+        db.rent_payments, db.maintenance_requests, db.expenses,
+        db.reminders, db.contractors, db.team_members,
+        db.inspections, db.applicants,
+    ]:
+        await collection.delete_many({"user_id": user_id})
+    await db.users.delete_one({"id": user_id})
+    return {"ok": True}
 
 @api_router.get("/")
 async def root():
