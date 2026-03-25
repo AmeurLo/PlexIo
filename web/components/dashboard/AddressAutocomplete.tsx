@@ -4,7 +4,7 @@ import { inputClass } from "@/components/dashboard/FormField";
 
 interface AddressSuggestion {
   label: string;      // full formatted label shown in dropdown
-  address: string;    // street line only (e.g. "45 Rue Chevalier")
+  address: string;    // street line only (e.g. "123 Rue Principale")
   city: string;
   province: string;
   postal_code: string;
@@ -119,7 +119,7 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
           const province = toProvCode(a.state ?? "");
           const postal   = formatPostal(a.postcode ?? "");
 
-          // Full label shown in dropdown: "45 Rue Chevalier, Montréal, QC H4K 1N5"
+          // Full label shown in dropdown: "123 Rue Principale, Montréal, QC H1A 1A1"
           const label = [
             street,
             city,

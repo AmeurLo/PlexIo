@@ -372,7 +372,7 @@ export default function PropertiesPage() {
           <FormField label={t(T.address)}>
             <AddressAutocomplete
               value={propForm.address}
-              placeholder={lang === "fr" ? "45 rue Chevalier, Montréal…" : "45 Chevalier St, Montreal…"}
+              placeholder={lang === "fr" ? "123 Rue Principale, Montréal…" : "123 Main St, Montreal…"}
               onChange={(address, city, province, postal_code) => {
                 setPropForm(prev => ({
                   ...prev,
