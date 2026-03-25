@@ -5109,8 +5109,9 @@ async def _send_welcome_email(to_email: str, full_name: str):
         <!-- Header -->
         <tr>
           <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:36px 40px;text-align:center;">
-            <div style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Domely</div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px;">Gestion locative simplifiée</div>
+            <img src="https://domely.ca/logo.svg" alt="Domely" width="40" height="40" style="display:inline-block;vertical-align:middle;margin-right:10px;" />
+            <span style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;vertical-align:middle;">Domely</span>
+            <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-top:6px;">Gestion locative simplifiée</div>
           </td>
         </tr>
 
@@ -5190,10 +5191,21 @@ async def _send_welcome_email(to_email: str, full_name: str):
 
         <!-- Footer -->
         <tr>
-          <td style="padding:24px 40px;border-top:1px solid #f3f4f6;text-align:center;">
-            <p style="margin:0;font-size:12px;color:#9ca3af;">
-              Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a><br>
-              Vous recevez cet email car vous venez de créer un compte.
+          <td style="padding:28px 40px 32px;border-top:1px solid #f3f4f6;text-align:center;background:#fafafa;">
+            <img src="https://domely.ca/logo.svg" alt="" width="24" height="24" style="display:inline-block;vertical-align:middle;margin-bottom:10px;opacity:0.5;" /><br>
+            <p style="margin:0 0 6px;font-size:13px;font-weight:600;color:#6b7280;">
+              Propulsé par <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;font-weight:700;">Domely</a>
+            </p>
+            <p style="margin:0 0 10px;font-size:11px;color:#9ca3af;">
+              La plateforme de gestion locative pour propriétaires nord-américains
+            </p>
+            <p style="margin:0;font-size:11px;color:#d1d5db;">
+              © 2026 Domely Inc. · <a href="https://domely.ca" style="color:#9ca3af;text-decoration:none;">domely.ca</a>
+              &nbsp;·&nbsp; <a href="https://domely.ca/privacy" style="color:#9ca3af;text-decoration:none;">Confidentialité</a>
+              &nbsp;·&nbsp; <a href="https://domely.ca/terms" style="color:#9ca3af;text-decoration:none;">Conditions</a>
+            </p>
+            <p style="margin:10px 0 0;font-size:10px;color:#d1d5db;">
+              Vous recevez cet email car vous venez de créer un compte sur domely.ca
             </p>
           </td>
         </tr>

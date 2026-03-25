@@ -14,6 +14,7 @@ import ConfirmDialog from "@/components/dashboard/ConfirmDialog";
 import EmptyState from "@/components/dashboard/EmptyState";
 import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
 import StatusBadge from "@/components/dashboard/StatusBadge";
+import AddressAutocomplete from "@/components/dashboard/AddressAutocomplete";
 
 // ─── i18n ─────────────────────────────────────────────────────────────────────
 const T = {
@@ -369,7 +370,19 @@ export default function PropertiesPage() {
             </select>
           </FormField>
           <FormField label={t(T.address)}>
-            <input className={inputClass} value={propForm.address} onChange={e => fp("address", e.target.value)} placeholder="123 rue Principale" />
+            <AddressAutocomplete
+              value={propForm.address}
+              placeholder={lang === "fr" ? "45 rue Chevalier, Montréal…" : "45 Chevalier St, Montreal…"}
+              onChange={(address, city, province, postal_code) => {
+                setPropForm(prev => ({
+                  ...prev,
+                  address,
+                  ...(city        ? { city }        : {}),
+                  ...(province    ? { province }    : {}),
+                  ...(postal_code ? { postal_code } : {}),
+                }));
+              }}
+            />
           </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label={t(T.city)}>
