@@ -39,13 +39,6 @@ function toProvCode(name: string): string {
   return PROV_MAP[lower] ?? name.toUpperCase().slice(0, 2);
 }
 
-/** Ensure postal code is formatted as "A1A 1A1" */
-function formatPostal(raw: string): string {
-  const clean = raw.replace(/\s+/g, "").toUpperCase();
-  if (clean.length === 6) return `${clean.slice(0, 3)} ${clean.slice(3)}`;
-  return clean;
-}
-
 /** Extract a leading house number from the user's raw query (e.g. "45" from "45 rue X") */
 function extractHouseNum(q: string): string {
   const m = q.trim().match(/^(\d+[-/]?\d*)\s+/);
@@ -117,16 +110,12 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
           const street   = [num, road].filter(Boolean).join(" ");
           const city     = a.city ?? a.town ?? a.village ?? a.municipality ?? a.county ?? "";
           const province = toProvCode(a.state ?? "");
-          const postal   = formatPostal(a.postcode ?? "");
+          // Full label shown in dropdown: "123 Rue Principale, Montréal, QC"
+          // Postal code intentionally omitted — street-level APIs return an
+          // approximate code for the whole road, not the specific house number.
+          const label = [street, city, province].filter(Boolean).join(", ");
 
-          // Full label shown in dropdown: "123 Rue Principale, Montréal, QC H1A 1A1"
-          const label = [
-            street,
-            city,
-            [province, postal].filter(Boolean).join(" "),
-          ].filter(Boolean).join(", ");
-
-          return { label, address: street, city, province, postal_code: postal };
+          return { label, address: street, city, province, postal_code: "" };
         })
         .filter(s => {
           if (!s.address) return false;
@@ -181,9 +170,9 @@ export default function AddressAutocomplete({ value, onChange, placeholder }: Pr
                 <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
                   {s.address}
                 </p>
-                {/* City · province · postal */}
+                {/* City · province */}
                 <p className="text-[11px] text-gray-400 mt-0.5">
-                  {[s.city, s.province, s.postal_code].filter(Boolean).join(" · ")}
+                  {[s.city, s.province].filter(Boolean).join(" · ")}
                 </p>
               </button>
             </li>
