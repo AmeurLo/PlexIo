@@ -263,8 +263,11 @@ export default function LeasesPage() {
     try {
       const blob = await api.generateBail(leaseId);
       const url = URL.createObjectURL(blob);
-      Object.assign(document.createElement("a"), { href: url, download: `bail-${leaseId.slice(0, 8)}.pdf` }).click();
-      URL.revokeObjectURL(url);
+      const a = Object.assign(document.createElement("a"), { href: url, download: `bail-${leaseId.slice(0, 8)}.pdf` });
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
     } catch (e: any) {
       showToast(e.message ?? (lang === "fr" ? "Erreur de génération" : "Generation failed"), "error");
     } finally {

@@ -301,7 +301,10 @@ export const api = {
     const res = await fetch(`${BASE}/leases/${leaseId}/generate-bail`, {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
-    if (!res.ok) throw new Error("Génération du bail échouée");
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { detail?: string }).detail ?? `Erreur ${res.status}`);
+    }
     return res.blob();
   },
 
