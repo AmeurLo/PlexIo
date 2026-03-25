@@ -410,7 +410,9 @@ async def login(credentials: UserLogin):
         access_token=token,
         user=User(
             id=user["id"], email=user["email"], full_name=user["full_name"],
+            phone=user.get("phone"),
             plan=user.get("plan", "free"), plan_status=user.get("plan_status", "active"),
+            is_admin=user.get("is_admin", False),
             created_at=user["created_at"]
         )
     )
