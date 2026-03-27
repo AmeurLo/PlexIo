@@ -10,7 +10,8 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
 import ConfirmDialog from "@/components/dashboard/ConfirmDialog";
 import EmptyState from "@/components/dashboard/EmptyState";
-import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
+import FormField, { inputClass } from "@/components/dashboard/FormField";
+import SmartSelect from "@/components/dashboard/SmartSelect";
 import StatusBadge from "@/components/dashboard/StatusBadge";
 
 const COLUMNS: Array<{ status: string; fr: string; en: string; color: string }> = [
@@ -50,6 +51,15 @@ const emptyForm = {
   monthly_income: "", credit_score: "", status: "pending", notes: "",
 };
 
+function formatPhone(val: string): string {
+  const d = val.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+function isValidPhone(v: string) { return !v.trim() || v.replace(/\D/g, "").length >= 10; }
+function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
+
 export default function ApplicantsPage() {
   const { lang, t } = useLanguage();
   const { showToast } = useToast();
@@ -63,6 +73,8 @@ export default function ApplicantsPage() {
   const [formError, setFormError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Applicant | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
+  const [emailError, setEmailError] = useState("");
   const dragId = useRef<string | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
 
@@ -76,7 +88,9 @@ export default function ApplicantsPage() {
 
   async function load() { setApplicants(await api.getApplicants()); }
 
-  function openAdd() { setEditing(null); setForm({ ...emptyForm }); setFormError(""); setShowModal(true); }
+  function resetMeta() { setFormError(""); setPhoneError(""); setEmailError(""); }
+
+  function openAdd() { setEditing(null); setForm({ ...emptyForm }); resetMeta(); setShowModal(true); }
   function openEdit(a: Applicant) {
     setEditing(a);
     setForm({
@@ -86,11 +100,13 @@ export default function ApplicantsPage() {
       credit_score: a.credit_score ? String(a.credit_score) : "",
       status: a.status ?? "pending", notes: a.notes ?? "",
     });
-    setFormError(""); setShowModal(true);
+    resetMeta(); setShowModal(true);
   }
 
   async function handleSave() {
     if (!form.full_name.trim()) { setFormError(lang === "fr" ? "Nom requis." : "Name required."); return; }
+    if (form.email && !isValidEmail(form.email)) { setFormError(lang === "fr" ? "Format de courriel invalide." : "Invalid email format."); return; }
+    if (form.phone && !isValidPhone(form.phone)) { setFormError(lang === "fr" ? "Numéro de téléphone invalide (10 chiffres requis)." : "Invalid phone (10 digits required)."); return; }
     setSaving(true); setFormError("");
     try {
       const payload = {
@@ -101,7 +117,9 @@ export default function ApplicantsPage() {
       if (editing) { await api.updateApplicant(editing.id, payload as any); }
       else { await api.createApplicant(payload as any); }
       setShowModal(false); load();
-    } catch (e: any) { setFormError(e.message); }
+    } catch (e: any) {
+      setFormError(typeof e.message === "string" ? e.message : (lang === "fr" ? "Une erreur est survenue." : "An error occurred."));
+    }
     finally { setSaving(false); }
   }
 
@@ -122,7 +140,7 @@ export default function ApplicantsPage() {
   const propName = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
 
   return (
-    <div className="p-6 max-w-7xl space-y-6">
+    <div className="p-6 space-y-6">
       <PageHeader title={t(T.title)} subtitle={t(T.sub)} actions={[{ label: `+ ${t(T.add)}`, onClick: openAdd, primary: true }]} />
 
       {loading ? (
@@ -228,26 +246,44 @@ export default function ApplicantsPage() {
           <FormField label={t(T.name)} required>
             <input className={inputClass} value={form.full_name} onChange={e => f("full_name", e.target.value)} />
           </FormField>
-          <FormField label={t(T.email)}>
-            <input className={inputClass} type="email" value={form.email} onChange={e => f("email", e.target.value)} />
+          <FormField label={t(T.email)} error={emailError}>
+            <input
+              className={`${inputClass}${emailError ? " !ring-2 !ring-red-400 !border-transparent" : ""}`}
+              type="email"
+              value={form.email}
+              onChange={e => { f("email", e.target.value); setEmailError(""); }}
+              onBlur={e => setEmailError(e.target.value && !isValidEmail(e.target.value) ? (lang === "fr" ? "Format invalide" : "Invalid format") : "")}
+              placeholder="candidat@email.com"
+            />
           </FormField>
-          <FormField label={t(T.phone)}>
-            <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", e.target.value)} />
+          <FormField label={t(T.phone)} error={phoneError}>
+            <input
+              className={`${inputClass}${phoneError ? " !ring-2 !ring-red-400 !border-transparent" : ""}`}
+              type="tel"
+              value={form.phone}
+              onChange={e => { f("phone", formatPhone(e.target.value)); setPhoneError(""); }}
+              onBlur={e => setPhoneError(e.target.value && !isValidPhone(e.target.value) ? (lang === "fr" ? "10 chiffres requis" : "10 digits required") : "")}
+              placeholder="514-555-0000"
+            />
           </FormField>
           <FormField label={t(T.property)}>
-            <select className={selectClass} value={form.property_id} onChange={e => f("property_id", e.target.value)}>
-              <option value="">—</option>
-              {properties.map(p => <option key={p.id ?? p._id} value={p.id ?? p._id}>{p.name}</option>)}
-            </select>
+            <SmartSelect
+              value={form.property_id}
+              onChange={v => f("property_id", v)}
+              placeholder={lang === "fr" ? "— Sélectionner —" : "— Select —"}
+              options={properties.map(p => ({ value: p.id ?? p._id ?? "", label: p.name }))}
+            />
           </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label={t(T.unit)}>
               <input className={inputClass} value={form.unit_number} onChange={e => f("unit_number", e.target.value)} />
             </FormField>
             <FormField label={t(T.status)}>
-              <select className={selectClass} value={form.status} onChange={e => f("status", e.target.value)}>
-                {COLUMNS.map(c => <option key={c.status} value={c.status}>{lang === "fr" ? c.fr : c.en}</option>)}
-              </select>
+              <SmartSelect
+                value={form.status}
+                onChange={v => f("status", v)}
+                options={COLUMNS.map(c => ({ value: c.status, label: lang === "fr" ? c.fr : c.en }))}
+              />
             </FormField>
           </div>
           <div className="grid grid-cols-2 gap-3">

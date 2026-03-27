@@ -8,6 +8,13 @@ import PageHeader from "@/components/dashboard/PageHeader";
 import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
 import { useSearchParams } from "next/navigation";
 
+function formatPhone(val: string): string {
+  const d = val.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
 const T = {
   title:       { fr: "Paramètres",          en: "Settings" },
   sub:         { fr: "Votre compte",        en: "Your account" },
@@ -156,7 +163,7 @@ function SettingsContent() {
             <input className={inputClass + " opacity-60 cursor-not-allowed"} value={form.email} readOnly />
           </FormField>
           <FormField label={t(T.phone)}>
-            <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", e.target.value)} placeholder="514-555-0000" />
+            <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", formatPhone(e.target.value))} placeholder="514-555-0000" />
           </FormField>
           <FormField label={t(T.language)}>
             <select className={selectClass} value={lang} onChange={e => setLang(e.target.value as "fr" | "en")}>

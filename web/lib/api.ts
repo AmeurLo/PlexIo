@@ -34,7 +34,17 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`);
+    const detail = (body as any).detail;
+    let message: string;
+    if (Array.isArray(detail)) {
+      // FastAPI validation errors: [{loc, msg, type}, ...]
+      message = detail.map((d: any) => (typeof d === "object" ? d.msg ?? JSON.stringify(d) : String(d))).join(" · ");
+    } else if (typeof detail === "string") {
+      message = detail;
+    } else {
+      message = `HTTP ${res.status}`;
+    }
+    throw new Error(message);
   }
 
   // Handle 204 No Content

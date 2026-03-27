@@ -49,6 +49,13 @@ const T = {
 
 const emptyForm = { name: "", company: "", specialty: "general", phone: "", email: "", hourly_rate: "", rating: "", notes: "" };
 
+function formatPhone(val: string): string {
+  const d = val.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
 export default function ContractorsPage() {
   const { lang, t } = useLanguage();
   const { showToast } = useToast();
@@ -180,7 +187,7 @@ export default function ContractorsPage() {
             </select>
           </FormField>
           <div className="grid grid-cols-2 gap-3">
-            <FormField label={t(T.phone)}><input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", e.target.value)} /></FormField>
+            <FormField label={t(T.phone)}><input className={inputClass} type="tel" placeholder="514-555-0000" value={form.phone} onChange={e => f("phone", formatPhone(e.target.value))} /></FormField>
             <FormField label={t(T.email)}><input className={inputClass} type="email" value={form.email} onChange={e => f("email", e.target.value)} /></FormField>
           </div>
           <div className="grid grid-cols-2 gap-3">
