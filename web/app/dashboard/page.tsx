@@ -101,7 +101,7 @@ export default function OverviewPage() {
 
   if (loading) {
     return (
-      <div className="p-6 space-y-6 max-w-6xl">
+      <div className="p-6 space-y-6">
         <div className="h-8 w-48 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[0,1,2,3].map(i => <SkeletonCard key={i} />)}
@@ -137,7 +137,7 @@ export default function OverviewPage() {
   const alerts = stats?.alerts ?? [];
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl">
+    <div className="p-6 space-y-6">
       {/* Greeting */}
       <div>
         <h1 className="text-[24px] font-bold text-gray-900 dark:text-white">

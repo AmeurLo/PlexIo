@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
@@ -46,6 +46,20 @@ const emptyForm = {
   move_in_date: "", emergency_contact_name: "", emergency_contact_phone: "",
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function formatPhone(val: string): string {
+  const d = val.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+function isValidPhone(v: string): boolean {
+  return !v.trim() || v.replace(/\D/g, "").length >= 10;
+}
+function isValidEmail(v: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+}
+
 export default function TenantsPage() {
   const { lang, t } = useLanguage();
   const { showToast } = useToast();
@@ -60,6 +74,10 @@ export default function TenantsPage() {
   const [formError, setFormError] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<Tenant | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [propOpen, setPropOpen] = useState(false);
+  const propDropRef = useRef<HTMLDivElement>(null);
+  const [phoneError, setPhoneError] = useState("");
+  const [emailError, setEmailError] = useState("");
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -69,11 +87,25 @@ export default function TenantsPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Close property dropdown on outside click
+  useEffect(() => {
+    if (!propOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (!propDropRef.current?.contains(e.target as Node)) setPropOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [propOpen]);
+
   async function load() {
     setTenants(await api.getTenants());
   }
 
-  function openAdd() { setEditing(null); setForm({ ...emptyForm }); setFormError(""); setShowModal(true); }
+  function resetFormMeta() {
+    setFormError(""); setPhoneError(""); setEmailError(""); setPropOpen(false);
+  }
+
+  function openAdd() { setEditing(null); setForm({ ...emptyForm }); resetFormMeta(); setShowModal(true); }
 
   function openEdit(t: Tenant) {
     setEditing(t);
@@ -84,14 +116,22 @@ export default function TenantsPage() {
       emergency_contact_name: t.emergency_contact?.name ?? "",
       emergency_contact_phone: t.emergency_contact?.phone ?? "",
     });
-    setFormError(""); setShowModal(true);
+    resetFormMeta(); setShowModal(true);
   }
 
   async function handleSave() {
     if (!form.first_name.trim() || !form.last_name.trim()) {
       setFormError(lang === "fr" ? "Prénom et nom requis." : "First and last name required."); return;
     }
-    if (!form.email.trim()) { setFormError(lang === "fr" ? "Le courriel est requis." : "Email is required."); return; }
+    if (!form.email.trim()) {
+      setFormError(lang === "fr" ? "Le courriel est requis." : "Email is required."); return;
+    }
+    if (!isValidEmail(form.email)) {
+      setFormError(lang === "fr" ? "Format de courriel invalide." : "Invalid email format."); return;
+    }
+    if (form.phone && !isValidPhone(form.phone)) {
+      setFormError(lang === "fr" ? "Numéro de téléphone invalide (10 chiffres requis)." : "Invalid phone (10 digits required)."); return;
+    }
     setSaving(true); setFormError("");
     try {
       const payload: any = { ...form };
@@ -222,7 +262,7 @@ export default function TenantsPage() {
 
       <Modal
         isOpen={showModal}
-        onClose={() => setShowModal(false)}
+        onClose={() => { setShowModal(false); setPropOpen(false); }}
         title={editing ? `${t(T.edit)} — ${t(T.title).slice(0, -1)}` : `${t(T.add)} — ${t(T.title).slice(0, -1)}`}
         footer={
           <div className="flex gap-2 justify-end">
@@ -243,17 +283,78 @@ export default function TenantsPage() {
               <input className={inputClass} value={form.last_name} onChange={e => f("last_name", e.target.value)} />
             </FormField>
           </div>
-          <FormField label={t(T.email)} required>
-            <input className={inputClass} type="email" value={form.email} onChange={e => f("email", e.target.value)} placeholder="locataire@email.com" />
+          <FormField label={t(T.email)} required error={emailError}>
+            <input
+              className={`${inputClass}${emailError ? " !ring-2 !ring-red-400 !border-transparent" : ""}`}
+              type="email"
+              value={form.email}
+              onChange={e => { f("email", e.target.value); setEmailError(""); }}
+              onBlur={e => setEmailError(e.target.value && !isValidEmail(e.target.value) ? (lang === "fr" ? "Format invalide" : "Invalid format") : "")}
+              placeholder="locataire@email.com"
+            />
           </FormField>
-          <FormField label={t(T.phone)}>
-            <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", e.target.value)} placeholder="514-555-0000" />
+          <FormField label={t(T.phone)} error={phoneError}>
+            <input
+              className={`${inputClass}${phoneError ? " !ring-2 !ring-red-400 !border-transparent" : ""}`}
+              type="tel"
+              value={form.phone}
+              onChange={e => { f("phone", formatPhone(e.target.value)); setPhoneError(""); }}
+              onBlur={e => setPhoneError(e.target.value && !isValidPhone(e.target.value) ? (lang === "fr" ? "10 chiffres requis" : "10 digits required") : "")}
+              placeholder="514-555-0000"
+            />
           </FormField>
+
+          {/* ── Modern property dropdown ─────────────────────────────────── */}
           <FormField label={t(T.property)}>
-            <select className={selectClass} value={form.property_id} onChange={e => f("property_id", e.target.value)}>
-              <option value="">{t(T.selectProp)}</option>
-              {properties.map(p => <option key={p.id ?? p._id} value={p.id ?? p._id}>{p.name}</option>)}
-            </select>
+            <div className="relative" ref={propDropRef}>
+              <button
+                type="button"
+                onClick={() => setPropOpen(v => !v)}
+                className={`${inputClass} flex items-center justify-between w-full text-left`}
+              >
+                <span className={form.property_id ? "text-gray-900 dark:text-white" : "text-gray-400"}>
+                  {form.property_id
+                    ? properties.find(p => (p.id ?? p._id) === form.property_id)?.name
+                    : t(T.selectProp)}
+                </span>
+                <svg
+                  className={`w-4 h-4 text-gray-400 transition-transform duration-150 ${propOpen ? "rotate-180" : ""}`}
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              {propOpen && (
+                <div className="absolute z-50 w-full mt-1.5 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl overflow-hidden">
+                  {properties.length === 0 ? (
+                    <p className="px-3.5 py-3 text-[13px] text-gray-400 text-center">
+                      {lang === "fr" ? "Aucune propriété ajoutée" : "No properties added yet"}
+                    </p>
+                  ) : properties.map(p => {
+                    const pid = p.id ?? p._id ?? "";
+                    const active = form.property_id === pid;
+                    return (
+                      <button
+                        key={pid}
+                        type="button"
+                        onClick={() => { f("property_id", pid); setPropOpen(false); }}
+                        className={`w-full flex items-center justify-between px-3.5 py-2.5 text-left text-[13px] transition-colors ${
+                          active
+                            ? "bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 font-medium"
+                            : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800"
+                        }`}
+                      >
+                        <span>{p.name}</span>
+                        {active && (
+                          <svg className="w-4 h-4 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </FormField>
           <div className="grid grid-cols-2 gap-3">
             <FormField label={t(T.unit)}>
@@ -270,7 +371,13 @@ export default function TenantsPage() {
                 <input className={inputClass} value={form.emergency_contact_name} onChange={e => f("emergency_contact_name", e.target.value)} />
               </FormField>
               <FormField label={t(T.phone)}>
-                <input className={inputClass} value={form.emergency_contact_phone} onChange={e => f("emergency_contact_phone", e.target.value)} />
+                <input
+                  className={inputClass}
+                  type="tel"
+                  placeholder="514-555-0000"
+                  value={form.emergency_contact_phone}
+                  onChange={e => f("emergency_contact_phone", formatPhone(e.target.value))}
+                />
               </FormField>
             </div>
           </div>

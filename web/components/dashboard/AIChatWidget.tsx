@@ -22,6 +22,60 @@ const SUGGESTIONS = {
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+// ─── Markdown → HTML renderer ─────────────────────────────────────────────────
+function inline(s: string): string {
+  return s
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+    .replace(/\*(.*?)\*/g, "<em>$1</em>")
+    .replace(/`(.*?)`/g, '<code class="bg-black/10 dark:bg-white/10 px-1 rounded text-[11px] font-mono">$1</code>');
+}
+
+function renderMd(raw: string): string {
+  const lines = raw.split("\n");
+  const out: string[] = [];
+  let ulOpen = false;
+  let olOpen = false;
+
+  const closeList = () => {
+    if (ulOpen) { out.push("</ul>"); ulOpen = false; }
+    if (olOpen) { out.push("</ol>"); olOpen = false; }
+  };
+
+  for (const line of lines) {
+    const ulM = line.match(/^[-•*]\s+([\s\S]+)/);
+    const olM = line.match(/^\d+\.\s+([\s\S]+)/);
+    const h3M = line.match(/^###\s+([\s\S]+)/);
+    const h2M = line.match(/^##\s+([\s\S]+)/);
+    const h1M = line.match(/^#\s+([\s\S]+)/);
+
+    if (ulM) {
+      if (olOpen) { out.push("</ol>"); olOpen = false; }
+      if (!ulOpen) { out.push('<ul class="pl-4 my-1 space-y-0.5 list-disc text-[13px]">'); ulOpen = true; }
+      out.push(`<li>${inline(ulM[1])}</li>`);
+    } else if (olM) {
+      if (ulOpen) { out.push("</ul>"); ulOpen = false; }
+      if (!olOpen) { out.push('<ol class="pl-4 my-1 space-y-0.5 list-decimal text-[13px]">'); olOpen = true; }
+      out.push(`<li>${inline(olM[1])}</li>`);
+    } else {
+      closeList();
+      if (h1M) {
+        out.push(`<p class="font-bold text-[14px] mt-2 mb-0.5 leading-snug">${inline(h1M[1])}</p>`);
+      } else if (h2M) {
+        out.push(`<p class="font-bold text-[13px] mt-2 mb-0.5 leading-snug">${inline(h2M[1])}</p>`);
+      } else if (h3M) {
+        out.push(`<p class="font-semibold text-[13px] mt-1.5 mb-0.5 leading-snug">${inline(h3M[1])}</p>`);
+      } else if (line.trim() === "") {
+        out.push('<div class="h-1.5"></div>');
+      } else {
+        out.push(`<p class="text-[13px] leading-relaxed">${inline(line)}</p>`);
+      }
+    }
+  }
+  closeList();
+  return out.join("");
+}
+
 export default function AIChatWidget() {
   const { lang } = useLanguage();
   const pathname = usePathname();
@@ -162,12 +216,18 @@ export default function AIChatWidget() {
                     <Icon name="sparkles" size={11} className="text-white" />
                   </div>
                 )}
-                <div className={`max-w-[82%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed ${
+                <div className={`max-w-[82%] px-3 py-2.5 rounded-2xl text-[13px] leading-relaxed ${
                   msg.role === "user"
                     ? "bg-teal-600 text-white rounded-br-sm"
                     : "bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-100 dark:border-gray-700 rounded-bl-sm"
                 }`}>
-                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  {msg.role === "user"
+                    ? <p className="whitespace-pre-wrap">{msg.content}</p>
+                    : <div
+                        className="prose-sm max-w-none [&_strong]:text-gray-900 dark:[&_strong]:text-white [&_ul]:marker:text-teal-500 [&_ol]:marker:text-teal-500"
+                        dangerouslySetInnerHTML={{ __html: renderMd(msg.content) }}
+                      />
+                  }
                 </div>
               </div>
             ))}
