@@ -5,7 +5,8 @@ import { useToast } from "@/lib/ToastContext";
 import { requireAuth, getUser, logout } from "@/lib/auth";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/dashboard/PageHeader";
-import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
+import FormField, { inputClass } from "@/components/dashboard/FormField";
+import SmartSelect from "@/components/dashboard/SmartSelect";
 import { useSearchParams } from "next/navigation";
 
 function formatPhone(val: string): string {
@@ -28,7 +29,6 @@ const T = {
   saving:      { fr: "Enregistrement…",    en: "Saving…" },
   saved:       { fr: "Enregistré ✓",       en: "Saved ✓" },
   security:    { fr: "Sécurité",           en: "Security" },
-  changePwd:   { fr: "Changer le mot de passe", en: "Change password" },
   currentPwd:  { fr: "Mot de passe actuel", en: "Current password" },
   newPwd:      { fr: "Nouveau mot de passe", en: "New password" },
   confirmPwd:  { fr: "Confirmer",          en: "Confirm" },
@@ -37,7 +37,6 @@ const T = {
   plan:        { fr: "Abonnement",         en: "Subscription" },
   planLabel:   { fr: "Plan actuel",        en: "Current plan" },
   upgrade:     { fr: "Mettre à niveau",    en: "Upgrade" },
-  // Stripe Connect
   stripe:         { fr: "Paiements de loyer",         en: "Rent payments" },
   stripeDesc:     { fr: "Connectez votre compte Stripe pour recevoir les loyers directement de vos locataires.", en: "Connect your Stripe account to receive rent payments directly from your tenants." },
   stripeConnect:  { fr: "Connecter Stripe",            en: "Connect Stripe" },
@@ -48,19 +47,26 @@ const T = {
   stripeFee:        { fr: "Frais : 1% Domely + 2,9%+0,30$ Stripe", en: "Fees: 1% Domely + 2.9%+$0.30 Stripe" },
 };
 
-// Wrapped in Suspense by the default export below — required by Next.js 14
-// for any component that calls useSearchParams()
+type TabId = "profile" | "security" | "plan" | "payments";
+
+const TABS: Array<{ id: TabId; icon: string; fr: string; en: string }> = [
+  { id: "profile",  icon: "👤", fr: "Profil",       en: "Profile" },
+  { id: "security", icon: "🔒", fr: "Sécurité",     en: "Security" },
+  { id: "plan",     icon: "⭐", fr: "Abonnement",   en: "Subscription" },
+  { id: "payments", icon: "💳", fr: "Paiements",    en: "Payments" },
+];
+
+const card = "bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6";
+
 function SettingsContent() {
   const { lang, setLang, t } = useLanguage();
   const { showToast } = useToast();
   const searchParams = useSearchParams();
+
+  const [activeTab, setActiveTab] = useState<TabId>("profile");
+
   const [storedUser, setStoredUser] = useState<import("@/lib/auth").StoredUser | null>(null);
-  const [form, setForm] = useState({
-    first_name: "",
-    last_name:  "",
-    email:      "",
-    phone:      "",
-  });
+  const [form, setForm] = useState({ first_name: "", last_name: "", email: "", phone: "" });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [profileError, setProfileError] = useState("");
@@ -70,7 +76,6 @@ function SettingsContent() {
   const [pwdError, setPwdError] = useState("");
   const [pwdSaved, setPwdSaved] = useState(false);
 
-  // Stripe Connect state
   const [stripeStatus, setStripeStatus] = useState<{
     connected: boolean; charges_enabled: boolean; payouts_enabled: boolean; account_id: string | null;
   } | null>(null);
@@ -87,12 +92,11 @@ function SettingsContent() {
         phone:      p.phone ?? "",
       });
     }).catch(e => showToast(e instanceof Error ? e.message : String(e), "error"));
-    // Load Stripe Connect status
     api.getStripeConnectStatus().then(s => setStripeStatus(s)).catch(() => {});
-    // If returning from Stripe onboarding, show toast and refresh status
     const stripeParam = searchParams?.get("stripe");
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (stripeParam === "connected") {
+      setActiveTab("payments");
       showToast(lang === "fr" ? "Stripe connecté avec succès !" : "Stripe connected successfully!", "success");
       timer = setTimeout(() => api.getStripeConnectStatus().then(s => setStripeStatus(s)).catch(() => {}), 1500);
     }
@@ -102,16 +106,9 @@ function SettingsContent() {
   async function handleSaveProfile() {
     setSaving(true); setProfileError(""); setSaved(false);
     try {
-      await api.updateProfile({
-        full_name: `${form.first_name} ${form.last_name}`.trim(),
-        phone: form.phone,
-      });
-      // Update localStorage
+      await api.updateProfile({ full_name: `${form.first_name} ${form.last_name}`.trim(), phone: form.phone });
       const u = getUser();
-      if (u) {
-        u.full_name = `${form.first_name} ${form.last_name}`.trim();
-        localStorage.setItem("domely_user", JSON.stringify(u));
-      }
+      if (u) { u.full_name = `${form.first_name} ${form.last_name}`.trim(); localStorage.setItem("domely_user", JSON.stringify(u)); }
       setSaved(true);
       showToast(t(T.saved), "success");
       setTimeout(() => setSaved(false), 3000);
@@ -144,178 +141,201 @@ function SettingsContent() {
     }
   }
 
-  const f = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
+  const f  = (k: string, v: string) => setForm(prev => ({ ...prev, [k]: v }));
   const pf = (k: string, v: string) => setPwdForm(prev => ({ ...prev, [k]: v }));
 
   return (
-    <div className="p-6 max-w-2xl space-y-8">
+    <div className="p-6 space-y-6 max-w-2xl">
       <PageHeader title={t(T.title)} subtitle={t(T.sub)} />
 
-      {/* Profile */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6">
-        <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white mb-5">{t(T.profile)}</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label={t(T.firstName)}><input className={inputClass} value={form.first_name} onChange={e => f("first_name", e.target.value)} /></FormField>
-            <FormField label={t(T.lastName)}><input className={inputClass} value={form.last_name} onChange={e => f("last_name", e.target.value)} /></FormField>
-          </div>
-          <FormField label={t(T.email)}>
-            <input className={inputClass + " opacity-60 cursor-not-allowed"} value={form.email} readOnly />
-          </FormField>
-          <FormField label={t(T.phone)}>
-            <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", formatPhone(e.target.value))} placeholder="514-555-0000" />
-          </FormField>
-          <FormField label={t(T.language)}>
-            <select className={selectClass} value={lang} onChange={e => setLang(e.target.value as "fr" | "en")}>
-              <option value="fr">Français</option>
-              <option value="en">English</option>
-            </select>
-          </FormField>
-          {profileError && <p className="text-[13px] text-red-500">{profileError}</p>}
-          <div className="flex items-center gap-3">
-            <button onClick={handleSaveProfile} disabled={saving} className="px-5 py-2.5 text-[13px] font-semibold bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl transition-colors">
-              {saving ? t(T.saving) : t(T.save)}
+      {/* ── Tab bar ───────────────────────────────────────────────────────── */}
+      <div className="flex bg-gray-100 dark:bg-gray-800/60 rounded-2xl p-1 gap-1">
+        {TABS.map(tab => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all duration-200 ${
+                active
+                  ? "bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm"
+                  : "text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
+              }`}
+            >
+              <span className="text-base leading-none">{tab.icon}</span>
+              <span className="hidden sm:inline">{lang === "fr" ? tab.fr : tab.en}</span>
             </button>
-            {saved && <span className="text-[13px] text-teal-600 font-medium">{t(T.saved)}</span>}
-          </div>
-        </div>
+          );
+        })}
       </div>
 
-      {/* Security */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6">
-        <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white mb-5">{t(T.security)}</h3>
-        <div className="space-y-4">
-          <FormField label={t(T.currentPwd)}>
-            <input className={inputClass} type="password" value={pwdForm.current_password} onChange={e => pf("current_password", e.target.value)} />
-          </FormField>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label={t(T.newPwd)}>
-              <input className={inputClass} type="password" value={pwdForm.new_password} onChange={e => pf("new_password", e.target.value)} placeholder="≥ 8 chars" />
+      {/* ── Profile tab ───────────────────────────────────────────────────── */}
+      {activeTab === "profile" && (
+        <div className={card}>
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white mb-5">{t(T.profile)}</h3>
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label={t(T.firstName)}>
+                <input className={inputClass} value={form.first_name} onChange={e => f("first_name", e.target.value)} />
+              </FormField>
+              <FormField label={t(T.lastName)}>
+                <input className={inputClass} value={form.last_name} onChange={e => f("last_name", e.target.value)} />
+              </FormField>
+            </div>
+            <FormField label={t(T.email)}>
+              <input className={inputClass + " opacity-60 cursor-not-allowed"} value={form.email} readOnly />
             </FormField>
-            <FormField
-              label={t(T.confirmPwd)}
-              error={pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password
-                ? (lang === "fr" ? "Ne correspond pas" : "Doesn't match")
-                : undefined}
-            >
-              <input
-                className={inputClass + (pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password ? " !border-red-300 focus:!ring-red-400" : "")}
-                type="password"
-                value={pwdForm.confirm}
-                onChange={e => pf("confirm", e.target.value)}
+            <FormField label={t(T.phone)}>
+              <input className={inputClass} type="tel" value={form.phone} onChange={e => f("phone", formatPhone(e.target.value))} placeholder="514-555-0000" />
+            </FormField>
+            <FormField label={t(T.language)}>
+              <SmartSelect
+                value={lang}
+                onChange={v => setLang(v as "fr" | "en")}
+                options={[
+                  { value: "fr", label: "Français" },
+                  { value: "en", label: "English" },
+                ]}
               />
             </FormField>
-          </div>
-          {pwdError && <p className="text-[13px] text-red-500">{pwdError}</p>}
-          <div className="flex items-center gap-3">
-            <button onClick={handleChangePwd} disabled={pwdSaving} className="px-5 py-2.5 text-[13px] font-semibold bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 dark:hover:bg-gray-600 disabled:opacity-60 text-white rounded-xl transition-colors">
-              {pwdSaving ? t(T.saving) : t(T.updatePwd)}
-            </button>
-            {pwdSaved && <span className="text-[13px] text-teal-600 font-medium">{t(T.saved)}</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* Plan */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6">
-        <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white mb-4">{t(T.plan)}</h3>
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          <div>
-            <p className="text-[12px] text-gray-400 mb-1">{t(T.planLabel)}</p>
-            <span className="px-3 py-1 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-[13px] font-semibold rounded-full capitalize">
-              {storedUser?.plan ?? "Free"}
-            </span>
-          </div>
-          <a href="/#pricing" target="_blank" rel="noopener noreferrer" className="px-4 py-2 text-[13px] font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors">
-            {t(T.upgrade)}
-          </a>
-        </div>
-      </div>
-
-      {/* Stripe Connect */}
-      <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-6">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-lg">💳</span>
-          <h3 className="text-[14px] font-semibold text-gray-900 dark:text-white">{t(T.stripe)}</h3>
-        </div>
-        <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-4">{t(T.stripeDesc)}</p>
-
-        {stripeStatus === null ? (
-          /* Loading skeleton */
-          <div className="h-9 w-40 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
-        ) : stripeStatus.connected && stripeStatus.charges_enabled ? (
-          /* Connected + active */
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-xl text-[13px] font-semibold border border-emerald-100 dark:border-emerald-800">
-              <span className="text-base">✅</span>
-              {t(T.stripeConnected)}
+            {profileError && <p className="text-[13px] text-red-500">{profileError}</p>}
+            <div className="flex items-center gap-3 pt-1">
+              <button onClick={handleSaveProfile} disabled={saving} className="px-5 py-2.5 text-[13px] font-semibold bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white rounded-xl transition-colors">
+                {saving ? t(T.saving) : t(T.save)}
+              </button>
+              {saved && <span className="text-[13px] text-teal-600 font-medium">{t(T.saved)}</span>}
             </div>
-            <div className="flex items-center gap-3">
-              <a
-                href={stripeStatus.account_id
-                  ? `https://dashboard.stripe.com/connect/accounts/${stripeStatus.account_id}`
-                  : "https://dashboard.stripe.com"}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[13px] text-teal-600 dark:text-teal-400 font-medium hover:underline"
+          </div>
+        </div>
+      )}
+
+      {/* ── Security tab ──────────────────────────────────────────────────── */}
+      {activeTab === "security" && (
+        <div className={card}>
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white mb-5">{t(T.security)}</h3>
+          <div className="space-y-4">
+            <FormField label={t(T.currentPwd)}>
+              <input className={inputClass} type="password" value={pwdForm.current_password} onChange={e => pf("current_password", e.target.value)} />
+            </FormField>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label={t(T.newPwd)}>
+                <input className={inputClass} type="password" value={pwdForm.new_password} onChange={e => pf("new_password", e.target.value)} placeholder="≥ 8 chars" />
+              </FormField>
+              <FormField
+                label={t(T.confirmPwd)}
+                error={pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password
+                  ? (lang === "fr" ? "Ne correspond pas" : "Doesn't match") : undefined}
               >
-                {t(T.stripeDashboard)}
-              </a>
-              <span className="text-gray-200 dark:text-gray-700">|</span>
+                <input
+                  className={inputClass + (pwdForm.confirm && pwdForm.new_password && pwdForm.confirm !== pwdForm.new_password ? " !border-red-300 focus:!ring-red-400" : "")}
+                  type="password"
+                  value={pwdForm.confirm}
+                  onChange={e => pf("confirm", e.target.value)}
+                />
+              </FormField>
+            </div>
+            {pwdError && <p className="text-[13px] text-red-500">{pwdError}</p>}
+            <div className="flex items-center gap-3 pt-1">
+              <button onClick={handleChangePwd} disabled={pwdSaving} className="px-5 py-2.5 text-[13px] font-semibold bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 disabled:opacity-60 text-white rounded-xl transition-colors">
+                {pwdSaving ? t(T.saving) : t(T.updatePwd)}
+              </button>
+              {pwdSaved && <span className="text-[13px] text-teal-600 font-medium">{t(T.saved)}</span>}
+            </div>
+          </div>
+
+          {/* Sign out — at the bottom of security */}
+          <div className="mt-8 pt-6 border-t border-gray-100 dark:border-gray-800">
+            <p className="text-[12px] text-gray-400 mb-3">{lang === "fr" ? "Session active" : "Active session"}</p>
+            <button
+              onClick={logout}
+              className="px-5 py-2.5 text-[13px] font-semibold text-red-600 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
+            >
+              {t(T.logout)}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Plan tab ──────────────────────────────────────────────────────── */}
+      {activeTab === "plan" && (
+        <div className={card}>
+          <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white mb-5">{t(T.plan)}</h3>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <p className="text-[12px] text-gray-400 mb-2">{t(T.planLabel)}</p>
+              <span className="px-3 py-1.5 bg-teal-50 dark:bg-teal-900/20 text-teal-700 dark:text-teal-400 text-[14px] font-semibold rounded-full capitalize">
+                {storedUser?.plan ?? "Free"}
+              </span>
+            </div>
+            <a
+              href="/#pricing"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-5 py-2.5 text-[13px] font-semibold bg-teal-600 hover:bg-teal-700 text-white rounded-xl transition-colors"
+            >
+              {t(T.upgrade)} →
+            </a>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payments (Stripe Connect) tab ─────────────────────────────────── */}
+      {activeTab === "payments" && (
+        <div className={card}>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xl">💳</span>
+            <h3 className="text-[15px] font-semibold text-gray-900 dark:text-white">{t(T.stripe)}</h3>
+          </div>
+          <p className="text-[13px] text-gray-500 dark:text-gray-400 mb-5">{t(T.stripeDesc)}</p>
+
+          {stripeStatus === null ? (
+            <div className="h-9 w-40 bg-gray-100 dark:bg-gray-800 rounded-xl animate-pulse" />
+          ) : stripeStatus.connected && stripeStatus.charges_enabled ? (
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 rounded-xl text-[13px] font-semibold border border-emerald-100 dark:border-emerald-800">
+                <span>✅</span> {t(T.stripeConnected)}
+              </div>
+              <div className="flex items-center gap-3">
+                <a
+                  href={stripeStatus.account_id ? `https://dashboard.stripe.com/connect/accounts/${stripeStatus.account_id}` : "https://dashboard.stripe.com"}
+                  target="_blank" rel="noopener noreferrer"
+                  className="text-[13px] text-teal-600 dark:text-teal-400 font-medium hover:underline"
+                >
+                  {t(T.stripeDashboard)}
+                </a>
+                <span className="text-gray-300 dark:text-gray-600">|</span>
+                <button onClick={handleConnectStripe} disabled={stripeLoading} className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50">
+                  {lang === "fr" ? "Mettre à jour" : "Update settings"}
+                </button>
+              </div>
+            </div>
+          ) : stripeStatus.connected && !stripeStatus.charges_enabled ? (
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-xl text-[13px] font-semibold border border-amber-100 dark:border-amber-800">
+                <span>⚠️</span> {t(T.stripeOnboarding)}
+              </div>
+              <button onClick={handleConnectStripe} disabled={stripeLoading} className="px-5 py-2.5 text-[13px] font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-xl transition-colors">
+                {stripeLoading ? t(T.stripeConnecting) : (lang === "fr" ? "Terminer l'inscription →" : "Complete setup →")}
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
               <button
                 onClick={handleConnectStripe}
                 disabled={stripeLoading}
-                className="text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+                className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-white rounded-xl transition-all disabled:opacity-60 hover:scale-[1.01] active:scale-[0.99]"
+                style={{ background: "linear-gradient(135deg, #635BFF, #8B83FF)" }}
               >
-                {lang === "fr" ? "Mettre à jour" : "Update settings"}
+                {stripeLoading
+                  ? <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  : <span>⚡</span>}
+                {stripeLoading ? t(T.stripeConnecting) : t(T.stripeConnect)}
               </button>
+              <p className="text-[11px] text-gray-400">{t(T.stripeFee)}</p>
             </div>
-          </div>
-        ) : stripeStatus.connected && !stripeStatus.charges_enabled ? (
-          /* Connected but onboarding incomplete */
-          <div className="space-y-3">
-            <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 rounded-xl text-[13px] font-semibold border border-amber-100 dark:border-amber-800">
-              <span className="text-base">⚠️</span>
-              {t(T.stripeOnboarding)}
-            </div>
-            <button
-              onClick={handleConnectStripe}
-              disabled={stripeLoading}
-              className="px-5 py-2.5 text-[13px] font-semibold bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white rounded-xl transition-colors"
-            >
-              {stripeLoading ? t(T.stripeConnecting) : (lang === "fr" ? "Terminer l'inscription →" : "Complete setup →")}
-            </button>
-          </div>
-        ) : (
-          /* Not connected */
-          <div className="space-y-3">
-            <button
-              onClick={handleConnectStripe}
-              disabled={stripeLoading}
-              className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold text-white rounded-xl transition-all disabled:opacity-60 hover:scale-[1.01] active:scale-[0.99]"
-              style={{ background: "linear-gradient(135deg, #635BFF, #8B83FF)" }}
-            >
-              {stripeLoading ? (
-                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <span className="text-base">⚡</span>
-              )}
-              {stripeLoading ? t(T.stripeConnecting) : t(T.stripeConnect)}
-            </button>
-            <p className="text-[11px] text-gray-400">{t(T.stripeFee)}</p>
-          </div>
-        )}
-      </div>
-
-      {/* Sign out */}
-      <div className="pb-4">
-        <button
-          onClick={logout}
-          className="px-5 py-2.5 text-[13px] font-semibold text-red-600 border border-red-200 dark:border-red-800 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-xl transition-colors"
-        >
-          {t(T.logout)}
-        </button>
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
