@@ -4,7 +4,7 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatPhone, isValidPhone } from "@/lib/format";
 import type { Applicant, Property } from "@/lib/types";
 import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
@@ -31,7 +31,7 @@ const T = {
   save:     { fr: "Enregistrer",      en: "Save" },
   saving:   { fr: "Enregistrement…",  en: "Saving…" },
   empty:    { fr: "Aucun candidat",   en: "No applicants" },
-  emptySub: { fr: "Ajoutez votre premier candidat.", en: "Add your first applicant." },
+  emptySub: { fr: "Suivez toutes les candidatures dans un tableau Kanban. Faites avancer chaque dossier de la réception à l'approbation.", en: "Track all applications in a Kanban board. Move each file from reception to approval." },
   delTitle: { fr: "Supprimer le candidat ?", en: "Delete applicant?" },
   delMsg:   { fr: "Cette action est irréversible.", en: "This action cannot be undone." },
   name:     { fr: "Nom complet",      en: "Full name" },
@@ -51,13 +51,6 @@ const emptyForm = {
   monthly_income: "", credit_score: "", status: "pending", notes: "",
 };
 
-function formatPhone(val: string): string {
-  const d = val.replace(/\D/g, "").slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-}
-function isValidPhone(v: string) { return !v.trim() || v.replace(/\D/g, "").length >= 10; }
 function isValidEmail(v: string) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v); }
 
 export default function ApplicantsPage() {

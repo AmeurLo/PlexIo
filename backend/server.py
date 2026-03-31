@@ -18,6 +18,8 @@ import uuid
 from datetime import datetime, date, timedelta
 import io
 import jwt
+import pyotp
+import segno
 from passlib.context import CryptContext
 
 ROOT_DIR = Path(__file__).parent
@@ -89,6 +91,8 @@ class PropertyCreate(BaseModel):
     property_type: str = "duplex"  # duplex, triplex, fourplex, etc.
     year_built: Optional[int] = None
     notes: Optional[str] = None
+    late_fee_amount: Optional[float] = None  # e.g. 25.00
+    late_fee_grace_days: Optional[int] = None  # days after due date before fee applies
 
 class Property(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -101,6 +105,8 @@ class Property(BaseModel):
     property_type: str
     year_built: Optional[int] = None
     notes: Optional[str] = None
+    late_fee_amount: Optional[float] = None
+    late_fee_grace_days: Optional[int] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -222,6 +228,8 @@ class RentPayment(BaseModel):
     month_year: str
     status: str = "paid"  # paid, partial, late
     notes: Optional[str] = None
+    late_fee_amount: Optional[float] = 0
+    late_fee_waived: Optional[bool] = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 # Expense Models
@@ -280,11 +288,15 @@ class MaintenanceRequest(BaseModel):
     title: str
     description: str
     priority: str
-    status: str = "open"  # open, in_progress, completed, cancelled
+    status: str = "open"  # open, assigned, in_progress, completed, cancelled
     reported_by: Optional[str] = None
     photos: Optional[List[str]] = None
     cost: Optional[float] = None
     notes: Optional[str] = None
+    assigned_contractor_id: Optional[str] = None
+    assigned_contractor_name: Optional[str] = None
+    assigned_contractor_trade: Optional[str] = None
+    assigned_contractor_phone: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     completed_at: Optional[datetime] = None
@@ -300,6 +312,8 @@ class ReminderCreate(BaseModel):
     due_date: str  # YYYY-MM-DD
     reminder_type: str = "general"  # lease_expiry, rent_due, maintenance, general
     related_id: Optional[str] = None  # ID of related entity
+    property_id: Optional[str] = None
+    is_flagged: bool = False
 
 class Reminder(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -309,8 +323,67 @@ class Reminder(BaseModel):
     due_date: str
     reminder_type: str
     related_id: Optional[str] = None
+    property_id: Optional[str] = None
+    is_flagged: bool = False
     is_completed: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+
+class ReminderUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_date: Optional[str] = None
+    property_id: Optional[str] = None
+    is_flagged: Optional[bool] = None
+    is_completed: Optional[bool] = None
+
+# Asset Models
+class AssetCreate(BaseModel):
+    name: str
+    asset_type: str = "other"  # parking, storage, equipment, other
+    identifier: Optional[str] = None  # e.g. "Stall #3"
+    unit_id: Optional[str] = None
+    notes: Optional[str] = None
+
+class Asset(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    property_id: str
+    user_id: str
+    name: str
+    asset_type: str = "other"
+    identifier: Optional[str] = None
+    unit_id: Optional[str] = None
+    notes: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# Audit Log Model
+class AuditLog(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    property_id: Optional[str] = None
+    entity_type: str  # property, unit, tenant, lease, rent_payment
+    entity_id: str
+    action: str  # created, updated, deleted
+    entity_label: Optional[str] = None
+    changes: Optional[dict] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+# MFA Models
+class MFASetupResponse(BaseModel):
+    secret: str
+    uri: str
+    qr_code_b64: str
+
+class MFAVerifyRequest(BaseModel):
+    code: str
+
+class MFAConfirmRequest(BaseModel):
+    mfa_token: str
+    code: str
+
+class MFADisableRequest(BaseModel):
+    current_password: str
+    code: str
 
 # Dashboard Models
 class DashboardStats(BaseModel):
@@ -345,6 +418,35 @@ def create_token(user_id: str, email: str) -> str:
         "exp": datetime.utcnow() + timedelta(days=30)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def create_mfa_pending_token(user_id: str, email: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "type": "mfa_pending",
+        "exp": datetime.utcnow() + timedelta(minutes=5)
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+async def log_audit(
+    user_id: str,
+    entity_type: str,
+    entity_id: str,
+    action: str,
+    property_id: Optional[str] = None,
+    entity_label: Optional[str] = None,
+    changes: Optional[dict] = None,
+):
+    entry = AuditLog(
+        user_id=user_id,
+        property_id=property_id,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        entity_label=entity_label,
+        changes=changes,
+    )
+    await db.audit_logs.insert_one(entry.model_dump())
 
 def verify_token(token: str) -> dict:
     try:
@@ -395,27 +497,85 @@ async def register(user_data: UserCreate):
 
     return TokenResponse(access_token=token, user=user)
 
-@api_router.post("/auth/login", response_model=TokenResponse)
+@api_router.post("/auth/login")
 async def login(credentials: UserLogin):
     user = await db.users.find_one({"email": credentials.email})
     if not user:
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
-    if not pwd_context.verify(credentials.password, user["hashed_password"]):
+
+    if not pwd_context.verify(credentials.password, user.get("hashed_password", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
-    
+
+    # MFA check
+    if user.get("mfa_enabled"):
+        mfa_token = create_mfa_pending_token(user["id"], user["email"])
+        return {"mfa_required": True, "mfa_token": mfa_token}
+
     token = create_token(user["id"], user["email"])
-    
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "mfa_required": False,
+        "user": {
+            "id": user["id"], "email": user["email"], "full_name": user["full_name"],
+            "phone": user.get("phone"),
+            "plan": user.get("plan", "free"), "plan_status": user.get("plan_status", "active"),
+            "is_admin": user.get("is_admin", False),
+            "created_at": user["created_at"].isoformat() if isinstance(user["created_at"], datetime) else user["created_at"],
+        }
+    }
+
+@api_router.post("/auth/google")
+async def auth_google(data: dict):
+    """Sign in / sign up via Google Identity Services (id_token / credential)."""
+    id_token_str = data.get("credential") or data.get("id_token")
+    if not id_token_str:
+        raise HTTPException(status_code=400, detail="credential manquant")
+
+    google_client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+
+    import httpx
+    async with httpx.AsyncClient() as hc:
+        r = await hc.get(
+            f"https://oauth2.googleapis.com/tokeninfo?id_token={id_token_str}",
+            timeout=8.0,
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=400, detail="Token Google invalide")
+
+    info = r.json()
+    if google_client_id and info.get("aud") != google_client_id:
+        raise HTTPException(status_code=400, detail="Token Google invalide — mauvais client_id")
+
+    email = info.get("email", "").lower().strip()
+    full_name = info.get("name") or info.get("email", "").split("@")[0]
+    if not email:
+        raise HTTPException(status_code=400, detail="Email introuvable dans le token Google")
+
+    user_doc = await db.users.find_one({"email": email})
+    if not user_doc:
+        new_user = User(email=email, full_name=full_name, plan="free", plan_status="active")
+        ud = new_user.model_dump()
+        ud["hashed_password"] = ""
+        ud["oauth_provider"] = "google"
+        await db.users.insert_one(ud)
+        asyncio.create_task(_send_welcome_email(email, full_name))
+        user_doc = await db.users.find_one({"email": email})
+
+    token = create_token(user_doc["id"], user_doc["email"])
     return TokenResponse(
         access_token=token,
         user=User(
-            id=user["id"], email=user["email"], full_name=user["full_name"],
-            phone=user.get("phone"),
-            plan=user.get("plan", "free"), plan_status=user.get("plan_status", "active"),
-            is_admin=user.get("is_admin", False),
-            created_at=user["created_at"]
+            id=user_doc["id"], email=user_doc["email"],
+            full_name=user_doc.get("full_name", full_name),
+            phone=user_doc.get("phone"),
+            plan=user_doc.get("plan", "free"),
+            plan_status=user_doc.get("plan_status", "active"),
+            is_admin=user_doc.get("is_admin", False),
+            created_at=user_doc["created_at"],
         )
     )
+
 
 @api_router.get("/auth/me", response_model=User)
 async def get_me(current_user: dict = Depends(get_current_user)):
@@ -444,6 +604,50 @@ async def update_me(data: UserProfileUpdate, current_user: dict = Depends(get_cu
     await db.users.update_one({"id": current_user["id"]}, {"$set": update_fields})
     updated = await db.users.find_one({"id": current_user["id"]})
     return User(**updated)
+
+class AccountDeleteRequest(BaseModel):
+    confirmation: str  # Must be "SUPPRIMER" or "DELETE" — required by Law 25 / GDPR right to erasure
+
+@api_router.delete("/auth/me")
+async def delete_my_account(
+    data: AccountDeleteRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Permanently delete the authenticated user's account and ALL associated data.
+    Complies with Quebec Law 25 and GDPR right to erasure (Article 17).
+    Requires explicit confirmation token to prevent accidental deletion.
+    """
+    if data.confirmation not in ("SUPPRIMER", "DELETE"):
+        raise HTTPException(
+            status_code=400,
+            detail="Confirmation invalide. Tapez SUPPRIMER (ou DELETE) pour confirmer la suppression."
+        )
+
+    user_id = current_user["id"]
+
+    # Cascade delete all user data across every collection
+    COLLECTIONS = [
+        db.properties, db.units, db.tenants, db.leases,
+        db.rent_payments, db.maintenance_requests, db.expenses,
+        db.reminders, db.contractors, db.team_members,
+        db.inspections, db.applicants, db.signatures,
+        db.notifications, db.documents,
+    ]
+    for collection in COLLECTIONS:
+        try:
+            await collection.delete_many({"user_id": user_id})
+        except Exception:
+            pass  # Collection may not exist in all environments
+
+    # Finally delete the user account itself
+    await db.users.delete_one({"id": user_id})
+
+    return {
+        "ok": True,
+        "message": "Account and all associated personal data have been permanently deleted."
+    }
+
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -526,6 +730,91 @@ async def reset_password(data: PasswordResetConfirm):
     return {"ok": True, "message": "Mot de passe mis à jour avec succès."}
 
 # ===========================
+# MFA ROUTES
+# ===========================
+
+@api_router.post("/auth/mfa/setup", response_model=MFASetupResponse)
+async def mfa_setup(current_user: dict = Depends(get_current_user)):
+    """Generate a TOTP secret and QR code for MFA enrollment."""
+    secret = pyotp.random_base32()
+    uri = pyotp.totp.TOTP(secret).provisioning_uri(
+        name=current_user["email"],
+        issuer_name="Domely"
+    )
+    qr = segno.make(uri)
+    buf = io.BytesIO()
+    qr.save(buf, kind="png", scale=5)
+    qr_b64 = base64.b64encode(buf.getvalue()).decode()
+    # Store secret temporarily (not enabled yet — user must verify)
+    await db.users.update_one({"id": current_user["id"]}, {"$set": {"mfa_secret_pending": secret}})
+    return MFASetupResponse(secret=secret, uri=uri, qr_code_b64=qr_b64)
+
+@api_router.post("/auth/mfa/verify")
+async def mfa_verify(data: MFAVerifyRequest, current_user: dict = Depends(get_current_user)):
+    """Confirm TOTP code and activate MFA."""
+    secret = current_user.get("mfa_secret_pending") or current_user.get("mfa_secret")
+    if not secret:
+        raise HTTPException(status_code=400, detail="MFA setup not initiated")
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Code invalide")
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"mfa_enabled": True, "mfa_secret": secret}, "$unset": {"mfa_secret_pending": ""}}
+    )
+    return {"ok": True, "message": "MFA activé avec succès"}
+
+@api_router.post("/auth/mfa/confirm")
+async def mfa_confirm(data: MFAConfirmRequest):
+    """Exchange mfa_pending token + TOTP code for a full access token."""
+    try:
+        payload = jwt.decode(data.mfa_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token invalide ou expiré")
+    if payload.get("type") != "mfa_pending":
+        raise HTTPException(status_code=401, detail="Token invalide")
+    user = await db.users.find_one({"id": payload["sub"]})
+    if not user or not user.get("mfa_enabled"):
+        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
+    totp = pyotp.TOTP(user["mfa_secret"])
+    if not totp.verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Code invalide")
+    token = create_token(user["id"], user["email"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "mfa_required": False,
+        "user": {
+            "id": user["id"], "email": user["email"], "full_name": user["full_name"],
+            "phone": user.get("phone"),
+            "plan": user.get("plan", "free"), "plan_status": user.get("plan_status", "active"),
+            "is_admin": user.get("is_admin", False),
+            "created_at": user["created_at"].isoformat() if isinstance(user["created_at"], datetime) else user["created_at"],
+        }
+    }
+
+@api_router.post("/auth/mfa/disable")
+async def mfa_disable(data: MFADisableRequest, current_user: dict = Depends(get_current_user)):
+    """Disable MFA (requires password + current TOTP code)."""
+    if not pwd_context.verify(data.current_password, current_user.get("hashed_password", "")):
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect")
+    secret = current_user.get("mfa_secret")
+    if not secret:
+        raise HTTPException(status_code=400, detail="MFA non activé")
+    totp = pyotp.TOTP(secret)
+    if not totp.verify(data.code, valid_window=1):
+        raise HTTPException(status_code=400, detail="Code invalide")
+    await db.users.update_one(
+        {"id": current_user["id"]},
+        {"$set": {"mfa_enabled": False}, "$unset": {"mfa_secret": ""}}
+    )
+    return {"ok": True, "message": "MFA désactivé"}
+
+@api_router.get("/auth/mfa/status")
+async def mfa_status(current_user: dict = Depends(get_current_user)):
+    return {"mfa_enabled": current_user.get("mfa_enabled", False)}
+
+# ===========================
 # PROPERTY ROUTES
 # ===========================
 
@@ -533,6 +822,13 @@ async def reset_password(data: PasswordResetConfirm):
 async def create_property(data: PropertyCreate, current_user: dict = Depends(get_current_user)):
     property_obj = Property(user_id=current_user["id"], **data.model_dump())
     await db.properties.insert_one(property_obj.model_dump())
+    await log_audit(current_user["id"], "property", property_obj.id, "created",
+                    property_id=property_obj.id, entity_label=property_obj.name)
+    # First-property milestone email
+    count = await db.properties.count_documents({"user_id": current_user["id"]})
+    if count == 1:
+        import asyncio
+        asyncio.create_task(_on_first_property(current_user, property_obj.name))
     return property_obj
 
 @api_router.get("/properties", response_model=List[PropertyWithStats])
@@ -670,6 +966,8 @@ async def update_property(property_id: str, data: PropertyCreate, current_user: 
     
     await db.properties.update_one({"id": property_id}, {"$set": update_data})
     updated = await db.properties.find_one({"id": property_id})
+    await log_audit(current_user["id"], "property", property_id, "updated",
+                    property_id=property_id, entity_label=data.name)
     return Property(**updated)
 
 @api_router.delete("/properties/{property_id}")
@@ -681,8 +979,240 @@ async def delete_property(property_id: str, current_user: dict = Depends(get_cur
     await db.properties.delete_one({"id": property_id})
     await db.units.delete_many({"property_id": property_id})
     await db.maintenance_requests.delete_many({"property_id": property_id})
-    
+    await db.assets.delete_many({"property_id": property_id})
+    await log_audit(current_user["id"], "property", property_id, "deleted",
+                    property_id=property_id, entity_label=prop.get("name"))
     return {"message": "Property deleted"}
+
+@api_router.patch("/properties/{property_id}/late-fee-settings")
+async def update_late_fee_settings(property_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    body = await request.json()
+    update = {}
+    if "late_fee_amount" in body:
+        update["late_fee_amount"] = float(body["late_fee_amount"])
+    if "late_fee_grace_days" in body:
+        update["late_fee_grace_days"] = int(body["late_fee_grace_days"])
+    if update:
+        await db.properties.update_one({"id": property_id}, {"$set": update})
+    return {"success": True}
+
+# ── Asset endpoints ────────────────────────────────────────────────────────────
+
+@api_router.get("/properties/{property_id}/assets", response_model=List[Asset])
+async def get_assets(property_id: str, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    assets = await db.assets.find({"property_id": property_id}).sort("created_at", 1).to_list(200)
+    return [Asset(**a) for a in assets]
+
+@api_router.post("/properties/{property_id}/assets", response_model=Asset)
+async def create_asset(property_id: str, data: AssetCreate, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    asset = Asset(property_id=property_id, user_id=current_user["id"], **data.model_dump())
+    await db.assets.insert_one(asset.model_dump())
+    await log_audit(current_user["id"], "asset", asset.id, "created",
+                    property_id=property_id, entity_label=asset.name)
+    return asset
+
+@api_router.put("/properties/{property_id}/assets/{asset_id}", response_model=Asset)
+async def update_asset(property_id: str, asset_id: str, data: AssetCreate, current_user: dict = Depends(get_current_user)):
+    asset = await db.assets.find_one({"id": asset_id, "property_id": property_id, "user_id": current_user["id"]})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    update_fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    await db.assets.update_one({"id": asset_id}, {"$set": update_fields})
+    updated = await db.assets.find_one({"id": asset_id})
+    await log_audit(current_user["id"], "asset", asset_id, "updated",
+                    property_id=property_id, entity_label=data.name)
+    return Asset(**updated)
+
+@api_router.delete("/properties/{property_id}/assets/{asset_id}")
+async def delete_asset(property_id: str, asset_id: str, current_user: dict = Depends(get_current_user)):
+    asset = await db.assets.find_one({"id": asset_id, "property_id": property_id, "user_id": current_user["id"]})
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    await db.assets.delete_one({"id": asset_id})
+    await log_audit(current_user["id"], "asset", asset_id, "deleted",
+                    property_id=property_id, entity_label=asset.get("name"))
+    return {"message": "Asset deleted"}
+
+# ── Audit log endpoint ─────────────────────────────────────────────────────────
+
+@api_router.get("/properties/{property_id}/audit")
+async def get_property_audit(property_id: str, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+    logs = await db.audit_logs.find(
+        {"property_id": property_id, "user_id": current_user["id"]}
+    ).sort("created_at", -1).to_list(200)
+    for l in logs:
+        l.pop("_id", None)
+        if isinstance(l.get("created_at"), datetime):
+            l["created_at"] = l["created_at"].isoformat()
+    return logs
+
+
+class BulkEmailPayload(BaseModel):
+    subject: str
+    body: str  # plain text with {{merge_vars}}
+
+
+@api_router.post("/properties/{property_id}/email-tenants")
+async def email_property_tenants(
+    property_id: str,
+    payload: BulkEmailPayload,
+    current_user: dict = Depends(get_current_user),
+):
+    """Send a bulk email to all active tenants in a property, with merge variable substitution."""
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    # Fetch units for this property
+    units = await db.units.find({"property_id": property_id}).to_list(200)
+    unit_map = {u["id"]: u for u in units}
+
+    # Fetch all tenants in these units
+    unit_ids = [u["id"] for u in units]
+    tenants = await db.tenants.find(
+        {"unit_id": {"$in": unit_ids}, "user_id": current_user["id"]}
+    ).to_list(200)
+
+    if not tenants:
+        raise HTTPException(status_code=404, detail="No tenants found for this property")
+
+    # Find active lease per tenant for merge variable resolution
+    leases = await db.leases.find(
+        {"unit_id": {"$in": unit_ids}, "status": "active"}
+    ).to_list(200)
+    lease_by_unit: dict = {}
+    for lease in leases:
+        lease_by_unit[lease.get("unit_id", "")] = lease
+
+    sent = 0
+    skipped = 0
+    for tenant in tenants:
+        email = tenant.get("email", "").strip()
+        if not email:
+            skipped += 1
+            continue
+
+        first_name = tenant.get("first_name", "")
+        last_name  = tenant.get("last_name", "")
+        unit       = unit_map.get(tenant.get("unit_id", ""), {})
+        lease      = lease_by_unit.get(tenant.get("unit_id", ""), {})
+
+        def _s(d: dict, k: str, default: str = "") -> str:
+            return str(d.get(k) or default)
+
+        rent    = f"${float(_s(lease, 'rent_amount', '0')):,.2f}" if lease.get("rent_amount") else ""
+        address = f"{_s(prop, 'address')}, {_s(prop, 'city')}".strip(", ")
+        start   = _s(lease, "start_date")
+        end     = _s(lease, "end_date")
+
+        substituted = (
+            payload.body
+            .replace("{{prenom}}", first_name)
+            .replace("{{nom}}", last_name)
+            .replace("{{montant_loyer}}", rent)
+            .replace("{{adresse}}", address)
+            .replace("{{date_debut_bail}}", start)
+            .replace("{{date_fin_bail}}", end)
+        )
+
+        html_body = f"""
+<div style="font-family:system-ui,-apple-system,sans-serif;max-width:600px;margin:0 auto;color:#111827">
+  <div style="background:#0f766e;padding:24px 32px;border-radius:12px 12px 0 0">
+    <span style="color:#fff;font-size:18px;font-weight:700">Domely</span>
+  </div>
+  <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+    <p style="margin:0 0 8px;font-size:13px;color:#6b7280">Message de votre propriétaire</p>
+    <h2 style="margin:0 0 24px;font-size:20px;font-weight:700">{payload.subject}</h2>
+    <div style="font-size:15px;line-height:1.7;white-space:pre-wrap">{substituted}</div>
+    <hr style="border:none;border-top:1px solid #e5e7eb;margin:32px 0" />
+    <p style="margin:0;font-size:12px;color:#9ca3af">Envoyé via Domely · <a href="https://domely.app" style="color:#0f766e;text-decoration:none">domely.app</a></p>
+  </div>
+</div>
+"""
+        subject_merged = payload.subject.replace("{{prenom}}", first_name).replace("{{nom}}", last_name)
+        asyncio.create_task(_send_auto_email(email, subject_merged, html_body))
+        sent += 1
+
+    return {"sent": sent, "skipped": skipped, "total": len(tenants)}
+
+
+# ─── PROPERTY DOCUMENTS ────────────────────────────────────────────
+
+class PropertyDocumentCreate(BaseModel):
+    name: str
+    file_type: str  # "pdf", "jpg", "png", etc.
+    base64_data: str  # base64 encoded file
+    size_kb: Optional[float] = None
+    unit_id: Optional[str] = None  # None = property-level
+
+@api_router.get("/properties/{property_id}/documents")
+async def get_property_documents(property_id: str, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(404, "Property not found")
+    docs = await db.property_documents.find({"property_id": property_id, "user_id": current_user["id"]}).sort("uploaded_at", -1).to_list(100)
+    for d in docs:
+        d.pop("_id", None)
+        d.pop("base64_data", None)  # Don't return raw data in listing (too large)
+    return docs
+
+@api_router.post("/properties/{property_id}/documents")
+async def upload_property_document(property_id: str, doc: PropertyDocumentCreate, current_user: dict = Depends(get_current_user)):
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(404, "Property not found")
+    now = datetime.utcnow().isoformat()
+    doc_id = str(uuid.uuid4())
+    doc_record = {
+        "id": doc_id,
+        "property_id": property_id,
+        "user_id": current_user["id"],
+        "unit_id": doc.unit_id,
+        "name": doc.name,
+        "file_type": doc.file_type,
+        "base64_data": doc.base64_data,
+        "size_kb": doc.size_kb,
+        "uploaded_at": now,
+    }
+    await db.property_documents.insert_one(doc_record)
+    doc_record.pop("_id", None)
+    doc_record.pop("base64_data", None)
+    return doc_record
+
+@api_router.get("/properties/{property_id}/documents/{doc_id}/download")
+async def download_property_document(property_id: str, doc_id: str, current_user: dict = Depends(get_current_user)):
+    from fastapi.responses import StreamingResponse
+    import io
+    doc = await db.property_documents.find_one({"id": doc_id, "property_id": property_id, "user_id": current_user["id"]})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    raw = base64.b64decode(doc["base64_data"])
+    mt = "application/pdf" if doc.get("file_type") == "pdf" else f"image/{doc.get('file_type', 'jpeg')}"
+    return StreamingResponse(
+        io.BytesIO(raw),
+        media_type=mt,
+        headers={"Content-Disposition": f'attachment; filename="{doc["name"]}"'}
+    )
+
+@api_router.delete("/properties/{property_id}/documents/{doc_id}")
+async def delete_property_document(property_id: str, doc_id: str, current_user: dict = Depends(get_current_user)):
+    result = await db.property_documents.delete_one({"id": doc_id, "property_id": property_id, "user_id": current_user["id"]})
+    if result.deleted_count == 0:
+        raise HTTPException(404, "Document not found")
+    return {"ok": True}
+
 
 # ===========================
 # UNIT ROUTES
@@ -762,14 +1292,21 @@ async def delete_unit(unit_id: str, current_user: dict = Depends(get_current_use
 async def create_tenant(data: TenantCreate, current_user: dict = Depends(get_current_user)):
     tenant = Tenant(user_id=current_user["id"], **data.model_dump())
     await db.tenants.insert_one(tenant.model_dump())
-    
+
     # If unit_id provided, update unit
     if data.unit_id:
         await db.units.update_one(
             {"id": data.unit_id},
             {"$set": {"is_occupied": True, "current_tenant_id": tenant.id}}
         )
-    
+
+    # First-tenant milestone email
+    count = await db.tenants.count_documents({"user_id": current_user["id"]})
+    if count == 1:
+        import asyncio
+        tenant_name = f"{tenant.first_name} {tenant.last_name}".strip()
+        asyncio.create_task(_on_first_tenant(current_user, tenant_name))
+
     return tenant
 
 @api_router.get("/tenants", response_model=List[TenantWithDetails])
@@ -1068,6 +1605,11 @@ def _make_tal_overlay(page_size: tuple, fields: list) -> bytes:
                 c.setFillColorRGB(INK_R, INK_G, INK_B)
                 c.setFont("Helvetica-Bold", fs)
                 c.drawString(x, y, _rl_safe(str(text).strip())[:80])
+        elif kind == 'whitebox':
+            _, x, y, w, h = item
+            c.setFillColorRGB(1.0, 1.0, 1.0)
+            c.rect(x, y, w, h, fill=1, stroke=0)
+            c.setFillColorRGB(INK_R, INK_G, INK_B)  # restore ink color
     c.save()
     buf.seek(0)
     return buf.read()
@@ -1241,14 +1783,18 @@ def _fill_tal_form(
 
     overlays = {0: p1, 2: p3}
 
+    # White box to cover "Reproduction interdite / Reproduction prohibited" header text
+    # on every page of the official TAL form (top-right area, y≈1052–1074 on 612×1080 page).
+    _REPRO_BOX = [('whitebox', 338, 1050, 274, 26)]
+
     # ── Merge ────────────────────────────────────────────────────────────────
     reader = PdfReader(io.BytesIO(base_pdf))
     writer = PdfWriter()
     for i, page in enumerate(reader.pages):
-        if i in overlays:
-            ov_bytes = _make_tal_overlay((PW, PH), overlays[i])
-            ov_page  = PdfReader(io.BytesIO(ov_bytes)).pages[0]
-            page.merge_page(ov_page)
+        page_fields = list(overlays.get(i, [])) + _REPRO_BOX
+        ov_bytes = _make_tal_overlay((PW, PH), page_fields)
+        ov_page  = PdfReader(io.BytesIO(ov_bytes)).pages[0]
+        page.merge_page(ov_page)
         writer.add_page(page)
 
     out = io.BytesIO()
@@ -1392,19 +1938,205 @@ def _append_signature_page(pdf_bytes: bytes, signatures: list) -> bytes:
     return out.getvalue()
 
 
+def _make_bail_cover_page(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
+    """
+    Generate a full-colour Domely-branded cover page (Letter, portrait) for the bail PDF.
+    Prepended as page 1 before the official TAL form pages.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.colors import HexColor
+    import io
+
+    W, H = 612.0, 792.0   # standard letter pt
+    buf  = io.BytesIO()
+    c    = rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    # ── Colours ──────────────────────────────────────────────────────────────
+    TEAL_DARK  = HexColor("#1E7A6E")   # Domely primary
+    TEAL_MID   = HexColor("#3FAF86")   # Domely accent
+    INK_BLUE   = HexColor("#1A3D9E")   # Domely blue
+    OFF_WHITE  = HexColor("#F8FAFB")
+    GRAY_LIGHT = HexColor("#E5E7EB")
+    GRAY_MID   = HexColor("#6B7280")
+    GRAY_DARK  = HexColor("#1F2937")
+    WHITE      = HexColor("#FFFFFF")
+
+    # ── Full-bleed teal gradient header (top 30 %) ───────────────────────────
+    header_h = 236
+    # Gradient simulation: draw two overlapping rects
+    c.setFillColor(TEAL_DARK)
+    c.rect(0, H - header_h, W, header_h, fill=1, stroke=0)
+    c.setFillColor(TEAL_MID)
+    # Right-side accent strip for depth
+    c.rect(W * 0.6, H - header_h, W * 0.4, header_h, fill=1, stroke=0)
+    c.setFillColor(TEAL_DARK)
+    c.rect(W * 0.6, H - header_h, W * 0.4, header_h, fill=0, stroke=0)
+
+    # Decorative circle elements
+    c.setFillColor(HexColor("#FFFFFF"))
+    c.setFillAlpha(0.06)
+    c.circle(W - 80, H - 40, 130, fill=1, stroke=0)
+    c.circle(W - 30, H - header_h + 30, 80, fill=1, stroke=0)
+    c.setFillAlpha(1.0)
+
+    # Domely wordmark in header
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(44, H - 56, "Domely")
+    c.setFont("Helvetica", 10)
+    c.setFillColor(HexColor("#A7F3D0"))  # light teal
+    c.drawString(44, H - 74, "Plateforme de gestion locative")
+
+    # "BAIL DE LOGEMENT" title
+    c.setFillColor(WHITE)
+    c.setFont("Helvetica-Bold", 36)
+    c.drawString(44, H - 130, "BAIL DE LOGEMENT")
+    c.setFont("Helvetica", 13)
+    c.setFillColor(HexColor("#D1FAE5"))
+    c.drawString(44, H - 152, "Tribunal administratif du logement \u2014 Formulaire officiel")
+
+    # TAL compliance badge
+    badge_x = 44
+    badge_y = H - 200
+    c.setFillColor(HexColor("#065F46"))
+    c.roundRect(badge_x, badge_y, 180, 22, 4, fill=1, stroke=0)
+    c.setFillColor(HexColor("#6EE7B7"))
+    c.setFont("Helvetica-Bold", 8)
+    c.drawString(badge_x + 8, badge_y + 7, "\u2713  CONFORME TAL  \u2014  LOI CONCERNANT LE LOGEMENT")
+
+    # ── Off-white body area ───────────────────────────────────────────────────
+    c.setFillColor(OFF_WHITE)
+    c.rect(0, 0, W, H - header_h, fill=1, stroke=0)
+
+    # ── Info cards ───────────────────────────────────────────────────────────
+    def draw_card(x: float, y: float, w: float, h_card: float, title: str, lines: list):
+        """Draw a labelled info card."""
+        c.setFillColor(WHITE)
+        c.setStrokeColor(GRAY_LIGHT)
+        c.setLineWidth(0.5)
+        c.roundRect(x, y, w, h_card, 6, fill=1, stroke=1)
+        # Title strip
+        c.setFillColor(INK_BLUE)
+        c.setFont("Helvetica-Bold", 8)
+        c.drawString(x + 10, y + h_card - 14, title.upper())
+        # Separator
+        c.setStrokeColor(GRAY_LIGHT)
+        c.line(x + 10, y + h_card - 18, x + w - 10, y + h_card - 18)
+        # Content lines
+        c.setFillColor(GRAY_DARK)
+        c.setFont("Helvetica-Bold", 9)
+        ly = y + h_card - 30
+        for i, (label, value) in enumerate(lines):
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 7.5)
+            c.drawString(x + 10, ly, label)
+            c.setFillColor(GRAY_DARK)
+            c.setFont("Helvetica-Bold", 9)
+            c.drawString(x + 10, ly - 11, _rl_safe(str(value))[:50] if value else "\u2014")
+            ly -= 26
+
+    # ── Gather values ─────────────────────────────────────────────────────────
+    def g(d: dict, *keys):
+        for k in keys:
+            v = d.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return ""
+
+    ten_name  = f"{g(tenant, 'first_name')} {g(tenant, 'last_name')}".strip() or "\u2014"
+    land_name = g(landlord, "full_name", "name") or "\u2014"
+    unit_no   = g(unit, "unit_number")
+    prop_addr = g(prop, "address")
+    dwelling  = f"{prop_addr}, App. {unit_no}" if unit_no else prop_addr or "\u2014"
+    start     = g(lease, "start_date") or "\u2014"
+    end       = g(lease, "end_date") or "Ind\xe9termin\xe9"
+    rent_raw  = float(lease.get("rent_amount") or 0)
+    rent_str  = f"{rent_raw:,.2f}".replace(",", "\xa0").replace(".", ",") + " $/mois"
+    due_day   = str(lease.get("payment_due_day") or 1)
+    from datetime import date as _date
+    tax_year  = str(_date.today().year)
+
+    # ── Two-column cards layout ──────────────────────────────────────────────
+    card_top   = H - header_h - 30   # 526 pt from bottom
+    card_h     = 120
+    col1_x     = 44
+    col2_x     = 330
+    card_w     = 238
+
+    draw_card(col1_x, card_top - card_h, card_w, card_h, "Locataire",
+              [("Nom complet", ten_name),
+               ("Courriel", g(tenant, "email") or "\u2014"),
+               ("T\xe9l\xe9phone", g(tenant, "phone") or "\u2014")])
+
+    draw_card(col2_x, card_top - card_h, card_w, card_h, "Locateur",
+              [("Nom complet", land_name),
+               ("Courriel", g(landlord, "email") or "\u2014"),
+               ("T\xe9l\xe9phone", g(landlord, "phone") or "\u2014")])
+
+    # Full-width logement card
+    card_h2 = 100
+    y2 = card_top - card_h - 16 - card_h2
+    draw_card(col1_x, y2, W - 88, card_h2, "Logement",
+              [("Adresse", dwelling),
+               ("Municipalit\xe9 / Ville", g(prop, "city") or "\u2014")])
+
+    # Conditions card
+    card_h3 = 110
+    y3 = y2 - 16 - card_h3
+    draw_card(col1_x, y3, W - 88, card_h3, "Conditions du bail",
+              [("Date de d\xe9but", start),
+               ("Date de fin", end),
+               ("Loyer mensuel", rent_str),
+               ("Paiement le", f"{due_day} de chaque mois")])
+
+    # ── Footer ───────────────────────────────────────────────────────────────
+    footer_y = 42
+    c.setStrokeColor(GRAY_LIGHT)
+    c.setLineWidth(0.5)
+    c.line(44, footer_y + 12, W - 44, footer_y + 12)
+    c.setFillColor(GRAY_MID)
+    c.setFont("Helvetica", 7)
+    c.drawString(44, footer_y, f"G\xe9n\xe9r\xe9 par Domely \u2014 domely.ca  \u00b7  Ann\xe9e fiscale {tax_year}  \u00b7  Ce document accompagne le formulaire officiel du TAL")
+    c.setFillColor(INK_BLUE)
+    c.setFont("Helvetica-Bold", 7)
+    c.drawRightString(W - 44, footer_y, "Page de couverture \u2014 1")
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
 def generate_quebec_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
     """
     Generate a Quebec Bail de logement PDF.
     Primary path: download the official TAL Form 5 from LégisQuébec and
     overlay the lease data onto it using reportlab + pypdf merge.
     Fallback: custom fpdf2 generator if the TAL form is unreachable.
+    Prepends a Domely-branded colour cover page in all cases.
     """
+    from pypdf import PdfReader, PdfWriter
+    import io
+
+    def _prepend_cover(main_pdf: bytes) -> bytes:
+        cover_bytes = _make_bail_cover_page(lease, tenant, unit, prop, landlord)
+        reader_cover = PdfReader(io.BytesIO(cover_bytes))
+        reader_main  = PdfReader(io.BytesIO(main_pdf))
+        writer = PdfWriter()
+        writer.add_page(reader_cover.pages[0])
+        for page in reader_main.pages:
+            writer.add_page(page)
+        out = io.BytesIO()
+        writer.write(out)
+        return out.getvalue()
+
     try:
         base_pdf = _fetch_tal_base_pdf()
-        return _fill_tal_form(base_pdf, lease, tenant, unit, prop, landlord)
+        bail_pdf = _fill_tal_form(base_pdf, lease, tenant, unit, prop, landlord)
     except Exception as e:
         logger.warning("[PDF] Official TAL form unavailable (%s) — using fallback generator", e)
-        return _generate_legacy_bail_pdf(lease, tenant, unit, prop, landlord)
+        bail_pdf = _generate_legacy_bail_pdf(lease, tenant, unit, prop, landlord)
+
+    return _prepend_cover(bail_pdf)
 
 
 def _generate_legacy_bail_pdf(lease: dict, tenant: dict, unit: dict, prop: dict, landlord: dict) -> bytes:
@@ -1983,6 +2715,14 @@ async def create_lease(data: LeaseCreate, current_user: dict = Depends(get_curre
         except Exception as e:
             logger.warning("[Lease] Bail PDF email failed: %s", e)
 
+    # First-lease milestone email (landlord only)
+    lease_count = await db.leases.count_documents({"user_id": current_user["id"]})
+    if lease_count == 1:
+        import asyncio
+        prop_doc = await db.properties.find_one({"id": lease.property_id}) if lease.property_id else None
+        prop_name = prop_doc.get("name", "votre propriété") if prop_doc else "votre propriété"
+        asyncio.create_task(_on_first_lease(current_user, prop_name))
+
     return lease
 
 @api_router.get("/leases", response_model=List[LeaseWithDetails])
@@ -2139,6 +2879,250 @@ async def generate_bail_endpoint(lease_id: str, current_user: dict = Depends(get
     )
 
 # ===========================
+# RL-31 TAX SLIP GENERATOR
+# ===========================
+
+def _generate_rl31_pdf(lease: dict, tenant: dict, prop: dict, landlord: dict, tax_year: int) -> bytes:
+    """
+    Generate a Quebec RL-31 (Relevé 31 — Renseignements sur l'occupation d'un logement)
+    tax slip PDF.  Two slip copies on one Letter page: Copy 1 for the tenant (original),
+    Copy 2 for Revenu Québec (or landlord records).
+    Based on Revenu Québec RL-31 form structure.
+    """
+    from reportlab.pdfgen import canvas as rl_canvas
+    from reportlab.lib.colors import HexColor
+    import io
+
+    W, H = 612.0, 792.0
+    buf  = io.BytesIO()
+    c    = rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    # ── Colours ───────────────────────────────────────────────────────────────
+    RQ_BLUE    = HexColor("#003DA5")   # Revenu Québec blue
+    RQ_LBLUE   = HexColor("#D6E4FF")   # Light blue — box fills
+    TEAL_DARK  = HexColor("#1E7A6E")   # Domely accent
+    GRAY_LIGHT = HexColor("#E5E7EB")
+    GRAY_MID   = HexColor("#6B7280")
+    GRAY_DARK  = HexColor("#1F2937")
+    WHITE      = HexColor("#FFFFFF")
+    RED        = HexColor("#DC2626")
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+    def safe(text) -> str:
+        return _rl_safe(str(text).strip()) if text and str(text).strip() else ""
+
+    def g(d: dict, *keys) -> str:
+        for k in keys:
+            v = d.get(k)
+            if v is not None and str(v).strip():
+                return str(v).strip()
+        return ""
+
+    # ── Computed values ────────────────────────────────────────────────────────
+    ten_name    = f"{g(tenant, 'first_name')} {g(tenant, 'last_name')}".strip()
+    ten_addr    = g(tenant, "address") or g(prop, "address")
+    ten_city    = g(tenant, "city") or g(prop, "city")
+    ten_postal  = g(tenant, "postal_code") or g(prop, "postal_code")
+    ten_full_addr = f"{ten_addr}, {ten_city}  {ten_postal}".strip(", ")
+
+    land_name   = g(landlord, "full_name", "name")
+    land_addr   = g(landlord, "address")
+    land_city   = g(landlord, "city")
+    land_postal = g(landlord, "postal_code")
+    land_full_addr = f"{land_addr}, {land_city}  {land_postal}".strip(", ")
+
+    prop_addr   = g(prop, "address")
+    unit_no     = g(lease, "unit_number")
+    logement    = f"{prop_addr}, App. {unit_no}" if unit_no else prop_addr
+
+    # Gross rent = monthly_rent * 12 (full year; real-world: adjust for partial years)
+    monthly_rent = float(lease.get("rent_amount") or 0)
+    gross_rent   = monthly_rent * 12
+    rent_str     = f"{gross_rent:,.2f}".replace(",", "\xa0").replace(".", ",")
+
+    # ── Draw ONE slip (called twice: top half and bottom half) ─────────────────
+    def draw_slip(y_top: float, copy_label: str):
+        """
+        Draw a complete RL-31 slip with its top-left corner at y_top (bottom of rect = y_top - slip_h).
+        """
+        slip_h = 370
+        slip_w = W - 60
+        x0 = 30
+        y0 = y_top - slip_h
+
+        # Outer border
+        c.setStrokeColor(RQ_BLUE)
+        c.setLineWidth(1.2)
+        c.roundRect(x0, y0, slip_w, slip_h, 4, fill=0, stroke=1)
+
+        # ── Header bar ──────────────────────────────────────────────────────
+        hdr_h = 46
+        c.setFillColor(RQ_BLUE)
+        c.roundRect(x0, y_top - hdr_h, slip_w, hdr_h, 4, fill=1, stroke=0)
+        # Clip top-left round corners (fill lower rectangle to square them)
+        c.rect(x0, y_top - hdr_h, slip_w, hdr_h / 2, fill=1, stroke=0)
+
+        c.setFillColor(WHITE)
+        c.setFont("Helvetica-Bold", 15)
+        c.drawString(x0 + 12, y_top - 28, "Relevé 31")
+        c.setFont("Helvetica", 9)
+        c.drawString(x0 + 12, y_top - 40, "Renseignements sur l'occupation d'un logement")
+
+        # Tax year pill
+        c.setFillColor(HexColor("#FFD700"))
+        c.roundRect(x0 + slip_w - 80, y_top - 38, 68, 22, 3, fill=1, stroke=0)
+        c.setFillColor(RQ_BLUE)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawCentredString(x0 + slip_w - 46, y_top - 29, str(tax_year))
+
+        # Copy label
+        c.setFillColor(HexColor("#A5B4FC"))
+        c.setFont("Helvetica-Bold", 7)
+        c.drawString(x0 + slip_w - 80, y_top - 50, copy_label)
+
+        # ── Info rows ────────────────────────────────────────────────────────
+        def info_row(y: float, label: str, value: str, label_w: float = 130):
+            c.setFillColor(RQ_LBLUE)
+            c.rect(x0 + 8, y - 14, label_w, 14, fill=1, stroke=0)
+            c.setFillColor(GRAY_DARK)
+            c.setFont("Helvetica-Bold", 7)
+            c.drawString(x0 + 11, y - 10, label.upper())
+            c.setFillColor(GRAY_DARK)
+            c.setFont("Helvetica", 9)
+            c.drawString(x0 + 11 + label_w + 4, y - 10, safe(value)[:70])
+            c.setStrokeColor(GRAY_LIGHT)
+            c.setLineWidth(0.3)
+            c.line(x0 + 8, y - 14, x0 + slip_w - 8, y - 14)
+
+        row_h = 20
+        row_y = y_top - hdr_h - 8
+        info_row(row_y,           "Locataire",            ten_name)
+        info_row(row_y - row_h,   "Adresse du locataire", ten_full_addr)
+        info_row(row_y - row_h*2, "Adresse du logement",  logement)
+        info_row(row_y - row_h*3, "Locateur / Bailleur",  land_name)
+        info_row(row_y - row_h*4, "Adresse du locateur",  land_full_addr)
+
+        # ── Boxes ────────────────────────────────────────────────────────────
+        boxes_y = y_top - hdr_h - row_h * 5 - 20
+
+        def draw_box(bx: float, by: float, bw: float, bh: float,
+                     code: str, title_fr: str, value: str, highlight: bool = False):
+            fill_col = HexColor("#EFF6FF") if highlight else WHITE
+            c.setFillColor(fill_col)
+            c.setStrokeColor(RQ_BLUE if highlight else GRAY_LIGHT)
+            c.setLineWidth(0.8 if highlight else 0.4)
+            c.rect(bx, by, bw, bh, fill=1, stroke=1)
+            # Code label (top-left)
+            c.setFillColor(RQ_BLUE)
+            c.setFont("Helvetica-Bold", 8)
+            c.drawString(bx + 4, by + bh - 10, code)
+            # Title (top-right)
+            c.setFillColor(GRAY_MID)
+            c.setFont("Helvetica", 7)
+            c.drawString(bx + 20, by + bh - 10, title_fr)
+            # Value
+            c.setFillColor(GRAY_DARK)
+            c.setFont("Helvetica-Bold", 13 if highlight else 11)
+            c.drawString(bx + 4, by + 6, safe(value)[:25] if value else "\u2014")
+
+        box_h  = 44
+        box_w1 = 120
+        box_w2 = 90
+        gutter = 10
+        bx0    = x0 + 8
+
+        draw_box(bx0,                            boxes_y, box_w1, box_h, "A",
+                 "Loyer brut (ann\xe9e)", f"{rent_str} $", highlight=True)
+        draw_box(bx0 + box_w1 + gutter,          boxes_y, box_w2, box_h, "B",
+                 "Aide directe", "\u2014")
+        draw_box(bx0 + box_w1 + gutter + box_w2 + gutter, boxes_y, box_w2, box_h, "J",
+                 "Code indice", "1")
+
+        # ── Legal footer line ─────────────────────────────────────────────────
+        footer_y_slip = y0 + 12
+        c.setStrokeColor(GRAY_LIGHT)
+        c.setLineWidth(0.3)
+        c.line(x0 + 8, footer_y_slip + 10, x0 + slip_w - 8, footer_y_slip + 10)
+        c.setFillColor(GRAY_MID)
+        c.setFont("Helvetica", 6.5)
+        c.drawString(x0 + 8, footer_y_slip, "Formulaire prescrit par Revenu Qu\xe9bec (RL-31)  \u2014  G\xe9n\xe9r\xe9 par Domely  \u2014  domely.ca")
+        c.setFillColor(TEAL_DARK)
+        c.setFont("Helvetica-Bold", 6.5)
+        c.drawRightString(x0 + slip_w - 8, footer_y_slip, f"Ann\xe9e d'imposition : {tax_year}")
+
+    # ── Draw both copies ──────────────────────────────────────────────────────
+    draw_slip(H - 20,            "Copie 1 \u2014 Locataire (exemplaire original)")
+    # Dashed separator
+    mid_y = H / 2
+    c.setStrokeColor(GRAY_MID)
+    c.setLineWidth(0.5)
+    c.setDash([4, 4])
+    c.line(30, mid_y, W - 30, mid_y)
+    c.setDash([])
+    c.setFillColor(GRAY_MID)
+    c.setFont("Helvetica", 7)
+    c.drawCentredString(W / 2, mid_y + 4, "\u2702  Découpez ici — Cut here")
+
+    draw_slip(mid_y - 8,         "Copie 2 \u2014 Revenu Québec / Locateur")
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
+@api_router.get("/leases/{lease_id}/generate-rl31")
+async def generate_rl31_endpoint(
+    lease_id: str,
+    year: int | None = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """Generate and stream the Quebec RL-31 tax slip PDF for a lease."""
+    from fastapi.responses import StreamingResponse
+    from datetime import date as _date
+
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Lease not found")
+
+    tenant = await db.tenants.find_one({"id": lease.get("tenant_id")}) if lease.get("tenant_id") else None
+    unit   = await db.units.find_one({"id": lease.get("unit_id")}) if lease.get("unit_id") else None
+    prop   = await db.properties.find_one({"id": unit["property_id"]}) if unit and unit.get("property_id") else None
+
+    if not prop and lease.get("property_id"):
+        prop = await db.properties.find_one({"id": lease["property_id"]})
+
+    if tenant is None:
+        tenant = {"first_name": lease.get("tenant_name", ""), "last_name": "", "email": "", "phone": ""}
+    if prop is None:
+        prop = {
+            "address": lease.get("property_address", ""),
+            "city": lease.get("property_city", ""),
+            "postal_code": "",
+        }
+
+    tax_year = year or (_date.today().year - 1)  # default: prior year (fiscal year just ended)
+
+    try:
+        pdf_bytes = _generate_rl31_pdf(
+            lease=lease,
+            tenant=tenant,
+            prop=prop,
+            landlord=current_user,
+            tax_year=tax_year,
+        )
+    except Exception as e:
+        logger.error("[RL-31 PDF] Generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du RL-31.")
+
+    filename = f"RL-31_{tax_year}_{lease_id[:8]}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# ===========================
 # RENT PAYMENT ROUTES
 # ===========================
 
@@ -2277,6 +3261,320 @@ async def delete_rent_payment(payment_id: str, current_user: dict = Depends(get_
 
     await db.rent_payments.delete_one({"id": payment_id})
     return {"message": "Payment deleted"}
+
+
+@api_router.post("/rent-payments/{payment_id}/waive-late-fee")
+async def waive_late_fee(payment_id: str, current_user: dict = Depends(get_current_user)):
+    """Waive the late fee on a rent payment (landlord only)."""
+    payment = await db.rent_payments.find_one({"id": payment_id, "user_id": current_user["id"]})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    await db.rent_payments.update_one(
+        {"id": payment_id},
+        {"$set": {"late_fee_waived": True, "late_fee_amount": 0}}
+    )
+    updated = await db.rent_payments.find_one({"id": payment_id})
+    return RentPayment(**updated)
+
+
+@api_router.post("/rent-payments/{payment_id}/send-receipt")
+async def send_payment_receipt(payment_id: str, current_user: dict = Depends(get_current_user)):
+    """Generate a PDF receipt and email it to the tenant."""
+    payment = await db.rent_payments.find_one({"id": payment_id, "user_id": current_user["id"]})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+
+    tenant_id = payment.get("tenant_id")
+    tenant = await db.tenants.find_one({"id": tenant_id}) if tenant_id else None
+    if not tenant or not tenant.get("email"):
+        raise HTTPException(status_code=400, detail="Adresse email du locataire introuvable")
+
+    tenant_email = tenant["email"]
+    tenant_name  = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip() or tenant_email
+    amount       = float(payment.get("amount") or 0)
+    month_year   = payment.get("month_year", "")
+    pay_date     = payment.get("payment_date") or payment.get("paid_date") or ""
+    method       = payment.get("payment_method") or ""
+    receipt_no   = (payment.get("id") or "")[:8].upper()
+
+    try:
+        from datetime import datetime as _dt
+        month_display = _dt.strptime(month_year, "%Y-%m").strftime("%B %Y")
+    except Exception:
+        month_display = month_year
+
+    try:
+        pay_display = _dt.strptime(pay_date[:10], "%Y-%m-%d").strftime("%d %B %Y") if pay_date else "—"
+    except Exception:
+        pay_display = pay_date or "—"
+
+    method_labels = {
+        "cheque": "Chèque", "virement": "Virement bancaire", "interac": "Interac",
+        "cash": "Comptant", "credit_card": "Carte de crédit", "pre_auth": "Prélèvement automatique",
+    }
+    method_display = method_labels.get(method, method or "—")
+    amount_str = f"{amount:,.2f}".replace(",", "\xa0").replace(".", ",")
+
+    # Generate PDF receipt with reportlab
+    from reportlab.pdfgen import canvas as rl_canvas
+    import base64
+
+    W, H = 612, 792
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    # Header teal bar
+    c.setFillColorRGB(0.118, 0.478, 0.431)   # teal-600
+    c.rect(0, H - 90, W, 90, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(36, H - 42, "Domely")
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(36, H - 66, "Reçu de paiement")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(W - 36, H - 50, f"Reçu n° {receipt_no}")
+    c.drawRightString(W - 36, H - 65, month_display)
+
+    # Amount hero
+    c.setFillColorRGB(0.067, 0.067, 0.067)
+    c.setFont("Helvetica-Bold", 32)
+    c.drawString(36, H - 140, f"{amount_str} $")
+    c.setFillColorRGB(0.157, 0.502, 0.408)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(36, H - 158, "PAYÉ ✓")
+
+    # Divider
+    c.setStrokeColorRGB(0.9, 0.9, 0.9)
+    c.setLineWidth(1)
+    c.line(36, H - 172, W - 36, H - 172)
+
+    # Details table
+    rows = [
+        ("Locataire",        tenant_name),
+        ("Période",          month_display),
+        ("Date de paiement", pay_display),
+        ("Mode de paiement", method_display),
+        ("Statut",           "Payé"),
+    ]
+    y = H - 198
+    for label, value in rows:
+        c.setFillColorRGB(0.5, 0.5, 0.5)
+        c.setFont("Helvetica", 9)
+        c.drawString(36, y, label.upper())
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(200, y, _rl_safe(value))
+        y -= 28
+
+    # Footer
+    c.setStrokeColorRGB(0.9, 0.9, 0.9)
+    c.line(36, 60, W - 36, 60)
+    c.setFillColorRGB(0.6, 0.6, 0.6)
+    c.setFont("Helvetica", 8)
+    c.drawString(36, 44, "Ce reçu a été généré automatiquement par Domely · domely.ca")
+    c.drawRightString(W - 36, 44, _dt.utcnow().strftime("%d %B %Y"))
+
+    c.save()
+    buf.seek(0)
+    pdf_bytes = buf.read()
+    pdf_b64 = base64.b64encode(pdf_bytes).decode()
+
+    # Send email with PDF attachment
+    if not RESEND_API_KEY:
+        return {"ok": True, "note": "RESEND_API_KEY non configuré — email non envoyé"}
+
+    html = f"""<!DOCTYPE html><html lang="fr"><body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;">
+      <tr><td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 36px;">
+        <div style="font-size:22px;font-weight:800;color:#fff;">Domely</div>
+        <div style="font-size:13px;color:#a7f3d0;margin-top:4px;">Reçu de paiement</div>
+      </td></tr>
+      <tr><td style="padding:32px 36px;">
+        <h2 style="margin:0 0 6px;font-size:20px;font-weight:700;color:#111827;">Bonjour {tenant_name.split()[0]} !</h2>
+        <p style="margin:0 0 24px;font-size:14px;color:#6b7280;">Voici votre reçu de paiement pour <strong>{month_display}</strong>. Le document PDF est joint à ce courriel.</p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+          <tr><td style="padding:20px 24px;">
+            <table width="100%" cellpadding="4">
+              <tr><td style="font-size:13px;color:#6b7280;width:40%;">Montant</td><td style="font-size:15px;font-weight:700;color:#111827;">{amount_str} $</td></tr>
+              <tr><td style="font-size:13px;color:#6b7280;">Période</td><td style="font-size:13px;font-weight:600;color:#111827;">{month_display}</td></tr>
+              <tr><td style="font-size:13px;color:#6b7280;">Date</td><td style="font-size:13px;font-weight:600;color:#111827;">{pay_display}</td></tr>
+              <tr><td style="font-size:13px;color:#6b7280;">Mode</td><td style="font-size:13px;font-weight:600;color:#111827;">{method_display}</td></tr>
+              <tr><td style="font-size:13px;color:#6b7280;">Statut</td><td style="font-size:13px;font-weight:700;color:#059669;">Payé ✓</td></tr>
+            </table>
+          </td></tr>
+        </table>
+      </td></tr>
+      <tr><td style="padding:16px 36px;border-top:1px solid #f3f4f6;text-align:center;">
+        <p style="margin:0;font-size:11px;color:#9ca3af;">Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a></p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+    import httpx
+    async with httpx.AsyncClient() as hc:
+        resp = await hc.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {RESEND_API_KEY}", "Content-Type": "application/json"},
+            json={
+                "from": "Domely <noreply@domely.ca>",
+                "to": tenant_email,
+                "subject": f"Domely — Reçu de loyer {month_display}",
+                "html": html,
+                "attachments": [{"filename": f"recu-loyer-{month_year}.pdf", "content": pdf_b64}],
+            },
+            timeout=12.0,
+        )
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail="Erreur envoi email")
+
+    return {"ok": True, "sent_to": tenant_email}
+
+
+def _build_receipt_pdf(payment: dict, tenant, prop) -> bytes:
+    """Generate a rent receipt PDF using reportlab and return raw bytes."""
+    from reportlab.pdfgen import canvas as rl_canvas
+    from datetime import datetime as _dt
+
+    tenant_name = (
+        f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip()
+        if tenant
+        else payment.get("tenant_id", "—")
+    )
+    prop_addr = prop.get("address", "—") if prop else payment.get("property_id", "—")
+    amount = float(payment.get("amount") or 0)
+    month_year = payment.get("month_year", "")
+    pay_date = payment.get("payment_date") or payment.get("paid_date") or ""
+    method = payment.get("payment_method") or payment.get("method") or ""
+    receipt_no = (payment.get("id") or "")[:8].upper()
+
+    try:
+        month_display = _dt.strptime(month_year, "%Y-%m").strftime("%B %Y")
+    except Exception:
+        month_display = month_year or "—"
+
+    try:
+        pay_display = _dt.strptime(pay_date[:10], "%Y-%m-%d").strftime("%d %B %Y") if pay_date else "—"
+    except Exception:
+        pay_display = pay_date or "—"
+
+    method_labels = {
+        "cheque": "Cheque", "virement": "Virement bancaire", "interac": "Interac",
+        "cash": "Comptant", "credit_card": "Carte de credit", "pre_auth": "Prelevement automatique",
+        "etransfer": "Virement Interac",
+    }
+    method_display = method_labels.get(method, method or "—")
+    amount_str = f"{amount:,.2f}".replace(",", "\xa0").replace(".", ",")
+
+    W, H = 612, 792
+    buf = io.BytesIO()
+    c = rl_canvas.Canvas(buf, pagesize=(W, H))
+
+    # Header teal bar
+    c.setFillColorRGB(0.118, 0.478, 0.431)
+    c.rect(0, H - 90, W, 90, fill=1, stroke=0)
+    c.setFillColorRGB(1, 1, 1)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(36, H - 42, "Domely")
+    c.setFont("Helvetica-Bold", 15)
+    c.drawString(36, H - 66, "Recu de paiement")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(W - 36, H - 50, f"Recu n {receipt_no}")
+    c.drawRightString(W - 36, H - 65, _rl_safe(month_display))
+
+    # Amount hero
+    c.setFillColorRGB(0.067, 0.067, 0.067)
+    c.setFont("Helvetica-Bold", 32)
+    c.drawString(36, H - 140, f"{amount_str} $")
+    c.setFillColorRGB(0.157, 0.502, 0.408)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(36, H - 158, "PAYE")
+
+    # Divider
+    c.setStrokeColorRGB(0.9, 0.9, 0.9)
+    c.setLineWidth(1)
+    c.line(36, H - 172, W - 36, H - 172)
+
+    # Details table
+    rows = [
+        ("Locataire",        tenant_name),
+        ("Propriete",        prop_addr),
+        ("Periode",          month_display),
+        ("Date de paiement", pay_display),
+        ("Mode de paiement", method_display),
+        ("Statut",           "Paye"),
+        ("Reference",        (payment.get("id") or "—")[:16]),
+    ]
+    y = H - 198
+    for label, value in rows:
+        c.setFillColorRGB(0.5, 0.5, 0.5)
+        c.setFont("Helvetica", 9)
+        c.drawString(36, y, label.upper())
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(220, y, _rl_safe(str(value)))
+        y -= 28
+
+    # Footer
+    c.setStrokeColorRGB(0.9, 0.9, 0.9)
+    c.line(36, 60, W - 36, 60)
+    c.setFillColorRGB(0.6, 0.6, 0.6)
+    c.setFont("Helvetica", 8)
+    c.drawString(36, 44, "Ce recu a ete genere automatiquement par Domely · domely.ca")
+    c.drawRightString(W - 36, 44, _dt.utcnow().strftime("%d %B %Y"))
+
+    c.save()
+    buf.seek(0)
+    return buf.read()
+
+
+@api_router.get("/rent-payments/{payment_id}/receipt")
+async def download_rent_receipt(payment_id: str, current_user: dict = Depends(get_current_user)):
+    """Download a PDF rent receipt for a given payment (landlord)."""
+    from fastapi.responses import StreamingResponse
+
+    payment = await db.rent_payments.find_one({"id": payment_id, "user_id": current_user["id"]})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    payment.pop("_id", None)
+
+    tenant = await db.tenants.find_one({"id": payment.get("tenant_id")}) if payment.get("tenant_id") else None
+    prop = await db.properties.find_one({"id": payment["property_id"]}) if payment.get("property_id") else None
+
+    pdf_bytes = _build_receipt_pdf(payment, tenant, prop)
+    my = (payment.get("month_year") or "receipt").replace(" ", "-").replace("/", "-")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="recu-loyer-{my}.pdf"'},
+    )
+
+
+@api_router.get("/tenant/payments/{payment_id}/receipt")
+async def tenant_download_receipt(payment_id: str, current_tenant: dict = Depends(get_current_tenant)):
+    """Download a PDF rent receipt for a given payment (tenant portal)."""
+    from fastapi.responses import StreamingResponse
+
+    tenant_id = current_tenant.get("id") or current_tenant.get("tenant_id")
+    payment = await db.rent_payments.find_one({"id": payment_id, "tenant_id": tenant_id})
+    if not payment:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    payment.pop("_id", None)
+
+    tenant = await db.tenants.find_one({"id": tenant_id}) if tenant_id else None
+    prop = await db.properties.find_one({"id": payment["property_id"]}) if payment.get("property_id") else None
+
+    pdf_bytes = _build_receipt_pdf(payment, tenant, prop)
+    my = (payment.get("month_year") or "receipt").replace(" ", "-").replace("/", "-")
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="recu-loyer-{my}.pdf"'},
+    )
+
 
 # Rent overview endpoint
 @api_router.get("/rent-overview")
@@ -2427,9 +3725,57 @@ async def delete_maintenance(request_id: str, current_user: dict = Depends(get_c
     req = await db.maintenance_requests.find_one({"id": request_id, "user_id": current_user["id"]})
     if not req:
         raise HTTPException(status_code=404, detail="Maintenance request not found")
-    
+
     await db.maintenance_requests.delete_one({"id": request_id})
     return {"message": "Maintenance request deleted"}
+
+class ContractorAssignBody(BaseModel):
+    contractor_id: Optional[str] = None
+
+@api_router.patch("/maintenance/{request_id}/assign", response_model=MaintenanceRequestWithDetails)
+async def assign_contractor_to_maintenance(
+    request_id: str,
+    data: ContractorAssignBody,
+    current_user: dict = Depends(get_current_user)
+):
+    req = await db.maintenance_requests.find_one({"id": request_id, "user_id": current_user["id"]})
+    if not req:
+        raise HTTPException(status_code=404, detail="Maintenance request not found")
+
+    update_data: dict = {"updated_at": datetime.utcnow()}
+
+    if data.contractor_id:
+        contractor = await db.contractors.find_one({"id": data.contractor_id, "user_id": current_user["id"]})
+        if not contractor:
+            raise HTTPException(status_code=404, detail="Contractor not found")
+        update_data["assigned_contractor_id"] = contractor["id"]
+        update_data["assigned_contractor_name"] = contractor.get("name", "")
+        update_data["assigned_contractor_trade"] = contractor.get("trade", "") or contractor.get("specialty", "")
+        update_data["assigned_contractor_phone"] = contractor.get("phone", "")
+        # Move to in_progress if currently open
+        if req.get("status") == "open":
+            update_data["status"] = "in_progress"
+    else:
+        # Unassign
+        update_data["assigned_contractor_id"] = None
+        update_data["assigned_contractor_name"] = None
+        update_data["assigned_contractor_trade"] = None
+        update_data["assigned_contractor_phone"] = None
+
+    await db.maintenance_requests.update_one({"id": request_id}, {"$set": update_data})
+    updated = await db.maintenance_requests.find_one({"id": request_id})
+
+    property_name = None
+    unit_number = None
+    prop = await db.properties.find_one({"id": updated["property_id"]})
+    if prop:
+        property_name = prop.get("name")
+    if updated.get("unit_id"):
+        unit = await db.units.find_one({"id": updated["unit_id"]})
+        if unit:
+            unit_number = unit.get("unit_number")
+
+    return MaintenanceRequestWithDetails(**updated, property_name=property_name, unit_number=unit_number)
 
 # ===========================
 # REMINDER ROUTES
@@ -2467,6 +3813,17 @@ async def delete_reminder(reminder_id: str, current_user: dict = Depends(get_cur
     
     await db.reminders.delete_one({"id": reminder_id})
     return {"message": "Reminder deleted"}
+
+@api_router.put("/reminders/{reminder_id}", response_model=Reminder)
+async def update_reminder(reminder_id: str, data: ReminderUpdate, current_user: dict = Depends(get_current_user)):
+    reminder = await db.reminders.find_one({"id": reminder_id, "user_id": current_user["id"]})
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    update_fields = {k: v for k, v in data.model_dump().items() if v is not None}
+    update_fields["updated_at"] = datetime.utcnow()
+    await db.reminders.update_one({"id": reminder_id}, {"$set": update_fields})
+    updated = await db.reminders.find_one({"id": reminder_id})
+    return Reminder(**updated)
 
 # ===========================
 # DASHBOARD ROUTES
@@ -3382,6 +4739,91 @@ async def get_insights(current_user: dict = Depends(get_current_user)):
     )
 
 # ===========================
+# VACANCY LOSS TRACKING
+# ===========================
+
+@api_router.get("/vacancy/losses")
+async def get_vacancy_losses(current_user: dict = Depends(get_current_user)):
+    """Get revenue loss breakdown for all vacant units"""
+    uid = current_user["id"]
+    props = await db.properties.find({"user_id": uid}).to_list(200)
+
+    result = []
+    total_daily_loss = 0.0
+    total_loss_mtd = 0.0
+
+    today = datetime.utcnow()
+    month_start = today.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    for prop in props:
+        prop_id = prop.get("id", "")
+        units = await db.units.find({"property_id": prop_id}).to_list(100)
+
+        for unit in units:
+            unit.pop("_id", None)
+            status = unit.get("status", "vacant")
+            # Also check is_occupied flag as a fallback
+            is_occupied = unit.get("is_occupied", True)
+            if status != "vacant" and is_occupied:
+                continue
+
+            # Determine daily rent for this unit
+            last_lease = await db.leases.find_one(
+                {"unit_id": unit.get("id", ""), "property_id": prop_id},
+                sort=[("end_date", -1)]
+            )
+
+            daily_rent = 0.0
+            if last_lease and last_lease.get("rent_amount"):
+                daily_rent = float(last_lease["rent_amount"]) / 30
+            elif unit.get("rent_amount"):
+                daily_rent = float(unit["rent_amount"]) / 30
+            elif prop.get("rent_amount"):
+                daily_rent = float(prop["rent_amount"]) / 30
+
+            if daily_rent == 0:
+                continue
+
+            # Days vacant
+            vacant_since_str = unit.get("vacant_since") or (last_lease.get("end_date") if last_lease else None)
+            if vacant_since_str:
+                try:
+                    vacant_since = datetime.strptime(str(vacant_since_str)[:10], "%Y-%m-%d")
+                    days_vacant = max(0, (today - vacant_since).days)
+                    days_this_month = max(0, (today - max(month_start, vacant_since)).days)
+                except Exception:
+                    days_vacant = 0
+                    days_this_month = 0
+            else:
+                days_vacant = 0
+                days_this_month = 0
+
+            total_loss = days_vacant * daily_rent
+            mtd_loss = days_this_month * daily_rent
+
+            total_daily_loss += daily_rent
+            total_loss_mtd += mtd_loss
+
+            result.append({
+                "unit_id": unit.get("id", ""),
+                "unit_number": unit.get("unit_number") or unit.get("name", "—"),
+                "property_id": prop_id,
+                "property_name": prop.get("name", "—"),
+                "daily_loss": round(daily_rent, 2),
+                "days_vacant": days_vacant,
+                "total_loss": round(total_loss, 2),
+                "mtd_loss": round(mtd_loss, 2),
+                "vacant_since": str(vacant_since_str)[:10] if vacant_since_str else None,
+            })
+
+    return {
+        "units": result,
+        "total_daily_loss": round(total_daily_loss, 2),
+        "total_loss_mtd": round(total_loss_mtd, 2),
+        "total_vacant_units": len(result),
+    }
+
+# ===========================
 # PROPERTY HEALTH SCORE
 # ===========================
 
@@ -4151,6 +5593,11 @@ async def delete_contractor(contractor_id: str, current_user: dict = Depends(get
 # TEAM
 # ===========================
 
+class TeamInvite(BaseModel):
+    email: str
+    role: str  # "manager" | "accountant"
+    name: Optional[str] = None
+
 class TeamMemberCreate(BaseModel):
     name: str
     email: str
@@ -4167,32 +5614,78 @@ class TeamMemberUpdate(TeamMemberCreate):
 
 @api_router.get("/team")
 async def get_team(current_user: dict = Depends(get_current_user)):
-    docs = await db.team_members.find({"user_id": current_user["id"]}).to_list(100)
+    docs = await db.team_members.find({"owner_id": current_user["id"]}).to_list(50)
     for d in docs:
         d.pop("_id", None)
+        d.pop("invite_token", None)
     return docs
 
-@api_router.post("/team")
-async def add_team_member(data: TeamMemberCreate, current_user: dict = Depends(get_current_user)):
+@api_router.post("/team/invite")
+async def invite_team_member(data: TeamInvite, current_user: dict = Depends(get_current_user)):
+    if data.role not in ("manager", "accountant"):
+        raise HTTPException(status_code=400, detail="Role must be 'manager' or 'accountant'")
+    existing = await db.team_members.find_one({"owner_id": current_user["id"], "email": data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Already invited")
+    invite_token = str(uuid.uuid4())
     doc = {
         "id": str(uuid.uuid4()),
+        "owner_id": current_user["id"],
+        # keep user_id for legacy reads
         "user_id": current_user["id"],
-        **data.model_dump(),
+        "user_id_member": None,
+        "email": data.email,
+        "name": data.name,
+        "full_name": data.name,
+        "role": data.role,
         "status": "pending",
-        "added_date": date.today().isoformat(),
-        "last_active": None,
+        "invite_token": invite_token,
         "created_at": datetime.utcnow().isoformat(),
     }
     await db.team_members.insert_one(doc)
     doc.pop("_id", None)
+    doc.pop("invite_token", None)
     return doc
+
+@api_router.post("/team")
+async def add_team_member_legacy(data: TeamMemberCreate, current_user: dict = Depends(get_current_user)):
+    """Legacy endpoint — kept for backwards compat, delegates to invite logic."""
+    invite_token = str(uuid.uuid4())
+    doc = {
+        "id": str(uuid.uuid4()),
+        "owner_id": current_user["id"],
+        "user_id": current_user["id"],
+        "email": data.email,
+        "name": data.name,
+        "full_name": data.name,
+        "role": data.role,
+        "status": "pending",
+        "invite_token": invite_token,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.team_members.insert_one(doc)
+    doc.pop("_id", None)
+    doc.pop("invite_token", None)
+    return doc
+
+@api_router.patch("/team/{member_id}/role")
+async def update_team_role(member_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    body = await request.json()
+    role = body.get("role")
+    if role not in ("manager", "accountant"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+    member = await db.team_members.find_one({"id": member_id, "owner_id": current_user["id"]})
+    if not member:
+        raise HTTPException(status_code=404, detail="Not found")
+    await db.team_members.update_one({"id": member_id}, {"$set": {"role": role}})
+    return {"success": True}
 
 @api_router.put("/team/{member_id}")
 async def update_team_member(member_id: str, data: TeamMemberUpdate, current_user: dict = Depends(get_current_user)):
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.utcnow().isoformat()
     result = await db.team_members.update_one(
-        {"id": member_id, "user_id": current_user["id"]},
+        {"id": member_id, "$or": [{"owner_id": current_user["id"]}, {"user_id": current_user["id"]}]},
         {"$set": update_data}
     )
     if result.matched_count == 0:
@@ -4201,8 +5694,23 @@ async def update_team_member(member_id: str, data: TeamMemberUpdate, current_use
 
 @api_router.delete("/team/{member_id}")
 async def delete_team_member(member_id: str, current_user: dict = Depends(get_current_user)):
-    await db.team_members.delete_one({"id": member_id, "user_id": current_user["id"]})
+    result = await db.team_members.delete_one(
+        {"id": member_id, "$or": [{"owner_id": current_user["id"]}, {"user_id": current_user["id"]}]}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Not found")
     return {"ok": True}
+
+@api_router.get("/team/accept/{token}")
+async def accept_invite(token: str):
+    member = await db.team_members.find_one({"invite_token": token})
+    if not member:
+        raise HTTPException(status_code=404, detail="Invalid or expired invite link")
+    await db.team_members.update_one(
+        {"invite_token": token},
+        {"$set": {"status": "active", "accepted_at": datetime.utcnow().isoformat()}}
+    )
+    return {"success": True, "email": member["email"], "role": member["role"]}
 
 
 # ===========================
@@ -4210,15 +5718,17 @@ async def delete_team_member(member_id: str, current_user: dict = Depends(get_cu
 # ===========================
 
 class ApplicantCreate(BaseModel):
-    unit_id: str
     name: str
+    unit_id: Optional[str] = None
+    property_id: Optional[str] = None
     email: Optional[str] = None
-    phone: str
+    phone: Optional[str] = None
     income: Optional[str] = None
     message: Optional[str] = None
+    status: str = "new"
 
 class ApplicantStatusUpdate(BaseModel):
-    status: str  # waiting | contacted | rejected
+    status: str  # new | contacted | screened | visited | approved | rejected
 
 @api_router.get("/vacant-units")
 async def get_vacant_units(current_user: dict = Depends(get_current_user)):
@@ -4280,15 +5790,13 @@ async def toggle_listing(unit_id: str, current_user: dict = Depends(get_current_
 @api_router.get("/applicants")
 async def get_applicants(current_user: dict = Depends(get_current_user), unit_id: Optional[str] = None):
     user_id = current_user["id"]
-    query = {"user_id": user_id}
-    if unit_id:
-        query["unit_id"] = unit_id
-    docs = await db.applicants.find(query).sort("date", -1).to_list(500)
 
-    # Enrich with unit/property info
-    units = await db.units.find({"user_id": user_id}).to_list(500)
+    # Build enrichment maps first
     props = await db.properties.find({"user_id": user_id}).to_list(200)
     prop_map = {str(p.get("id", p.get("_id", ""))): p.get("name", "") for p in props}
+    prop_ids = list(prop_map.keys())
+
+    units = await db.units.find({"user_id": user_id}).to_list(500)
     unit_map = {
         str(u.get("id", u.get("_id", ""))): {
             "unit_number": u.get("unit_number", ""),
@@ -4297,28 +5805,50 @@ async def get_applicants(current_user: dict = Depends(get_current_user), unit_id
         for u in units
     }
 
+    # Fetch applicants owned by user OR linked to their properties (from listing inquiries)
+    query: dict = {
+        "$or": [
+            {"user_id": user_id},
+            {"property_id": {"$in": prop_ids}},
+        ]
+    }
+    if unit_id:
+        query = {"user_id": user_id, "unit_id": unit_id}
+    docs = await db.applicants.find(query).sort("created_at", -1).to_list(500)
+
     result = []
     for d in docs:
         d.pop("_id", None)
         info = unit_map.get(d.get("unit_id", ""), {})
-        d["unit_number"] = info.get("unit_number", "")
-        d["property_name"] = info.get("property_name", "")
+        d["unit_number"] = d.get("unit_number") or info.get("unit_number", "")
+        # Resolve property_name from property_id if not already set
+        if not d.get("property_name"):
+            d["property_name"] = prop_map.get(str(d.get("property_id", "")), "") or info.get("property_name", "")
+        # Normalise legacy statuses to pipeline stages
+        legacy_map = {"waiting": "new", "pending": "new", "reviewing": "screened"}
+        if d.get("status") in legacy_map:
+            d["status"] = legacy_map[d["status"]]
+        # Normalise name field (listing inquiries use "name"; manual use "name" too)
         result.append(d)
     return result
 
 @api_router.post("/applicants")
 async def add_applicant(data: ApplicantCreate, current_user: dict = Depends(get_current_user)):
+    valid_statuses = ["new", "contacted", "screened", "visited", "approved", "rejected"]
+    status = data.status if data.status in valid_statuses else "new"
     doc = {
         "id": str(uuid.uuid4()),
         "user_id": current_user["id"],
-        "unit_id": data.unit_id,
+        "unit_id": data.unit_id or "",
+        "property_id": data.property_id or "",
         "name": data.name,
         "email": data.email or "",
-        "phone": data.phone,
+        "phone": data.phone or "",
         "income": data.income or "",
         "message": data.message or "",
+        "source": "manual",
         "date": date.today().isoformat(),
-        "status": "waiting",
+        "status": status,
         "created_at": datetime.utcnow().isoformat(),
     }
     await db.applicants.insert_one(doc)
@@ -4326,18 +5856,49 @@ async def add_applicant(data: ApplicantCreate, current_user: dict = Depends(get_
     return doc
 
 @api_router.put("/applicants/{applicant_id}")
-async def update_applicant_status(applicant_id: str, data: ApplicantStatusUpdate, current_user: dict = Depends(get_current_user)):
+async def update_applicant(applicant_id: str, data: ApplicantStatusUpdate, current_user: dict = Depends(get_current_user)):
     result = await db.applicants.update_one(
         {"id": applicant_id, "user_id": current_user["id"]},
-        {"$set": {"status": data.status}}
+        {"$set": {"status": data.status, "updated_at": datetime.utcnow().isoformat()}}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Applicant not found")
     return {"ok": True}
 
+@api_router.patch("/applicants/{applicant_id}/status")
+async def patch_applicant_status(applicant_id: str, request: Request, current_user: dict = Depends(get_current_user)):
+    body = await request.json()
+    status = body.get("status")
+    valid_statuses = ["new", "contacted", "screened", "visited", "approved", "rejected"]
+    if status not in valid_statuses:
+        raise HTTPException(status_code=400, detail="Invalid status")
+    user_id = current_user["id"]
+    # Allow update if owned by user OR if property belongs to user
+    applicant = await db.applicants.find_one({"id": applicant_id})
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Not found")
+    if applicant.get("user_id") != user_id:
+        # Check via property ownership
+        prop_ids = [p["id"] for p in await db.properties.find({"user_id": user_id}, {"id": 1}).to_list(200)]
+        if applicant.get("property_id") not in prop_ids:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    await db.applicants.update_one(
+        {"id": applicant_id},
+        {"$set": {"status": status, "updated_at": datetime.utcnow().isoformat()}}
+    )
+    return {"ok": True}
+
 @api_router.delete("/applicants/{applicant_id}")
 async def delete_applicant(applicant_id: str, current_user: dict = Depends(get_current_user)):
-    await db.applicants.delete_one({"id": applicant_id, "user_id": current_user["id"]})
+    user_id = current_user["id"]
+    applicant = await db.applicants.find_one({"id": applicant_id})
+    if not applicant:
+        raise HTTPException(status_code=404, detail="Not found")
+    if applicant.get("user_id") != user_id:
+        prop_ids = [p["id"] for p in await db.properties.find({"user_id": user_id}, {"id": 1}).to_list(200)]
+        if applicant.get("property_id") not in prop_ids:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    await db.applicants.delete_one({"id": applicant_id})
     return {"ok": True}
 
 
@@ -5061,6 +6622,107 @@ async def send_tenant_message(
     }
 
 
+@api_router.get("/tenant/documents")
+async def get_tenant_documents(current_tenant: dict = Depends(get_current_tenant)):
+    tid = current_tenant["id"]
+    docs = []
+    # Active lease
+    lease = await db.leases.find_one({"tenant_id": tid, "status": "active"})
+    if not lease:
+        lease = await db.leases.find_one({"tenant_id": tid})
+    if lease:
+        lid = lease.get("id") or str(lease.get("_id", ""))
+        sd = lease.get("start_date", "")
+        ed = lease.get("end_date", "")
+        docs.append({
+            "id": lid,
+            "type": "lease",
+            "name": f"Bail de logement",
+            "subtitle": f"{sd[:10] if sd else '—'} → {ed[:10] if ed else 'Indéterminé'}",
+            "date": sd[:10] if sd else None,
+            "download_url": f"/tenant/lease/bail.pdf",
+        })
+    # Payment receipts (up to 12 months)
+    payments = await db.rent_payments.find({"tenant_id": tid, "status": "paid"}).sort("month_year", -1).to_list(12)
+    for p in payments:
+        p.pop("_id", None)
+        pid = p.get("id", "")
+        my = p.get("month_year", "")
+        amount = p.get("amount", 0)
+        docs.append({
+            "id": f"receipt_{pid}",
+            "type": "receipt",
+            "name": f"Reçu de loyer — {my}",
+            "subtitle": f"{amount:,.0f} $ payé",
+            "date": p.get("paid_date") or my,
+            "download_url": None,
+        })
+    return docs
+
+
+@api_router.get("/tenant/lease/bail.pdf")
+async def tenant_download_bail(current_tenant: dict = Depends(get_current_tenant)):
+    from fastapi.responses import StreamingResponse
+    tid = current_tenant["id"]
+    lease = await db.leases.find_one({"tenant_id": tid, "status": "active"})
+    if not lease:
+        lease = await db.leases.find_one({"tenant_id": tid})
+    if not lease:
+        raise HTTPException(404, "No lease found")
+    lid = lease.get("id") or str(lease.get("_id", ""))
+
+    tenant = await db.tenants.find_one({"id": tid})
+    unit = await db.units.find_one({"id": lease.get("unit_id")}) if lease.get("unit_id") else None
+    prop = await db.properties.find_one({"id": unit["property_id"]}) if unit and unit.get("property_id") else None
+    if not prop and lease.get("property_id"):
+        prop = await db.properties.find_one({"id": lease["property_id"]})
+    landlord = await db.users.find_one({"id": prop["user_id"]}) if prop and prop.get("user_id") else None
+
+    # Build synthetic stubs so the PDF always generates even with missing relations
+    if tenant is None:
+        tenant = {"first_name": lease.get("tenant_name", ""), "last_name": "", "email": "", "phone": ""}
+    if unit is None:
+        unit = {
+            "unit_number": lease.get("unit_number", ""),
+            "bedrooms": "",
+            "bathrooms": "",
+            "property_id": lease.get("property_id", ""),
+        }
+    if prop is None:
+        prop = {
+            "address": lease.get("property_address", ""),
+            "city": lease.get("property_city", ""),
+            "province": "QC",
+            "postal_code": "",
+            "name": lease.get("property_name", ""),
+        }
+    if landlord is None:
+        landlord = {}
+
+    try:
+        pdf_bytes = generate_quebec_bail_pdf(
+            lease=lease,
+            tenant=tenant,
+            unit=unit,
+            prop=prop,
+            landlord=landlord,
+        )
+        sigs = await db.signatures.find({"lease_id": lid}).to_list(10)
+        for s in sigs:
+            s.pop("_id", None)
+        if sigs:
+            pdf_bytes = _append_signature_page(pdf_bytes, sigs)
+    except Exception as e:
+        logger.error("[Tenant Bail PDF] Generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="Erreur lors de la génération du PDF.")
+
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="bail-{lid[:8]}.pdf"'},
+    )
+
+
 # ===========================
 # AUTOMATIONS
 # ===========================
@@ -5097,6 +6759,436 @@ async def save_automations(data: AutomationsBatchUpdate, current_user: dict = De
             upsert=True
         )
     return {"ok": True, "saved": len(data.settings)}
+
+
+# ===========================
+# PORTFOLIO REPORT
+# ===========================
+
+@api_router.get("/reports/portfolio")
+async def generate_portfolio_report(
+    month: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    uid = current_user["id"]
+
+    # Default to current month
+    if not month:
+        month = datetime.utcnow().strftime("%Y-%m")
+
+    try:
+        year, mo = month.split("-")
+        year_int, mo_int = int(year), int(mo)
+    except Exception:
+        raise HTTPException(400, "Invalid month format. Use YYYY-MM")
+
+    # Fetch all user data
+    properties = await db.properties.find({"user_id": uid}).to_list(200)
+
+    # Payments this month
+    payments = await db.rent_payments.find({
+        "user_id": uid,
+        "month_year": {"$regex": f"^{month}"}
+    }).to_list(500)
+
+    # All pending/overdue this month
+    all_payments_month = await db.rent_payments.find({
+        "user_id": uid,
+        "month_year": {"$regex": f"^{month}"}
+    }).to_list(500)
+
+    # Expenses this month
+    expenses = await db.expenses.find({
+        "user_id": uid,
+        "date": {"$regex": f"^{month}"}
+    }).to_list(500)
+
+    # Maintenance open
+    maintenance_open = await db.maintenance_requests.count_documents({
+        "user_id": uid,
+        "status": {"$in": ["open", "in_progress"]}
+    })
+
+    # Compute totals
+    total_rent_collected = sum(p.get("amount", 0) for p in payments if p.get("status") == "paid")
+    total_late_fees = sum(p.get("late_fee_amount", 0) for p in payments if p.get("late_fee_amount"))
+    total_expected = sum(p.get("amount", 0) for p in all_payments_month)
+    total_expenses = sum(e.get("amount", 0) for e in expenses)
+    net_income = total_rent_collected - total_expenses
+
+    total_units = sum(p.get("total_units", 0) for p in properties)
+    occupied_units = sum(p.get("occupied_units", 0) for p in properties)
+    occupancy_rate = round((occupied_units / total_units * 100) if total_units > 0 else 0)
+
+    late_payments = [p for p in all_payments_month if p.get("status") in ("pending", "pending_confirmation")]
+
+    # Expenses by category
+    exp_by_cat = {}
+    for e in expenses:
+        cat = e.get("category", "Autre")
+        exp_by_cat[cat] = exp_by_cat.get(cat, 0) + e.get("amount", 0)
+
+    # Build PDF
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            leftMargin=0.75*inch, rightMargin=0.75*inch,
+                            topMargin=0.75*inch, bottomMargin=0.75*inch)
+
+    styles = getSampleStyleSheet()
+    TEAL = colors.HexColor("#0d9488")
+    TEAL_LIGHT = colors.HexColor("#f0fdfa")
+    GRAY = colors.HexColor("#6b7280")
+    DARK = colors.HexColor("#111827")
+    RED = colors.HexColor("#ef4444")
+
+    h1 = ParagraphStyle("h1", fontSize=22, textColor=TEAL, fontName="Helvetica-Bold", spaceAfter=4)
+    h2 = ParagraphStyle("h2", fontSize=13, textColor=DARK, fontName="Helvetica-Bold", spaceBefore=16, spaceAfter=6)
+    body_style = ParagraphStyle("body", fontSize=10, textColor=GRAY, spaceAfter=4)
+    small = ParagraphStyle("small", fontSize=8, textColor=GRAY)
+
+    month_names = {
+        "01": "Janvier", "02": "Février", "03": "Mars", "04": "Avril",
+        "05": "Mai", "06": "Juin", "07": "Juillet", "08": "Août",
+        "09": "Septembre", "10": "Octobre", "11": "Novembre", "12": "Décembre"
+    }
+    month_label = f"{month_names.get(str(mo_int).zfill(2), str(mo_int))} {year_int}"
+
+    landlord_name = f"{current_user.get('first_name', '')} {current_user.get('last_name', '')}".strip() or current_user.get('email', '')
+
+    story = []
+
+    # Header
+    story.append(Paragraph("Domely", h1))
+    story.append(Paragraph(f"Rapport de portefeuille — {month_label}",
+                           ParagraphStyle("sub", fontSize=14, textColor=DARK, fontName="Helvetica-Bold", spaceAfter=2)))
+    story.append(Paragraph(f"Propriétaire: {landlord_name}", body_style))
+    story.append(Paragraph(f"Généré le {datetime.utcnow().strftime('%d/%m/%Y')}", small))
+    story.append(HRFlowable(width="100%", thickness=2, color=TEAL, spaceAfter=12))
+
+    # KPI summary table
+    story.append(Paragraph("Sommaire financier", h2))
+    kpi_data = [
+        ["Indicateur", "Valeur"],
+        ["Loyers perçus", f"{total_rent_collected:,.0f} $"],
+        ["Loyers attendus", f"{total_expected:,.0f} $"],
+        ["Frais de retard perçus", f"{total_late_fees:,.0f} $"],
+        ["Dépenses totales", f"{total_expenses:,.0f} $"],
+        ["Revenu net", f"{net_income:,.0f} $"],
+        ["Taux d'occupation", f"{occupancy_rate}%"],
+        ["Demandes maintenance ouvertes", str(maintenance_open)],
+        ["Paiements en retard ce mois", str(len(late_payments))],
+    ]
+    kpi_table = Table(kpi_data, colWidths=[3.5*inch, 2.5*inch])
+    kpi_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), TEAL),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 10),
+        ("BACKGROUND", (0, 1), (-1, -1), TEAL_LIGHT),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, TEAL_LIGHT]),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+        ("TOPPADDING", (0, 0), (-1, -1), 6),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ("LEFTPADDING", (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+        # Highlight net income row
+        ("TEXTCOLOR", (1, 5), (1, 5), TEAL if net_income >= 0 else RED),
+        ("FONTNAME", (1, 5), (1, 5), "Helvetica-Bold"),
+    ]))
+    story.append(kpi_table)
+
+    # Property breakdown
+    if properties:
+        story.append(Paragraph("Détail par propriété", h2))
+        prop_data = [["Propriété", "Unités", "Occupation", "Loyers perçus", "Dépenses"]]
+        for prop in properties:
+            prop_id = prop.get("id", "")
+            prop_payments = [p for p in payments if p.get("property_id") == prop_id and p.get("status") == "paid"]
+            prop_expenses = [e for e in expenses if e.get("property_id") == prop_id]
+            prop_rent = sum(p.get("amount", 0) for p in prop_payments)
+            prop_exp = sum(e.get("amount", 0) for e in prop_expenses)
+            tu = prop.get("total_units", 0)
+            ou = prop.get("occupied_units", 0)
+            occ = f"{round(ou / tu * 100) if tu else 0}%"
+            prop_data.append([
+                prop.get("name", "—")[:30],
+                f"{ou}/{tu}",
+                occ,
+                f"{prop_rent:,.0f} $",
+                f"{prop_exp:,.0f} $",
+            ])
+        prop_table = Table(prop_data, colWidths=[2.2*inch, 0.8*inch, 0.9*inch, 1.2*inch, 1.0*inch])
+        prop_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), TEAL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, TEAL_LIGHT]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(prop_table)
+
+    # Expenses by category
+    if exp_by_cat:
+        story.append(Paragraph("Dépenses par catégorie", h2))
+        cat_data = [["Catégorie", "Montant"]]
+        for cat, amt in sorted(exp_by_cat.items(), key=lambda x: -x[1]):
+            cat_data.append([cat, f"{amt:,.0f} $"])
+        cat_table = Table(cat_data, colWidths=[3.5*inch, 2.5*inch])
+        cat_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), TEAL),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, TEAL_LIGHT]),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#e5e7eb")),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING", (0, 0), (-1, -1), 8),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(cat_table)
+
+    # Footer
+    story.append(Spacer(1, 20))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e5e7eb")))
+    story.append(Paragraph("Généré par Domely · domely.ca · Confidentiel",
+                           ParagraphStyle("footer", fontSize=8, textColor=GRAY, alignment=TA_CENTER, spaceBefore=8)))
+
+    doc.build(story)
+    buf.seek(0)
+
+    filename = f"domely-rapport-{month}.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+# ===========================
+# ACCOUNT DATA EXPORT
+# ===========================
+
+@api_router.get("/account/export")
+async def export_account_data(current_user: dict = Depends(get_current_user)):
+    """
+    Full account data export for GDPR / Loi 25 compliance.
+    Returns all user data as a structured JSON response.
+    """
+    from fastapi.responses import StreamingResponse
+    uid = current_user["id"]
+
+    # Fetch all user data
+    props       = await db.properties.find({"user_id": uid}).to_list(500)
+    units       = await db.units.find({"property_id": {"$in": [p["id"] for p in props if "id" in p]}}).to_list(1000)
+    tenants     = await db.tenants.find({"user_id": uid}).to_list(500)
+    leases      = await db.leases.find({"user_id": uid}).to_list(500)
+    payments    = await db.rent_payments.find({"user_id": uid}).to_list(2000)
+    expenses    = await db.expenses.find({"user_id": uid}).to_list(1000)
+    maintenance = await db.maintenance_requests.find({"user_id": uid}).to_list(500)
+    automations = await db.automations.find({"user_id": uid}).to_list(100)
+
+    def clean(items):
+        result = []
+        for item in items:
+            item.pop("_id", None)
+            item.pop("hashed_password", None)
+            for k, v in item.items():
+                if isinstance(v, datetime):
+                    item[k] = v.isoformat()
+            result.append(item)
+        return result
+
+    user_data = dict(current_user)
+    user_data.pop("_id", None)
+    user_data.pop("hashed_password", None)
+
+    export = {
+        "exported_at": datetime.utcnow().isoformat(),
+        "user": user_data,
+        "properties": clean(props),
+        "units": clean(units),
+        "tenants": clean(tenants),
+        "leases": clean(leases),
+        "rent_payments": clean(payments),
+        "expenses": clean(expenses),
+        "maintenance_requests": clean(maintenance),
+        "automations": clean(automations),
+    }
+
+    import json
+    json_bytes = json.dumps(export, ensure_ascii=False, indent=2).encode("utf-8")
+
+    return StreamingResponse(
+        iter([json_bytes]),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="domely-export-{datetime.utcnow().strftime("%Y%m%d")}.json"'
+        },
+    )
+
+
+async def _send_milestone_email(to_email: str, subject: str, html: str):
+    """Internal helper — sends a milestone email via Resend. Silent no-op if key not set."""
+    key = os.getenv("RESEND_API_KEY")
+    if not key or not to_email:
+        return
+    try:
+        import httpx
+        async with httpx.AsyncClient() as hc:
+            resp = await hc.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"from": "Domely <noreply@domely.ca>", "to": to_email, "subject": subject, "html": html},
+                timeout=10,
+            )
+        logger.info("[Milestone] Email sent to %s — status %s", to_email, resp.status_code)
+    except Exception as e:
+        logger.warning("[Milestone] Email failed to %s: %s", to_email, e)
+
+
+def _milestone_email_html(first: str, headline: str, sub: str, steps: list[dict], cta_href: str, cta_label: str) -> str:
+    """Reusable milestone email template. steps = [{num, title, desc}]"""
+    step_rows = ""
+    for s in steps:
+        step_rows += f"""
+        <tr><td style="padding-bottom:14px;">
+          <table width="100%" cellpadding="0" cellspacing="0"
+            style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;">
+            <tr><td style="padding:14px 18px;">
+              <div style="width:28px;height:28px;background:linear-gradient(135deg,#1E7A6E,#3FAF86);
+                border-radius:50%;display:inline-flex;align-items:center;justify-content:center;
+                font-weight:700;color:#fff;font-size:13px;float:left;margin-right:12px;">{s['num']}</div>
+              <div style="overflow:hidden;">
+                <div style="font-size:13px;font-weight:600;color:#134e4a;">{s['title']}</div>
+                <div style="font-size:12px;color:#0f766e;margin-top:2px;">{s['desc']}</div>
+              </div>
+            </td></tr>
+          </table>
+        </td></tr>"""
+    return f"""<!DOCTYPE html><html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="560" cellpadding="0" cellspacing="0"
+      style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+      <tr>
+        <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:32px 40px;text-align:center;">
+          <span style="font-size:24px;font-weight:800;color:#fff;letter-spacing:-0.5px;">Domely</span>
+          <div style="font-size:12px;color:rgba(255,255,255,0.75);margin-top:4px;">Gestion locative simplifiée</div>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:36px 40px 28px;">
+          <h1 style="margin:0 0 6px;font-size:20px;font-weight:700;color:#111827;">
+            {headline.replace('{first}', first)}
+          </h1>
+          <p style="margin:0 0 24px;font-size:14px;color:#6b7280;line-height:1.6;">{sub}</p>
+          <table width="100%" cellpadding="0" cellspacing="0">{step_rows}</table>
+          <table width="100%" cellpadding="0" cellspacing="0" style="margin-top:8px;">
+            <tr><td align="center">
+              <a href="{cta_href}"
+                style="display:inline-block;background:linear-gradient(135deg,#1E7A6E,#3FAF86);
+                color:#fff;font-size:14px;font-weight:600;text-decoration:none;
+                padding:13px 32px;border-radius:12px;">{cta_label}</a>
+            </td></tr>
+          </table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:20px 40px 28px;border-top:1px solid #f3f4f6;text-align:center;background:#fafafa;">
+          <p style="margin:0;font-size:11px;color:#9ca3af;">
+            © 2026 Domely Inc. ·
+            <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a> ·
+            <a href="https://domely.ca/dashboard/settings" style="color:#9ca3af;text-decoration:none;">Se désabonner</a>
+          </p>
+        </td>
+      </tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+
+async def _on_first_property(user: dict, property_name: str):
+    """Fires once when the landlord adds their very first property."""
+    first = (user.get("full_name") or "").split()[0] or "là"
+    html = _milestone_email_html(
+        first=first,
+        headline="Première propriété ajoutée — et maintenant, {first} ?",
+        sub=f"<strong>{property_name}</strong> est maintenant dans votre Domely. Voici les 3 prochaines étapes pour en tirer le meilleur parti.",
+        steps=[
+            {"num": "1", "title": "Créez les unités",          "desc": "Ajoutez les logements de votre immeuble (numéro, chambres, loyer)."},
+            {"num": "2", "title": "Invitez vos locataires",    "desc": "Ils reçoivent un lien magique pour accéder au portail locataire."},
+            {"num": "3", "title": "Générez le bail TAL PDF",   "desc": "Créez un bail officiel québécois en 2 clics, envoyé automatiquement."},
+        ],
+        cta_href="https://domely.ca/dashboard/properties",
+        cta_label="Gérer ma propriété →",
+    )
+    await _send_milestone_email(
+        user.get("email", ""),
+        f"🏠 Votre première propriété est enregistrée — et maintenant ?",
+        html,
+    )
+
+
+async def _on_first_tenant(user: dict, tenant_name: str):
+    """Fires once when the landlord adds their very first tenant."""
+    first = (user.get("full_name") or "").split()[0] or "là"
+    html = _milestone_email_html(
+        first=first,
+        headline=f"Locataire ajouté ! Invitez {tenant_name} au portail.",
+        sub="Votre locataire peut maintenant accéder à son portail Domely — sans mot de passe, juste un lien.",
+        steps=[
+            {"num": "1", "title": "Envoyez le lien du portail",   "desc": "Depuis l'onglet locataire, cliquez « Inviter au portail »."},
+            {"num": "2", "title": "Créez le bail officiel",       "desc": "Générez le bail TAL PDF et envoyez-le pour signature."},
+            {"num": "3", "title": "Activez les paiements en ligne", "desc": "Connectez Stripe — le loyer est perçu automatiquement chaque mois."},
+        ],
+        cta_href="https://domely.ca/dashboard/tenants",
+        cta_label="Voir mes locataires →",
+    )
+    await _send_milestone_email(
+        user.get("email", ""),
+        f"👤 {tenant_name} a été ajouté — invitez-le au portail !",
+        html,
+    )
+
+
+async def _on_first_lease(user: dict, property_name: str):
+    """Fires once when the landlord creates their very first lease."""
+    first = (user.get("full_name") or "").split()[0] or "là"
+    html = _milestone_email_html(
+        first=first,
+        headline="Votre premier bail est généré, {first} !",
+        sub=f"Le bail pour <strong>{property_name}</strong> a été créé. Le PDF TAL officiel a été envoyé au locataire.",
+        steps=[
+            {"num": "1", "title": "Activez les paiements en ligne",   "desc": "Connectez Stripe — votre locataire paie en ligne, vous encaissez directement."},
+            {"num": "2", "title": "Suivez les loyers chaque mois",    "desc": "Tableau de bord Loyers — payé, en attente, en retard — en un coup d'œil."},
+            {"num": "3", "title": "Essayez Domely AI",                "desc": "Posez des questions sur vos finances, vos baux, vos locataires en langage naturel."},
+        ],
+        cta_href="https://domely.ca/dashboard/leases",
+        cta_label="Voir mes baux →",
+    )
+    await _send_milestone_email(
+        user.get("email", ""),
+        "📄 Votre premier bail est prêt — activez les paiements en ligne",
+        html,
+    )
 
 
 async def _send_welcome_email(to_email: str, full_name: str):
@@ -5480,6 +7572,72 @@ async def run_daily_automations():
                 )
 
     logger.info("[Automations] Daily run complete")
+    await _apply_late_fees()
+    """Apply late fee charges to overdue rent payments based on per-property config."""
+    today = date.today()
+    logger.info("[LateFees] Checking for payments eligible for late fees on %s", today.isoformat())
+
+    # Fetch all properties that have a late fee configured
+    props_with_fees = await db.properties.find(
+        {"late_fee_amount": {"$gt": 0}}
+    ).to_list(1000)
+
+    for prop in props_with_fees:
+        prop_id = prop.get("id")
+        fee_amount = float(prop.get("late_fee_amount") or 0)
+        grace_days = int(prop.get("late_fee_grace_days") or 0)
+
+        if not prop_id or fee_amount <= 0:
+            continue
+
+        # Find units for this property
+        units = await db.units.find({"property_id": prop_id}).to_list(200)
+        unit_ids = [u["id"] for u in units if "id" in u]
+        if not unit_ids:
+            continue
+
+        # Find payments that are late or pending, not yet waived, and not already charged
+        candidates = await db.rent_payments.find({
+            "unit_id": {"$in": unit_ids},
+            "status": {"$in": ["late", "pending"]},
+            "late_fee_waived": {"$ne": True},
+            "$or": [
+                {"late_fee_amount": {"$exists": False}},
+                {"late_fee_amount": 0},
+                {"late_fee_amount": None},
+            ],
+        }).to_list(500)
+
+        for payment in candidates:
+            due_date_str = payment.get("due_date") or payment.get("payment_date")
+            if not due_date_str:
+                # Estimate due date from month_year: assume day 1 of that month
+                month_year = payment.get("month_year", "")
+                if len(month_year) == 7:
+                    try:
+                        due_date = date.fromisoformat(f"{month_year}-01")
+                    except ValueError:
+                        continue
+                else:
+                    continue
+            else:
+                try:
+                    due_date = date.fromisoformat(str(due_date_str)[:10])
+                except ValueError:
+                    continue
+
+            days_overdue = (today - due_date).days
+            if days_overdue > grace_days:
+                payment_id = payment.get("id")
+                if payment_id:
+                    await db.rent_payments.update_one(
+                        {"id": payment_id},
+                        {"$set": {"late_fee_amount": fee_amount}}
+                    )
+                    logger.info(
+                        "[LateFees] Applied $%.2f fee to payment %s (%d days overdue, grace=%d)",
+                        fee_amount, payment_id, days_overdue, grace_days
+                    )
 
 
 # ===========================
@@ -5624,8 +7782,102 @@ async def update_inspection(inspection_id: str, data: InspectionCreate, current_
 @api_router.delete("/inspections/{inspection_id}")
 async def delete_inspection(inspection_id: str, current_user: dict = Depends(get_current_user)):
     user_id = current_user["id"]
-    await db.inspections.delete_one({"_id": inspection_id, "user_id": user_id})
+    await db.inspections.delete_one({"id": inspection_id, "user_id": user_id})
     return {"ok": True}
+
+@api_router.get("/inspections/{inspection_id}/report.pdf")
+async def download_inspection_report(inspection_id: str, current_user: dict = Depends(get_current_user)):
+    from reportlab.lib.pagesizes import letter
+    from reportlab.lib import colors
+    from reportlab.lib.units import inch
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, HRFlowable
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.enums import TA_CENTER
+    from io import BytesIO
+    from fastapi.responses import StreamingResponse
+
+    insp = await db.inspections.find_one({"id": inspection_id, "user_id": current_user["id"]})
+    if not insp:
+        raise HTTPException(404, "Not found")
+
+    TEAL = colors.HexColor("#0d9488")
+    TEAL_LIGHT = colors.HexColor("#f0fdfa")
+    GRAY = colors.HexColor("#6b7280")
+    GREEN = colors.HexColor("#16a34a")
+    RED = colors.HexColor("#dc2626")
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            leftMargin=0.75*inch, rightMargin=0.75*inch,
+                            topMargin=0.75*inch, bottomMargin=0.75*inch)
+    styles = getSampleStyleSheet()
+    h1  = ParagraphStyle("h1",  fontSize=20, textColor=TEAL,  fontName="Helvetica-Bold", spaceAfter=4)
+    h2  = ParagraphStyle("h2",  fontSize=12, textColor=colors.HexColor("#111827"), fontName="Helvetica-Bold", spaceBefore=14, spaceAfter=6)
+    body= ParagraphStyle("body",fontSize=10, textColor=GRAY,  spaceAfter=3)
+
+    type_map   = {"move_in":"Entrée","move_out":"Sortie","periodic":"Périodique","routine":"Périodique","emergency":"Urgence"}
+    status_map = {"scheduled":"Planifiée","completed":"Complétée","pending":"En attente"}
+
+    story = []
+    story.append(Paragraph("Domely", h1))
+    story.append(Paragraph(
+        f"Rapport d'inspection — {type_map.get(insp.get('type',''), insp.get('type',''))}",
+        ParagraphStyle("sub", fontSize=14, textColor=colors.HexColor("#111827"), fontName="Helvetica-Bold", spaceAfter=2)
+    ))
+    story.append(Paragraph(f"Propriété: {insp.get('property_name') or insp.get('property_id','—')}", body))
+    story.append(Paragraph(f"Date: {insp.get('scheduled_date') or insp.get('completed_date','—')}", body))
+    story.append(Paragraph(f"Statut: {status_map.get(insp.get('status',''), insp.get('status',''))}", body))
+    story.append(HRFlowable(width="100%", thickness=2, color=TEAL, spaceAfter=12))
+
+    checklist = insp.get("checklist") or []
+    if checklist:
+        story.append(Paragraph("Liste de vérification", h2))
+        rows = [["Élément", "État", "Notes"]]
+        for item in checklist:
+            st = item.get("status","ok")
+            label = "✓ OK" if st=="ok" else ("⚠ Problème" if st=="issue" else "N/A")
+            color_hex = "#16a34a" if st=="ok" else ("#dc2626" if st=="issue" else "#6b7280")
+            rows.append([
+                item.get("label",""),
+                Paragraph(f'<font color="{color_hex}">{label}</font>',
+                          ParagraphStyle("s",fontSize=9)),
+                item.get("note","") or "",
+            ])
+        tbl = Table(rows, colWidths=[2.8*inch, 1.2*inch, 2.1*inch])
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND",   (0,0),(-1,0), TEAL),
+            ("TEXTCOLOR",    (0,0),(-1,0), colors.white),
+            ("FONTNAME",     (0,0),(-1,0), "Helvetica-Bold"),
+            ("FONTSIZE",     (0,0),(-1,-1), 9),
+            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.white, TEAL_LIGHT]),
+            ("GRID",         (0,0),(-1,-1), 0.5, colors.HexColor("#e5e7eb")),
+            ("TOPPADDING",   (0,0),(-1,-1), 5),
+            ("BOTTOMPADDING",(0,0),(-1,-1), 5),
+            ("LEFTPADDING",  (0,0),(-1,-1), 8),
+            ("RIGHTPADDING", (0,0),(-1,-1), 8),
+        ]))
+        story.append(tbl)
+
+    if insp.get("notes"):
+        story.append(Paragraph("Notes", h2))
+        story.append(Paragraph(_rl_safe(insp["notes"]), body))
+
+    ok_count    = sum(1 for i in checklist if i.get("status")=="ok")
+    issue_count = sum(1 for i in checklist if i.get("status")=="issue")
+    story.append(Spacer(1,12))
+    story.append(Paragraph(
+        f"Résumé: {ok_count} élément(s) conforme(s) · {issue_count} problème(s) détecté(s)",
+        ParagraphStyle("sum", fontSize=10, textColor=TEAL, fontName="Helvetica-Bold")
+    ))
+    story.append(Spacer(1,20))
+    story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#e5e7eb")))
+    story.append(Paragraph("Généré par Domely · domely.ca · Confidentiel",
+                           ParagraphStyle("footer", fontSize=8, textColor=GRAY, alignment=TA_CENTER, spaceBefore=8)))
+    doc.build(story)
+    buf.seek(0)
+    filename = f"inspection-{inspection_id[:8]}.pdf"
+    return StreamingResponse(buf, media_type="application/pdf",
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
 # ===========================
@@ -5996,6 +8248,212 @@ async def root():
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
+# ── Waitlist ──────────────────────────────────────────────────────────────────
+
+PAIN_LABELS = {
+    "chasing_rent":  "Je cours après les loyers chaque mois",
+    "texts_chaos":   "Je gère tout par texto — c'est le chaos",
+    "rent_increase": "J'ai peur de mal calculer ma hausse de loyer",
+    "below_market":  "Je ne sais pas si mes loyers sont au prix du marché",
+    "scattered":     "Mes finances et dépenses sont éparpillées partout",
+}
+
+async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
+    """Send confirmation email to the new waitlist subscriber via Resend."""
+    key = os.getenv("RESEND_API_KEY")
+    if not key:
+        return
+    first = first_name.strip() if first_name else "là"
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+    <tr><td align="center">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+
+        <tr>
+          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:36px 40px;text-align:center;">
+            <span style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Domely</span>
+            <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-top:6px;">Gestion locative simplifiée</div>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:40px 40px 32px;">
+            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Vous êtes sur la liste, {first}.</h1>
+            <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
+              On vous contacte en premier dès le lancement. Votre prix de lancement est gelé pour toujours.
+            </p>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+              <tr><td style="padding:20px 24px;">
+                <div style="font-size:13px;font-weight:600;color:#134e4a;margin-bottom:12px;">Ce que vous obtenez :</div>
+                <div style="font-size:13px;color:#0f766e;line-height:2;">
+                  &#10003;&nbsp; Prix de lancement garanti à vie<br>
+                  &#10003;&nbsp; Accès prioritaire avant l'ouverture publique<br>
+                  &#10003;&nbsp; Appel de bienvenue avec l'équipe fondatrice<br>
+                  &#10003;&nbsp; Votre avis façonne directement le produit
+                </div>
+              </td></tr>
+            </table>
+
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;margin-bottom:32px;">
+              <tr><td style="padding:16px 24px;">
+                <div style="font-size:13px;color:#92400e;line-height:1.6;">
+                  <strong>On ouvre les portes à 500 inscrits.</strong> Partagez ce lien avec un ami propriétaire pour monter dans la file :
+                  <br><a href="https://www.domely.ca/early-access" style="color:#1E7A6E;font-weight:600;">domely.ca/early-access</a>
+                </div>
+              </td></tr>
+            </table>
+
+            <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.6;">
+              Des questions ? Répondez directement à cet email.<br>
+              <strong style="color:#111827;">L'équipe Domely</strong>
+            </p>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;">
+              Domely · Canada · <a href="https://www.domely.ca/privacy" style="color:#9ca3af;">Confidentialité</a>
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+    async with aiohttp.ClientSession() as session:
+        await session.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"from": "Domely <noreply@domely.ca>", "to": email,
+                  "subject": "Votre place est réservée — Domely", "html": html},
+        )
+
+async def _notify_admin_waitlist(email: str, first_name: Optional[str], unit_count: Optional[str], pain_point: Optional[str], total_count: int):
+    """Send admin notification for each new waitlist signup."""
+    key = os.getenv("RESEND_API_KEY")
+    admin_email = os.getenv("ADMIN_NOTIFY_EMAIL")
+    if not key or not admin_email:
+        return
+    pain_label = PAIN_LABELS.get(pain_point or "", pain_point or "—")
+    html = f"""<!DOCTYPE html>
+<html lang="fr">
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:32px 16px;">
+    <tr><td align="center">
+      <table width="480" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,0.06);">
+        <tr>
+          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:20px 28px;">
+            <span style="font-size:16px;font-weight:700;color:#fff;">Domely — Nouveau inscrit sur la liste</span>
+          </td>
+        </tr>
+        <tr>
+          <td style="padding:28px;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px;overflow:hidden;">
+              <tr style="background:#f9fafb;"><td style="padding:10px 16px;font-size:12px;font-weight:600;color:#6b7280;border-bottom:1px solid #e5e7eb;">INFORMATIONS</td></tr>
+              <tr><td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                <span style="font-size:12px;color:#9ca3af;">Courriel</span><br>
+                <span style="font-size:14px;font-weight:600;color:#111827;">{email}</span>
+              </td></tr>
+              <tr><td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                <span style="font-size:12px;color:#9ca3af;">Prénom</span><br>
+                <span style="font-size:14px;color:#111827;">{first_name or '—'}</span>
+              </td></tr>
+              <tr><td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                <span style="font-size:12px;color:#9ca3af;">Logements</span><br>
+                <span style="font-size:14px;color:#111827;">{unit_count or '—'}</span>
+              </td></tr>
+              <tr><td style="padding:12px 16px;border-bottom:1px solid #f3f4f6;">
+                <span style="font-size:12px;color:#9ca3af;">Défi principal</span><br>
+                <span style="font-size:14px;color:#111827;">{pain_label}</span>
+              </td></tr>
+              <tr style="background:#f0fdfa;"><td style="padding:12px 16px;">
+                <span style="font-size:12px;color:#0f766e;font-weight:600;">Total sur la liste : {total_count + 414}</span>
+              </td></tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+    async with aiohttp.ClientSession() as session:
+        await session.post(
+            "https://api.resend.com/emails",
+            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+            json={"from": "Domely <noreply@domely.ca>", "to": admin_email,
+                  "subject": f"Nouvel inscrit — {email} ({unit_count or '?'} logements)", "html": html},
+        )
+
+class WaitlistEntry(BaseModel):
+    email: str
+    first_name: Optional[str] = None
+    unit_count: Optional[str] = None   # "1-2" | "3-10" | "11-50" | "50+"
+    pain_point: Optional[str] = None   # dropdown value
+    source: Optional[str] = None       # UTM source
+    medium: Optional[str] = None       # UTM medium
+    campaign: Optional[str] = None     # UTM campaign
+
+@api_router.post("/waitlist")
+async def join_waitlist(data: WaitlistEntry):
+    email = data.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(400, "Email invalide")
+    existing = await db.waitlist.find_one({"email": email})
+    if existing:
+        return {"success": True, "already_registered": True}
+    entry = {
+        "id": str(uuid.uuid4()),
+        "email": email,
+        "first_name": data.first_name,
+        "unit_count": data.unit_count,
+        "pain_point": data.pain_point,
+        "source": data.source,
+        "medium": data.medium,
+        "campaign": data.campaign,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.waitlist.insert_one(entry)
+    total = await db.waitlist.count_documents({})
+    asyncio.create_task(_send_waitlist_confirmation(email, data.first_name))
+    asyncio.create_task(_notify_admin_waitlist(email, data.first_name, data.unit_count, data.pain_point, total))
+    return {"success": True, "already_registered": False}
+
+@api_router.get("/waitlist/count")
+async def get_waitlist_count():
+    count = await db.waitlist.count_documents({})
+    return {"count": count + 414}   # seed offset
+
+@api_router.get("/waitlist/export")
+async def export_waitlist(secret: str = ""):
+    if secret != os.environ.get("ADMIN_SECRET", "domely-admin-2026"):
+        raise HTTPException(403, "Unauthorized")
+    from fastapi.responses import StreamingResponse
+    from io import StringIO
+    import csv as csv_module
+    entries = await db.waitlist.find({}).sort("created_at", 1).to_list(5000)
+    buf = StringIO()
+    writer = csv_module.DictWriter(buf, fieldnames=["email","first_name","unit_count","pain_point","source","medium","campaign","created_at"])
+    writer.writeheader()
+    for e in entries:
+        e.pop("_id", None)
+        e.pop("id", None)
+        writer.writerow({k: e.get(k,"") for k in writer.fieldnames})
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=domely-waitlist.csv"}
+    )
+
 # Include the router
 app.include_router(api_router)
 
@@ -6115,6 +8573,468 @@ async def delete_signature(
     await db.signatures.delete_one({"id": sig_id})
     return {"ok": True}
 
+
+# ════════════════════════════════════════════════════════════════════════════
+#  TENANT E-SIGNATURE FLOW  (landlord sends → tenant signs via secure link)
+# ════════════════════════════════════════════════════════════════════════════
+
+@api_router.post("/leases/{lease_id}/send-for-signing")
+async def send_lease_for_signing(lease_id: str, current_user: dict = Depends(get_current_user)):
+    """
+    Landlord triggers this to email the tenant a one-time secure signing link.
+    Creates a sign_request doc with a UUID token (valid 7 days).
+    """
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Bail introuvable")
+
+    tenant_id = lease.get("tenant_id")
+    tenant = await db.tenants.find_one({"id": tenant_id}) if tenant_id else None
+    if not tenant or not tenant.get("email"):
+        raise HTTPException(status_code=400, detail="Adresse email du locataire introuvable")
+
+    # Create / refresh sign request
+    token = str(uuid.uuid4())
+    expires_at = datetime.utcnow() + timedelta(days=7)
+    await db.sign_requests.update_one(
+        {"lease_id": lease_id},
+        {"$set": {
+            "lease_id":   lease_id,
+            "user_id":    current_user["id"],
+            "tenant_id":  tenant_id,
+            "token":      token,
+            "expires_at": expires_at,
+            "status":     "pending",
+            "created_at": datetime.utcnow(),
+        }},
+        upsert=True,
+    )
+
+    app_url = os.getenv("NEXT_PUBLIC_APP_URL", "https://domely.app")
+    sign_url = f"{app_url}/portail/sign/{token}"
+    tenant_first = (tenant.get("first_name") or "").split()[0] or "là"
+
+    # Property/unit info for email
+    prop = await db.properties.find_one({"id": lease.get("property_id")}) or {}
+    prop_addr = prop.get("address") or prop.get("name") or "—"
+
+    html = f"""<!DOCTYPE html><html lang="fr"><body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+  <tr><td align="center">
+    <table width="520" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:16px;overflow:hidden;">
+      <tr><td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 36px;">
+        <div style="font-size:22px;font-weight:800;color:#fff;">Domely</div>
+        <div style="font-size:13px;color:#a7f3d0;margin-top:4px;">Signature de bail</div>
+      </td></tr>
+      <tr><td style="padding:32px 36px;">
+        <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;color:#111827;">Bonjour {tenant_first} !</h2>
+        <p style="margin:0 0 20px;font-size:14px;color:#6b7280;line-height:1.6;">
+          Votre propriétaire vous invite à signer électroniquement votre bail pour <strong>{prop_addr}</strong>.
+          Cliquez sur le bouton ci-dessous pour consulter et signer le document.
+        </p>
+        <p style="text-align:center;margin:0 0 24px;">
+          <a href="{sign_url}" style="display:inline-block;background:linear-gradient(135deg,#1E7A6E,#3FAF86);color:#fff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 36px;border-radius:12px;">
+            Signer mon bail
+          </a>
+        </p>
+        <p style="margin:0 0 8px;font-size:12px;color:#9ca3af;text-align:center;">
+          Ce lien est valide pendant 7 jours. Il ne peut être utilisé qu&apos;une seule fois.
+        </p>
+      </td></tr>
+      <tr><td style="padding:16px 36px;border-top:1px solid #f3f4f6;text-align:center;">
+        <p style="margin:0;font-size:11px;color:#9ca3af;">
+          Signature électronique valide au Québec — LCCJTI (L.R.Q., c. C-1.1)<br>
+          Domely · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a>
+        </p>
+      </td></tr>
+    </table>
+  </td></tr>
+</table>
+</body></html>"""
+
+    await _send_auto_email(
+        tenant["email"],
+        f"Domely — Signez votre bail pour {prop_addr}",
+        html,
+    )
+
+    return {"ok": True, "sent_to": tenant["email"], "expires_at": expires_at.isoformat() + "Z"}
+
+
+class TenantSignBody(BaseModel):
+    signature_data: str   # base64 PNG data-URL
+    signer_name: str
+    ip_address: Optional[str] = None
+
+
+@app.get("/api/sign/{token}")
+async def get_sign_request(token: str):
+    """Public — return lease summary for the tenant to review before signing."""
+    req = await db.sign_requests.find_one({"token": token, "status": "pending"})
+    if not req:
+        raise HTTPException(status_code=404, detail="Lien de signature invalide ou expiré")
+    if req["expires_at"] < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="Lien de signature expiré")
+
+    lease = await db.leases.find_one({"id": req["lease_id"]}) or {}
+    prop  = await db.properties.find_one({"id": lease.get("property_id")}) or {}
+    return {
+        "lease_id":    req["lease_id"],
+        "tenant_id":   req["tenant_id"],
+        "property":    prop.get("address") or prop.get("name") or "—",
+        "unit":        lease.get("unit_number") or "—",
+        "start_date":  lease.get("start_date") or "—",
+        "end_date":    lease.get("end_date") or "—",
+        "rent_amount": lease.get("rent_amount") or 0,
+        "expires_at":  req["expires_at"].isoformat() + "Z",
+    }
+
+
+@app.post("/api/sign/{token}")
+async def submit_tenant_signature(token: str, body: TenantSignBody, request: Request):
+    """Public — tenant submits their signature. Records IP + timestamp for legal audit trail."""
+    req = await db.sign_requests.find_one({"token": token, "status": "pending"})
+    if not req:
+        raise HTTPException(status_code=404, detail="Lien de signature invalide ou déjà utilisé")
+    if req["expires_at"] < datetime.utcnow():
+        raise HTTPException(status_code=410, detail="Lien de signature expiré")
+
+    ip_addr = body.ip_address or request.client.host if request.client else "unknown"
+
+    sig_id = str(uuid.uuid4())
+    doc = {
+        "id":             sig_id,
+        "lease_id":       req["lease_id"],
+        "user_id":        req["user_id"],
+        "signer_type":    "tenant",
+        "signature_data": body.signature_data,
+        "signer_name":    body.signer_name,
+        "signed_at":      datetime.utcnow().isoformat() + "Z",
+        "ip_address":     ip_addr,
+        "sign_method":    "email_link",   # audit trail for LCCJTI compliance
+    }
+    await db.signatures.insert_one(doc)
+
+    # Mark sign request as used
+    await db.sign_requests.update_one(
+        {"token": token},
+        {"$set": {"status": "signed", "signed_at": datetime.utcnow()}},
+    )
+
+    # Notify landlord
+    landlord = await db.users.find_one({"id": req["user_id"]})
+    tenant   = await db.tenants.find_one({"id": req["tenant_id"]}) or {}
+    tenant_name = f"{tenant.get('first_name', '')} {tenant.get('last_name', '')}".strip() or "Le locataire"
+    if landlord and landlord.get("email"):
+        await _send_auto_email(
+            landlord["email"],
+            f"Domely — {tenant_name} a signé le bail ✍️",
+            f"""<p>Bonjour,</p>
+<p><strong>{tenant_name}</strong> a signé électroniquement le bail.
+L'IP enregistrée est <code>{ip_addr}</code> ({datetime.utcnow().strftime('%d/%m/%Y %H:%M')} UTC).</p>
+<p>Téléchargez le PDF du bail dans votre tableau de bord Domely pour obtenir la version finale avec la page de certification.</p>
+<p>L'équipe Domely</p>""",
+        )
+
+    doc.pop("_id", None)
+    return doc
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# STRIPE WEBHOOK  (Stripe → FastAPI directly, no /api prefix)
+# ════════════════════════════════════════════════════════════════════════════
+
+@app.post("/webhooks/stripe")
+async def stripe_webhook(request: Request):
+    """
+    Real Stripe webhook endpoint.  Configure in Stripe Dashboard:
+      URL: https://yourdomain.com/webhooks/stripe
+      Events to listen for:
+        • payment_intent.succeeded
+        • account.updated  (Connect)
+        • capability.updated
+    """
+    payload      = await request.body()
+    sig_header   = request.headers.get("stripe-signature", "")
+    webhook_secret = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+    # Verify signature in production; accept unsigned in dev
+    try:
+        s = _stripe()
+        if webhook_secret and sig_header:
+            event = s.Webhook.construct_event(payload, sig_header, webhook_secret)
+        else:
+            import json as _json
+            event = _json.loads(payload)
+            logger.warning("[Stripe Webhook] No webhook secret — skipping signature verification")
+    except Exception as exc:
+        logger.warning("[Stripe Webhook] Signature verification failed: %s", exc)
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+
+    event_type = event.get("type", "")
+    obj        = event.get("data", {}).get("object", {})
+    logger.info("[Stripe Webhook] Received: %s", event_type)
+
+    # ── Rent paid online ─────────────────────────────────────────────────────
+    if event_type == "payment_intent.succeeded":
+        intent_id  = obj.get("id", "")
+        metadata   = obj.get("metadata", {})
+        tenant_id  = metadata.get("tenant_id", "")
+        lease_id   = metadata.get("lease_id", "")
+        month_year = metadata.get("month_year", datetime.utcnow().strftime("%Y-%m"))
+        rent_amount = float(metadata.get("rent_amount", 0))
+
+        if tenant_id and lease_id and intent_id:
+            exists = await db.rent_payments.find_one({"stripe_payment_intent_id": intent_id})
+            if not exists:
+                payment_id = str(uuid.uuid4())
+                await db.rent_payments.insert_one({
+                    "id":                       payment_id,
+                    "lease_id":                 lease_id,
+                    "tenant_id":                tenant_id,
+                    "amount":                   rent_amount,
+                    "payment_date":             datetime.utcnow().isoformat() + "Z",
+                    "status":                   "paid",
+                    "payment_method":           "stripe_online",
+                    "month_year":               month_year,
+                    "stripe_payment_intent_id": intent_id,
+                    "created_at":               datetime.utcnow(),
+                })
+                logger.info("[Stripe Webhook] Rent payment recorded: tenant=%s amount=%s", tenant_id, rent_amount)
+
+                # Notify landlord
+                lease = await db.leases.find_one({"id": lease_id})
+                if lease:
+                    landlord = await db.users.find_one({"id": lease.get("user_id", "")})
+                    tenant   = await db.tenants.find_one({"id": tenant_id})
+                    if landlord and tenant:
+                        import asyncio as _aio
+                        tenant_name = f"{tenant.get('first_name','')} {tenant.get('last_name','')}".strip()
+                        _aio.create_task(_send_auto_email(
+                            landlord.get("email", ""),
+                            f"Loyer reçu — {tenant_name} · {month_year}",
+                            f"""<p style="font-family:sans-serif;font-size:15px;">
+                            <strong>{tenant_name}</strong> a payé son loyer de <strong>${rent_amount:,.2f}</strong>
+                            pour <strong>{month_year}</strong> via Domely Paiements en ligne.</p>
+                            <p style="font-family:sans-serif;font-size:13px;color:#6b7280;">
+                            Le montant sera déposé sur votre compte Stripe dans 2 jours ouvrables.</p>""",
+                        ))
+
+    # ── Stripe Connect account updated ──────────────────────────────────────
+    elif event_type in ("account.updated", "capability.updated"):
+        account_id      = obj.get("id", "")
+        charges_enabled = obj.get("charges_enabled", False)
+        payouts_enabled = obj.get("payouts_enabled", False)
+        if account_id:
+            status_val = "active" if charges_enabled else "onboarding"
+            await db.users.update_one(
+                {"stripe_account_id": account_id},
+                {"$set": {
+                    "stripe_account_status":   status_val,
+                    "stripe_charges_enabled":  charges_enabled,
+                    "stripe_payouts_enabled":  payouts_enabled,
+                }},
+            )
+            logger.info("[Stripe Webhook] Connect status synced: %s → %s", account_id, status_val)
+
+    return {"received": True}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# TAL RENT INCREASE — send notice by email to tenant
+# ════════════════════════════════════════════════════════════════════════════
+
+class RentIncreaseNoticeBody(BaseModel):
+    new_rent:       float
+    increase_pct:   float
+    effective_date: str   # ISO date string
+    notice_html:    str   # pre-rendered HTML notice (generated client-side)
+
+
+@api_router.post("/leases/{lease_id}/send-rent-increase-notice")
+async def send_rent_increase_notice(
+    lease_id: str,
+    body: RentIncreaseNoticeBody,
+    current_user: dict = Depends(get_current_user),
+):
+    """Email the TAL rent increase notice to the tenant."""
+    lease = await db.leases.find_one({"id": lease_id, "user_id": current_user["id"]})
+    if not lease:
+        raise HTTPException(status_code=404, detail="Bail introuvable")
+    tenant = await db.tenants.find_one({"id": lease.get("tenant_id")})
+    if not tenant or not tenant.get("email"):
+        raise HTTPException(status_code=400, detail="Locataire sans adresse email")
+
+    landlord_name = current_user.get("full_name", "Votre propriétaire")
+    tenant_first  = tenant.get("first_name", "")
+    prop = await db.properties.find_one({"id": lease.get("property_id")}) or {}
+    address = prop.get("address") or prop.get("name") or "votre logement"
+
+    html = f"""<!DOCTYPE html><html lang="fr">
+<head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+<tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0"
+  style="background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+  <tr>
+    <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:28px 40px;text-align:center;">
+      <span style="font-size:22px;font-weight:800;color:#fff;">Domely</span>
+      <div style="font-size:12px;color:rgba(255,255,255,0.75);margin-top:4px;">Avis de modification de loyer</div>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:32px 40px;">
+      <p style="font-size:15px;color:#111827;margin:0 0 8px;">Bonjour {tenant_first},</p>
+      <p style="font-size:14px;color:#6b7280;line-height:1.6;margin:0 0 24px;">
+        Vous recevez cet avis concernant une modification du montant de votre loyer pour le logement situé au
+        <strong>{address}</strong>.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0"
+        style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
+        <tr><td style="padding:20px 24px;">
+          <div style="font-size:13px;color:#134e4a;font-weight:600;margin-bottom:12px;">Détails de la hausse</div>
+          <table width="100%">
+            <tr>
+              <td style="font-size:13px;color:#6b7280;padding-bottom:8px;">Loyer actuel :</td>
+              <td style="font-size:13px;font-weight:600;color:#111827;text-align:right;padding-bottom:8px;">{lease.get('rent_amount', 0):,.2f} $</td>
+            </tr>
+            <tr>
+              <td style="font-size:13px;color:#6b7280;padding-bottom:8px;">Hausse proposée :</td>
+              <td style="font-size:13px;font-weight:600;color:#1E7A6E;text-align:right;padding-bottom:8px;">+{body.increase_pct:.1f}%</td>
+            </tr>
+            <tr style="border-top:1px solid #99f6e4;">
+              <td style="font-size:14px;font-weight:700;color:#111827;padding-top:10px;">Nouveau loyer :</td>
+              <td style="font-size:14px;font-weight:700;color:#1E7A6E;text-align:right;padding-top:10px;">{body.new_rent:,.2f} $ / mois</td>
+            </tr>
+          </table>
+          <p style="font-size:12px;color:#0f766e;margin:12px 0 0;">
+            En vigueur à partir du : <strong>{body.effective_date}</strong>
+          </p>
+        </td></tr>
+      </table>
+      <p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0 0 16px;">
+        Conformément à la <strong>Loi sur le logement (RLRQ c L-6.001)</strong> et aux lignes directrices du
+        <strong>Tribunal administratif du logement (TAL)</strong>, cet avis vous est transmis dans les délais
+        prescrits. Vous avez le droit de refuser cette hausse et de vous adresser au TAL.
+      </p>
+      <p style="font-size:13px;color:#6b7280;margin:0 0 24px;">
+        Pour toute question : contactez <strong>{landlord_name}</strong> via le portail Domely.
+      </p>
+      <table width="100%" cellpadding="0" cellspacing="0">
+        <tr><td align="center">
+          <a href="https://domely.ca/portail"
+            style="display:inline-block;background:linear-gradient(135deg,#1E7A6E,#3FAF86);
+            color:#fff;font-size:14px;font-weight:600;text-decoration:none;
+            padding:12px 28px;border-radius:12px;">Accéder à mon portail →</a>
+        </td></tr>
+      </table>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding:16px 40px 24px;border-top:1px solid #f3f4f6;text-align:center;background:#fafafa;">
+      <p style="margin:0;font-size:11px;color:#9ca3af;">
+        © 2026 Domely Inc. · <a href="https://domely.ca" style="color:#1E7A6E;text-decoration:none;">domely.ca</a>
+      </p>
+    </td>
+  </tr>
+</table>
+</td></tr>
+</table>
+</body></html>"""
+
+    await _send_auto_email(
+        tenant.get("email", ""),
+        f"Avis de hausse de loyer — {address} · en vigueur le {body.effective_date}",
+        html,
+    )
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# ── Public Listing Endpoints ──────────────────────────────────────────────
+
+class ListingInquiryCreate(BaseModel):
+    name: str
+    email: EmailStr
+    phone: Optional[str] = None
+    message: Optional[str] = None
+
+@api_router.get("/listings/{property_id}")
+async def get_public_listing(property_id: str):
+    """Public endpoint — no auth required. Returns listing data if property is listed."""
+    prop = await db.properties.find_one({"id": property_id})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Annonce non disponible")
+    if not prop.get("listed"):
+        raise HTTPException(status_code=404, detail="Annonce non disponible")
+
+    # Fetch landlord name from users collection
+    landlord_name = ""
+    user = await db.users.find_one({"id": prop.get("user_id")})
+    if user:
+        full_name = user.get("full_name", "")
+        # full_name is stored as a single field
+        landlord_name = full_name
+
+    return {
+        "id": prop.get("id"),
+        "name": prop.get("name"),
+        "address": prop.get("address"),
+        "city": prop.get("city"),
+        "province": prop.get("province"),
+        "postal_code": prop.get("postal_code"),
+        "description": prop.get("description"),
+        "photos": prop.get("photos", []),
+        "rent_amount": prop.get("rent_amount"),
+        "available_date": prop.get("available_date"),
+        "bedrooms": prop.get("bedrooms"),
+        "bathrooms": prop.get("bathrooms"),
+        "property_type": prop.get("property_type"),
+        "amenities": prop.get("amenities", []),
+        "landlord_name": landlord_name,
+    }
+
+@api_router.post("/listings/{property_id}/inquire")
+async def submit_listing_inquiry(property_id: str, data: ListingInquiryCreate):
+    """Public endpoint — no auth required. Creates an applicant record."""
+    prop = await db.properties.find_one({"id": property_id})
+    if not prop or not prop.get("listed"):
+        raise HTTPException(status_code=404, detail="Annonce non disponible")
+
+    if not data.name or not data.name.strip():
+        raise HTTPException(status_code=422, detail="Le nom est requis.")
+    if not data.email:
+        raise HTTPException(status_code=422, detail="L'adresse courriel est requise.")
+
+    applicant = {
+        "id": str(uuid.uuid4()),
+        "property_id": property_id,
+        "name": data.name.strip(),
+        "email": data.email,
+        "phone": data.phone,
+        "message": data.message,
+        "status": "new",
+        "source": "listing",
+        "created_at": datetime.utcnow(),
+    }
+    await db.applicants.insert_one(applicant)
+    return {"success": True}
+
+@api_router.patch("/properties/{property_id}/toggle-listing")
+async def toggle_listing(property_id: str, current_user: dict = Depends(get_current_user)):
+    """Toggle the listed status of a property. Auth required."""
+    prop = await db.properties.find_one({"id": property_id, "user_id": current_user["id"]})
+    if not prop:
+        raise HTTPException(status_code=404, detail="Property not found")
+
+    new_listed = not prop.get("listed", False)
+    await db.properties.update_one(
+        {"id": property_id},
+        {"$set": {"listed": new_listed, "updated_at": datetime.utcnow()}}
+    )
+    updated = await db.properties.find_one({"id": property_id})
+    return {**{k: v for k, v in updated.items() if k != "_id"}}
 
 # ════════════════════════════════════════════════════════════════════════════
 

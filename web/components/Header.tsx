@@ -80,7 +80,7 @@ export default function Header() {
             {t(T.nav.login)}
           </Link>
 
-          <Link href="/login?signup=true"
+          <Link href="/early-access"
             className="px-4 py-2 text-[14px] font-semibold text-white rounded-lg transition-all shadow-teal-sm hover:shadow-teal-md hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap"
             style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
             {t(T.nav.cta)}
@@ -130,7 +130,7 @@ export default function Header() {
               className="block text-center py-3 text-[14px] font-medium text-teal-700 dark:text-teal-400 border border-teal-200 dark:border-teal-800 rounded-xl hover:bg-teal-50 dark:hover:bg-teal-900/30 transition-all">
               {t(T.nav.login)}
             </Link>
-            <Link href="/login?signup=true"
+            <Link href="/early-access"
               className="block text-center py-3 text-[14px] font-semibold text-white rounded-xl"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
               {t(T.nav.cta)}

@@ -88,8 +88,21 @@ export const tenantApi = {
   getMessages:         () => tenantFetch<any[]>("/tenant/messages"),
   sendMessage:         (content: string) =>
     tenantFetch<any>("/tenant/messages", { method: "POST", ...body({ content }) }),
-  createPaymentIntent: () =>
-    tenantFetch<{ client_secret: string; amount: number }>("/tenant/payments/create-intent", { method: "POST" }),
-  confirmPayment: (data: { method: string; note?: string }) =>
-    tenantFetch<any>("/tenant/payments/confirm", { method: "POST", ...body(data) }),
+  getDocuments: () => tenantFetch<any[]>("/tenant/documents"),
+  downloadLease: async () => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_tenant_token") : null;
+    const res = await fetch(`${BASE}/tenant/lease/bail.pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  },
+  downloadReceipt: async (id: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_tenant_token") : null;
+    const res = await fetch(`${BASE}/tenant/payments/${id}/receipt`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  },
 };

@@ -48,21 +48,21 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
     <ToastContext.Provider value={{ showToast }}>
       {children}
 
-      {/* Toast container — bottom-right */}
-      <div className="fixed bottom-6 right-6 z-[200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
+      {/* Toast container — top-right */}
+      <div className="fixed top-5 right-5 z-[200] flex flex-col gap-2 max-w-sm w-full pointer-events-none">
         {toasts.map(toast => {
           const cfg = CONFIG[toast.type];
           return (
             <div
               key={toast.id}
-              className={`pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-xl border shadow-lg ${cfg.bg} animate-slide-toast`}
+              className={`pointer-events-auto flex items-center gap-3 pl-4 pr-3 py-3 rounded-xl border shadow-xl ${cfg.bg} animate-slide-toast`}
             >
-              {/* Left accent bar */}
-              <div className={`w-1 self-stretch rounded-full flex-shrink-0 ${cfg.bar}`} />
+              {/* Colored icon dot */}
+              <div className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.bar}`} />
               <p className={`flex-1 text-[13px] font-medium ${cfg.text}`}>{toast.message}</p>
               <button
                 onClick={() => dismiss(toast.id)}
-                className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 mt-0.5"
+                className="flex-shrink-0 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-1"
               >
                 <Icon name="x" size={14} />
               </button>
@@ -73,10 +73,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
       <style jsx global>{`
         @keyframes slide-toast {
-          from { transform: translateX(110%); opacity: 0; }
-          to   { transform: translateX(0);   opacity: 1; }
+          from { transform: translateY(-12px) scale(0.97); opacity: 0; }
+          to   { transform: translateY(0)     scale(1);    opacity: 1; }
         }
-        .animate-slide-toast { animation: slide-toast 0.2s ease-out; }
+        .animate-slide-toast { animation: slide-toast 0.18s ease-out; }
       `}</style>
     </ToastContext.Provider>
   );

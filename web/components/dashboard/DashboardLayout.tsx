@@ -5,8 +5,10 @@ import Link from "next/link";
 import Sidebar from "./Sidebar";
 import DashboardHeader from "./DashboardHeader";
 import AIChatWidget from "./AIChatWidget";
-import WelcomeModal from "./WelcomeModal";
+// REMOVED: redundant with OnboardingChecklist
+// import WelcomeModal from "./WelcomeModal";
 import OnboardingChecklist from "./OnboardingChecklist";
+import ProductTour from "./ProductTour";
 import GlobalSearch from "./GlobalSearch";
 import { Icon } from "@/lib/icons";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -19,6 +21,7 @@ const MOBILE_TABS = [
   { href: "/dashboard/properties",icon: "home"        as const, fr: "Plus",      en: "More" },
 ];
 import { ToastProvider } from "@/lib/ToastContext";
+import { BadgeProvider } from "@/lib/BadgeContext";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -40,6 +43,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <ToastProvider>
+    <BadgeProvider>
     <div className="flex h-screen bg-[#F8FAFB] dark:bg-gray-950 overflow-hidden">
       {/* Desktop sidebar */}
       <div className="hidden lg:flex flex-shrink-0">
@@ -97,10 +101,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         })}
       </nav>
 
-      {/* Onboarding — welcome modal (first login) + activation checklist */}
-      <WelcomeModal />
+      {/* Guided product tour — spotlight walkthrough, first visit only */}
+      <ProductTour />
+
+      {/* Onboarding — activation checklist (WelcomeModal removed: redundant with OnboardingChecklist) */}
+      {/* REMOVED: redundant with OnboardingChecklist */}
+      {/* <WelcomeModal /> */}
       <OnboardingChecklist />
     </div>
+    </BadgeProvider>
     </ToastProvider>
   );
 }

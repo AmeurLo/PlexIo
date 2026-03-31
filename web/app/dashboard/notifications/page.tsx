@@ -27,14 +27,31 @@ const T = {
   },
 };
 
-const TYPE_STYLES: Record<string, { dot: string; badge: string; icon: string }> = {
-  rent:        { dot: "bg-teal-500",   badge: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",    icon: "💳" },
-  payment:     { dot: "bg-teal-500",   badge: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",    icon: "💳" },
-  maintenance: { dot: "bg-amber-500",  badge: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", icon: "🔧" },
-  lease:       { dot: "bg-blue-500",   badge: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",    icon: "📄" },
-  vacancy:     { dot: "bg-red-500",    badge: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",        icon: "🏠" },
-  general:     { dot: "bg-gray-400",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",      icon: "🔔" },
+const TYPE_STYLES: Record<string, { dot: string; badge: string; iconKey: string }> = {
+  rent:        { dot: "bg-teal-500",   badge: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",    iconKey: "creditCard" },
+  payment:     { dot: "bg-teal-500",   badge: "bg-teal-50 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400",    iconKey: "creditCard" },
+  maintenance: { dot: "bg-amber-500",  badge: "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400", iconKey: "wrench" },
+  lease:       { dot: "bg-blue-500",   badge: "bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",    iconKey: "document" },
+  vacancy:     { dot: "bg-red-500",    badge: "bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-400",        iconKey: "home" },
+  general:     { dot: "bg-gray-400",   badge: "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400",      iconKey: "bell" },
 };
+
+const NOTIF_ICON_PATHS: Record<string, string> = {
+  creditCard: "M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z",
+  wrench:     "M11.42 15.17L17.25 21A2.652 2.652 0 0021 17.25l-5.877-5.877M11.42 15.17l2.496-3.03c.317-.384.74-.626 1.208-.766M11.42 15.17l-4.655 5.653a2.548 2.548 0 11-3.586-3.586l6.837-5.63m5.108-.233c.55-.164 1.163-.188 1.743-.14a4.5 4.5 0 004.486-6.336l-3.276 3.277a3.004 3.004 0 01-2.25-2.25l3.276-3.276a4.5 4.5 0 00-6.336 4.486c.091 1.076-.071 2.264-.904 2.95l-.102.085m-1.745 1.437L5.909 7.5H4.5L2.25 3.75l1.5-1.5L7.5 4.5v1.409l4.26 4.26m-1.745 1.437l1.745-1.437m6.615 8.206L15.75 15.75M4.867 19.125h.008v.008h-.008v-.008z",
+  document:   "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z",
+  home:       "M2.25 12l8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25",
+  bell:       "M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0",
+};
+
+function NotifIcon({ iconKey }: { iconKey: string }) {
+  const d = NOTIF_ICON_PATHS[iconKey] ?? NOTIF_ICON_PATHS.bell;
+  return (
+    <svg className="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+    </svg>
+  );
+}
 
 function getStyle(type: string) {
   return TYPE_STYLES[type] ?? TYPE_STYLES.general;
@@ -113,7 +130,9 @@ export default function NotificationsPage() {
         </div>
       ) : notifs.length === 0 ? (
         <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-12 text-center">
-          <div className="text-5xl mb-4">🔔</div>
+          <div className="w-14 h-14 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" /></svg>
+          </div>
           <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">{t(T.empty)}</p>
           <p className="text-[13px] text-gray-400">{t(T.emptySub)}</p>
         </div>
@@ -141,8 +160,8 @@ export default function NotificationsPage() {
                   }`}
                 >
                   {/* Icon bubble */}
-                  <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center text-xl">
-                    {style.icon}
+                  <div className="flex-shrink-0 w-11 h-11 rounded-xl bg-gray-50 dark:bg-gray-800 flex items-center justify-center">
+                    <NotifIcon iconKey={style.iconKey} />
                   </div>
 
                   {/* Content */}

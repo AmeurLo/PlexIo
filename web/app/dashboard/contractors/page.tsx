@@ -4,6 +4,7 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { formatPhone } from "@/lib/format";
 import type { Contractor } from "@/lib/types";
 import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
@@ -48,13 +49,6 @@ const T = {
 };
 
 const emptyForm = { name: "", company: "", specialty: "general", phone: "", email: "", hourly_rate: "", rating: "", notes: "" };
-
-function formatPhone(val: string): string {
-  const d = val.replace(/\D/g, "").slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-}
 
 export default function ContractorsPage() {
   const { lang, t } = useLanguage();

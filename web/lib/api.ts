@@ -72,15 +72,38 @@ export const api = {
   getInsights:  () => apiFetch<PortfolioInsights>("/insights"),
   getHealthScores: () => apiFetch<HealthScoreResponse>("/property-health-scores"),
 
-  // Reminders
+  // Reminders / Tasks
   getReminders: (includeCompleted = false) =>
     apiFetch<Reminder[]>(`/reminders${qs({ include_completed: includeCompleted })}`),
-  createReminder: (data: Omit<Reminder, "id" | "user_id" | "is_completed" | "created_at">) =>
+  createReminder: (data: Omit<Reminder, "id" | "user_id" | "is_completed" | "created_at" | "updated_at">) =>
     apiFetch<Reminder>("/reminders", { method: "POST", ...body(data) }),
+  updateReminder: (id: string, data: Partial<Pick<Reminder, "title" | "description" | "due_date" | "property_id" | "is_flagged" | "is_completed">>) =>
+    apiFetch<Reminder>(`/reminders/${id}`, { method: "PUT", ...body(data) }),
   completeReminder: (id: string) =>
     apiFetch<void>(`/reminders/${id}/complete`, { method: "PUT" }),
   deleteReminder: (id: string) =>
     apiFetch<void>(`/reminders/${id}`, { method: "DELETE" }),
+
+  // Assets
+  getAssets: (propertyId: string) =>
+    apiFetch<{ id: string; name: string; asset_type: string; identifier?: string; unit_id?: string; notes?: string; created_at: string }[]>(`/properties/${propertyId}/assets`),
+  createAsset: (propertyId: string, data: { name: string; asset_type?: string; identifier?: string; unit_id?: string; notes?: string }) =>
+    apiFetch<{ id: string; name: string; asset_type: string; identifier?: string; unit_id?: string; notes?: string; created_at: string }>(`/properties/${propertyId}/assets`, { method: "POST", ...body(data) }),
+  updateAsset: (propertyId: string, assetId: string, data: { name: string; asset_type?: string; identifier?: string; unit_id?: string; notes?: string }) =>
+    apiFetch<{ id: string; name: string; asset_type: string; identifier?: string; unit_id?: string; notes?: string }>(`/properties/${propertyId}/assets/${assetId}`, { method: "PUT", ...body(data) }),
+  deleteAsset: (propertyId: string, assetId: string) =>
+    apiFetch<void>(`/properties/${propertyId}/assets/${assetId}`, { method: "DELETE" }),
+
+  // Audit log
+  getPropertyAudit: (propertyId: string) =>
+    apiFetch<{ id: string; entity_type: string; entity_id: string; action: string; entity_label?: string; created_at: string }[]>(`/properties/${propertyId}/audit`),
+
+  // MFA
+  getMfaStatus: () => apiFetch<{ mfa_enabled: boolean }>("/auth/mfa/status"),
+  setupMfa: () => apiFetch<{ secret: string; uri: string; qr_code_b64: string }>("/auth/mfa/setup", { method: "POST" }),
+  verifyMfa: (code: string) => apiFetch<{ ok: boolean }>("/auth/mfa/verify", { method: "POST", ...body({ code }) }),
+  confirmMfa: (mfa_token: string, code: string) => apiFetch<{ access_token: string; user: unknown }>("/auth/mfa/confirm", { method: "POST", ...body({ mfa_token, code }) }),
+  disableMfa: (current_password: string, code: string) => apiFetch<{ ok: boolean }>("/auth/mfa/disable", { method: "POST", ...body({ current_password, code }) }),
 
   // Properties
   getProperties: () => apiFetch<PropertyWithStats[]>("/properties"),
@@ -93,6 +116,32 @@ export const api = {
     apiFetch<PropertyWithStats>(`/properties/${id}`, { method: "PUT", ...body(data) }),
   deleteProperty: (id: string) =>
     apiFetch<void>(`/properties/${id}`, { method: "DELETE" }),
+
+  emailTenants: (propertyId: string, subject: string, body: string) =>
+    apiFetch<{ sent: number; skipped: number; total: number }>(
+      `/properties/${propertyId}/email-tenants`,
+      { method: "POST", body: JSON.stringify({ subject, body }) }
+    ),
+
+  // Property Documents
+  getPropertyDocuments: (propertyId: string) =>
+    apiFetch<any[]>(`/properties/${propertyId}/documents`),
+  uploadPropertyDocument: (propertyId: string, data: { name: string; file_type: string; base64_data: string; size_kb?: number; unit_id?: string }) =>
+    apiFetch<any>(`/properties/${propertyId}/documents`, { method: "POST", ...body(data) }),
+  deletePropertyDocument: (propertyId: string, docId: string) =>
+    apiFetch<any>(`/properties/${propertyId}/documents/${docId}`, { method: "DELETE" }),
+  downloadPropertyDocument: async (propertyId: string, docId: string, filename: string) => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api";
+    const res = await fetch(`${BASE}/properties/${propertyId}/documents/${docId}/download`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    Object.assign(document.createElement("a"), { href: url, download: filename }).click();
+    URL.revokeObjectURL(url);
+  },
 
   // Units
   getUnits: (propertyId?: string) =>
@@ -160,6 +209,11 @@ export const api = {
       : apiFetch<MaintenanceRequestWithDetails>(`/maintenance/${id}`, { method: "PUT", ...body(data) }),
   deleteMaintenanceRequest: (id: string) =>
     apiFetch<void>(`/maintenance/${id}`, { method: "DELETE" }),
+  assignContractor: (id: string, contractorId: string | null) =>
+    apiFetch<MaintenanceRequestWithDetails>(`/maintenance/${id}/assign`, {
+      method: "PATCH",
+      ...body({ contractor_id: contractorId }),
+    }),
 
   // Expenses
   getExpenses: (propertyId?: string, monthYear?: string, category?: string) =>
@@ -214,10 +268,12 @@ export const api = {
   // Team
   getTeam: () => apiFetch<TeamMember[]>("/team"),
   getTeamMembers: () => apiFetch<TeamMember[]>("/team"),
-  addTeamMember: (data: Partial<TeamMember>) =>
-    apiFetch<TeamMember>("/team", { method: "POST", ...body(data) }),
-  inviteTeamMember: (data: Partial<TeamMember>) =>
-    apiFetch<TeamMember>("/team", { method: "POST", ...body(data) }),
+  inviteTeamMember: (data: { email: string; role: string; name?: string }) =>
+    apiFetch<TeamMember>("/team/invite", { method: "POST", ...body(data) }),
+  addTeamMember: (data: { email: string; role: string; name?: string }) =>
+    apiFetch<TeamMember>("/team/invite", { method: "POST", ...body(data) }),
+  updateTeamMemberRole: (id: string, role: string) =>
+    apiFetch<{ success: boolean }>(`/team/${id}/role`, { method: "PATCH", ...body({ role }) }),
   updateTeamMember: (id: string, data: Partial<TeamMember>) =>
     apiFetch<void>(`/team/${id}`, { method: "PUT", ...body(data) }),
   deleteTeamMember: (id: string) => apiFetch<void>(`/team/${id}`, { method: "DELETE" }),
@@ -262,6 +318,14 @@ export const api = {
   updateInspection: (id: string, data: Partial<Inspection>) =>
     apiFetch<Inspection>(`/inspections/${id}`, { method: "PUT", ...body(data) }),
   deleteInspection: (id: string) => apiFetch<void>(`/inspections/${id}`, { method: "DELETE" }),
+  downloadInspectionReport: async (id: string): Promise<Blob> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const res = await fetch(`${BASE}/inspections/${id}/report.pdf`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  },
 
   // Automations
   getAutomations: () =>
@@ -277,6 +341,8 @@ export const api = {
     apiFetch<unknown>("/auth/me", { method: "PATCH", ...body(data) }),
   changePassword: (data: { current_password: string; new_password: string }) =>
     apiFetch<unknown>("/auth/change-password", { method: "POST", ...body(data) }),
+  deleteMyAccount: (confirmation: string) =>
+    apiFetch<{ ok: boolean; message: string }>("/auth/me", { method: "DELETE", ...body({ confirmation }) }),
 
   // Rent (additional)
   updateRentPayment: (id: string, data: Partial<RentPayment>) =>
@@ -309,6 +375,23 @@ export const api = {
     const token =
       typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
     const res = await fetch(`${BASE}/leases/${leaseId}/generate-bail`, {
+      headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error((body as { detail?: string }).detail ?? `Erreur ${res.status}`);
+    }
+    return res.blob();
+  },
+
+  // Quebec RL-31 Tax Slip
+  generateRL31: async (leaseId: string, year?: number): Promise<Blob> => {
+    const token =
+      typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const url = year
+      ? `${BASE}/leases/${leaseId}/generate-rl31?year=${year}`
+      : `${BASE}/leases/${leaseId}/generate-rl31`;
+    const res = await fetch(url, {
       headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     });
     if (!res.ok) {
@@ -363,4 +446,29 @@ export const api = {
 
   adminDeleteUser: (userId: string) =>
     apiFetch<{ ok: boolean }>(`/admin/users/${userId}`, { method: "DELETE" }),
+
+  // ── Public Listings ────────────────────────────────────────────────────────
+  getPublicListing: (propertyId: string) =>
+    fetch(`${BASE}/listings/${propertyId}`).then(r => r.ok ? r.json() : Promise.reject(r)),
+  submitListingInquiry: (propertyId: string, data: { name: string; email: string; phone?: string; message?: string }) =>
+    apiFetch<{ success: boolean }>(`/listings/${propertyId}/inquire`, { method: "POST", body: JSON.stringify(data) }),
+  togglePropertyListing: (propertyId: string) =>
+    apiFetch<any>(`/properties/${propertyId}/toggle-listing`, { method: "PATCH" }),
+  waiveLateFee: (paymentId: string) =>
+    apiFetch<any>(`/rent-payments/${paymentId}/waive-late-fee`, { method: "POST" }),
+  updateLateFeeSettings: (propertyId: string, data: { late_fee_amount: number; late_fee_grace_days: number }) =>
+    apiFetch<{ success: boolean }>(`/properties/${propertyId}/late-fee-settings`, { method: "PATCH", body: JSON.stringify(data) }),
+
+  // Vacancy loss tracking
+  getVacancyLosses: () => apiFetch<any>("/vacancy/losses"),
+
+  // Portfolio PDF report
+  downloadPortfolioReport: async (month: string): Promise<Blob> => {
+    const token = typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+    const res = await fetch(`${BASE}/reports/portfolio?month=${month}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.blob();
+  },
 };

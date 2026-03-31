@@ -156,7 +156,7 @@ export default function AIChatWidget() {
     <>
       {/* Chat panel */}
       <div
-        className={`fixed bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[380px] transition-all duration-300 origin-bottom-right ${
+        className={`fixed bottom-36 sm:bottom-24 right-4 sm:right-6 z-50 w-[calc(100vw-2rem)] sm:w-[380px] transition-all duration-300 origin-bottom-right ${
           open ? "opacity-100 scale-100 pointer-events-auto" : "opacity-0 scale-95 pointer-events-none"
         }`}
       >
@@ -284,7 +284,7 @@ export default function AIChatWidget() {
       {/* Floating button — hidden on /messages (use sidebar to open) */}
       <button
         onClick={() => setOpen(v => !v)}
-        className={`fixed bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center ${hideTrigger ? "hidden" : ""}`}
+        className={`fixed bottom-[4.75rem] sm:bottom-6 right-4 sm:right-6 z-50 w-14 h-14 rounded-2xl text-white shadow-lg hover:shadow-xl transition-all hover:scale-105 active:scale-95 flex items-center justify-center ${hideTrigger ? "hidden" : ""}`}
         style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
         aria-label="Domely AI">
         <div className={`transition-all duration-200 ${open ? "opacity-0 scale-50 absolute" : "opacity-100 scale-100"}`}>

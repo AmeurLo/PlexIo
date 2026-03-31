@@ -25,7 +25,7 @@ const content = {
     cta: {
       title: "Automatisez tout ce que vous venez de lire.",
       sub: "Domely gère la conformité, les hausses, les rappels et bien plus, à votre place.",
-      btn: "Essayer gratuitement",
+      btn: "S'inscrire à la liste d'attente",
     },
     sections: [
       {
@@ -133,7 +133,7 @@ const content = {
     cta: {
       title: "Automate everything you just read.",
       sub: "Domely handles compliance, increases, reminders and much more, on your behalf.",
-      btn: "Try for free",
+      btn: "Join the waitlist",
     },
     sections: [
       {
@@ -302,7 +302,7 @@ export default function GuidePage() {
                 style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                 <p className="text-[20px] font-bold mb-2">{C.cta.title}</p>
                 <p className="text-teal-100 text-[14px] mb-5">{C.cta.sub}</p>
-                <Link href="/login?signup=true"
+                <Link href="/early-access"
                   className="inline-flex items-center px-5 py-2.5 rounded-xl bg-white text-teal-700 font-semibold text-[14px] hover:bg-teal-50 transition-colors">
                   {C.cta.btn} →
                 </Link>

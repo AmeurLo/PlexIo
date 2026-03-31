@@ -60,12 +60,21 @@ const STATUS_STYLES: Record<string, string> = {
   pending:   "bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400",
 };
 
-const TYPE_ICONS: Record<string, string> = {
-  move_in:   "🔑",
-  move_out:  "🚪",
-  routine:   "🔍",
-  emergency: "🚨",
+const TYPE_ICON_PATHS: Record<string, string> = {
+  move_in:   "M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z",
+  move_out:  "M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75",
+  routine:   "M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 15.803a7.5 7.5 0 0010.607 10.607z",
+  emergency: "M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z",
 };
+
+function InspectionIcon({ type }: { type: string }) {
+  const d = TYPE_ICON_PATHS[type] ?? TYPE_ICON_PATHS.routine;
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d={d} />
+    </svg>
+  );
+}
 
 const EMPTY_FORM = {
   type: "routine", unit: "", tenant: "", date: "", status: "completed",
@@ -211,7 +220,7 @@ export default function InspectionsPage() {
                     <tr key={ins.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                       <td className="px-5 py-4">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">{TYPE_ICONS[ins.type] ?? "🔍"}</span>
+                          <InspectionIcon type={ins.type} />
                           <span className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
                             {getLabel(ins.type, typeLabels)}
                           </span>
@@ -268,7 +277,7 @@ export default function InspectionsPage() {
                 <div key={ins.id} className="p-5">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-xl">{TYPE_ICONS[ins.type] ?? "🔍"}</span>
+                      <InspectionIcon type={ins.type} />
                       <div>
                         <p className="text-[13px] font-semibold text-gray-800 dark:text-gray-200">{ins.unit}</p>
                         <p className="text-[11px] text-gray-400">{getLabel(ins.type, typeLabels)} · {ins.date?.slice(0, 10)}</p>

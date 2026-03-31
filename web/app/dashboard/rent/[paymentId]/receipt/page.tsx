@@ -61,6 +61,9 @@ export default function ReceiptPage() {
   const [payment, setPayment] = useState<RentPayment | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sentOk, setSentOk] = useState(false);
+  const [sendError, setSendError] = useState("");
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -69,6 +72,24 @@ export default function ReceiptPage() {
       .catch(() => setNotFound(true))
       .finally(() => setLoading(false));
   }, [paymentId]);
+
+  const handleSendReceipt = async () => {
+    if (!paymentId) return;
+    setSending(true); setSendError(""); setSentOk(false);
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("domely_token") : null;
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api"}/rent-payments/${paymentId}/send-receipt`,
+        { method: "POST", headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) } }
+      );
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as any).detail || "Erreur envoi"); }
+      setSentOk(true);
+    } catch (err: unknown) {
+      setSendError(err instanceof Error ? err.message : "Erreur envoi");
+    } finally {
+      setSending(false);
+    }
+  };
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -105,7 +126,7 @@ export default function ReceiptPage() {
       `}</style>
 
       {/* Action bar — hidden on print */}
-      <div className="no-print flex items-center gap-3 p-6 pb-0 max-w-2xl">
+      <div className="no-print flex items-center gap-3 p-6 pb-0 max-w-2xl flex-wrap">
         <button
           onClick={() => router.back()}
           className="flex items-center gap-1.5 text-[13px] text-gray-500 hover:text-gray-700 transition-colors"
@@ -116,6 +137,29 @@ export default function ReceiptPage() {
           {t(T.back)}
         </button>
         <div className="flex-1" />
+
+        {/* Send receipt by email */}
+        {sentOk ? (
+          <span className="flex items-center gap-1.5 px-4 py-2 text-[13px] font-semibold text-teal-700 bg-teal-50 rounded-xl border border-teal-200">
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+            {lang === "fr" ? "Reçu envoyé !" : "Receipt sent!"}
+          </span>
+        ) : (
+          <button
+            onClick={handleSendReceipt}
+            disabled={sending}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-semibold rounded-xl transition-colors disabled:opacity-60"
+          >
+            {sending ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+            )}
+            {lang === "fr" ? (sending ? "Envoi…" : "Envoyer au locataire") : (sending ? "Sending…" : "Send to tenant")}
+          </button>
+        )}
+        {sendError && <p className="w-full text-[12px] text-red-500">{sendError}</p>}
+
         <button
           onClick={() => window.print()}
           className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-xl transition-colors"

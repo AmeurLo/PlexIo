@@ -20,7 +20,10 @@ const CROSS = () => (
   </svg>
 );
 
-const PLAN_KEYS = ["starter", "pro", "team"] as const;
+const PLAN_KEYS = ["starter", "pro", "enterprise"] as const;
+
+// During waitlist phase — all CTAs go to early-access, no Stripe
+const WAITLIST_MODE = true;
 
 export default function Pricing() {
   const { t, lang } = useLanguage();
@@ -62,7 +65,7 @@ export default function Pricing() {
       const data = await res.json();
       if (data.url) window.location.href = data.url;
     } catch {
-      router.push("/login?signup=true");
+      router.push("/early-access");
     } finally {
       setLoading(null);
     }
@@ -98,8 +101,7 @@ export default function Pricing() {
           {P.plans.map((plan, i) => {
             const planKey       = PLAN_KEYS[i];
             const isHighlighted = !!plan.badge;
-            const isFree        = plan.price.monthly === 0;
-            const isEnterprise  = i === 2;
+            const isContactSales = !!(plan as any).contactSales;
             const isLoadingThis = loading === planKey;
 
             // When promo is live use discounted price; after expiry fall back to wasPrice
@@ -131,8 +133,10 @@ export default function Pricing() {
                   <p className="text-[12px] font-semibold text-gray-400 uppercase tracking-widest mb-2">{t(plan.name)}</p>
 
                   <div className="flex items-end gap-1.5 mb-2">
-                    {isFree ? (
-                      <span className="text-[44px] font-bold tracking-tight text-gray-900 dark:text-white">{t(P.free)}</span>
+                    {isContactSales ? (
+                      <span className="text-[28px] font-bold tracking-tight text-gray-900 dark:text-white leading-tight">
+                        {lang === "fr" ? "Sur devis" : "Custom"}
+                      </span>
                     ) : (
                       <>
                         <span className="text-[44px] font-bold tracking-tight text-gray-900 dark:text-white">
@@ -168,14 +172,15 @@ export default function Pricing() {
                 </div>
 
                 {/* CTA Button */}
-                {isFree ? (
-                  <Link href="/login?signup=true"
+                {isContactSales ? (
+                  <Link href="/contact"
                     className="block text-center py-3 px-5 rounded-xl text-[14px] font-semibold transition-all mb-7 border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30">
                     {t(plan.cta)}
                   </Link>
-                ) : isEnterprise ? (
-                  <Link href="/contact"
-                    className="block text-center py-3 px-5 rounded-xl text-[14px] font-semibold transition-all mb-7 border border-teal-200 dark:border-teal-800 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/30">
+                ) : WAITLIST_MODE ? (
+                  <Link href="/early-access"
+                    className="block text-center py-3 px-5 rounded-xl text-[14px] font-semibold transition-all mb-7 text-white hover:opacity-90"
+                    style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                     {t(plan.cta)}
                   </Link>
                 ) : (

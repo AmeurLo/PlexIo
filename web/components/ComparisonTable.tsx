@@ -58,7 +58,7 @@ export default function ComparisonTable() {
         <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-card overflow-hidden" style={{ border: "1px solid var(--border-subtle)" }}>
 
           {/* Header row */}
-          <div className="grid grid-cols-5 border-b border-gray-100 dark:border-gray-800">
+          <div className="grid grid-cols-6 border-b border-gray-100 dark:border-gray-800">
             {/* Feature label col */}
             <div className="col-span-1 px-5 py-5 flex items-end">
               <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">{t(C.cols.feature)}</p>
@@ -76,6 +76,12 @@ export default function ComparisonTable() {
                 </div>
                 <span className="text-[11px] text-teal-300">{t(C.colsSub.domely)}</span>
               </div>
+            </div>
+
+            {/* PlexFlow */}
+            <div className="px-4 py-5 text-center border-l border-gray-100 dark:border-gray-800">
+              <p className="text-[13px] font-semibold text-gray-700 dark:text-gray-300 mb-1">{t(C.cols.plexflow)}</p>
+              <p className="text-[11px] text-gray-400">{t(C.colsSub.plexflow)}</p>
             </div>
 
             {/* Buildium */}
@@ -101,7 +107,7 @@ export default function ComparisonTable() {
           {C.rows.map((row, i) => (
             <div
               key={i}
-              className="grid grid-cols-5 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition-colors"
+              className="grid grid-cols-6 border-t border-gray-100 dark:border-gray-800 hover:bg-gray-50/60 dark:hover:bg-gray-800/40 transition-colors"
             >
               <div className="col-span-1 px-5 py-4 flex items-center">
                 <p className="text-[13px] font-medium text-gray-700 dark:text-gray-300">{t(row.feature)}</p>
@@ -110,6 +116,10 @@ export default function ComparisonTable() {
               {/* Domely — tinted green background */}
               <div className="col-span-1 px-4 py-4 flex items-center justify-center bg-teal-50/50 dark:bg-teal-900/10">
                 <Cell val={row.domely} />
+              </div>
+
+              <div className="px-4 py-4 flex items-center justify-center border-l border-gray-100 dark:border-gray-800">
+                <Cell val={row.plexflow} />
               </div>
 
               <div className="px-4 py-4 flex items-center justify-center border-l border-gray-100 dark:border-gray-800">
@@ -127,22 +137,22 @@ export default function ComparisonTable() {
           ))}
 
           {/* CTA row */}
-          <div className="grid grid-cols-5 border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
+          <div className="grid grid-cols-6 border-t border-gray-100 dark:border-gray-800 bg-gray-50/60 dark:bg-gray-800/30">
             <div className="col-span-1 px-5 py-5" />
 
             {/* Domely CTA */}
             <div className="col-span-1 px-4 py-5 flex items-center justify-center">
               <a
-                href="/login?signup=true"
+                href="/early-access"
                 className="text-[13px] font-semibold text-white px-4 py-2 rounded-xl transition-all hover:scale-[1.03] whitespace-nowrap shadow-teal-sm"
                 style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
               >
-                {t({ fr: "Commencer →", en: "Get started →" })}
+                {t({ fr: "Accès anticipé", en: "Early access" })}
               </a>
             </div>
 
             {/* Competitor notes */}
-            {(["buildium", "building", "turbotenant"] as const).map((key) => (
+            {(["plexflow", "buildium", "building", "turbotenant"] as const).map((key) => (
               <div key={key} className="px-4 py-5 flex items-center justify-center border-l border-gray-100 dark:border-gray-800">
                 <p className="text-[12px] text-gray-400 text-center">{t(C.ctaNotes[key])}</p>
               </div>
@@ -165,8 +175,8 @@ export default function ComparisonTable() {
         </div>
         <p className="text-center text-[11px] text-gray-300 mt-3">
           {t({
-            fr: "Sources : buildium.com · buildingstack.com · turbotenant.com, tarifs vérifiés mars 2025",
-            en: "Sources: buildium.com · buildingstack.com · turbotenant.com, pricing verified March 2025",
+            fr: "Sources : plexflow.ca · buildium.com · buildingstack.com · turbotenant.com, tarifs vérifiés mars 2026",
+            en: "Sources: plexflow.ca · buildium.com · buildingstack.com · turbotenant.com, pricing verified March 2026",
           })}
         </p>
       </div>

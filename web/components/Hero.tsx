@@ -189,13 +189,10 @@ export default function Hero() {
 
           {/* CTAs */}
           <div className="flex flex-col sm:flex-row gap-3 mb-9">
-            <Link href="/login?signup=true"
+            <Link href="/early-access"
               className="inline-flex items-center justify-center gap-2 px-6 py-4 text-[15px] font-semibold text-white rounded-xl shadow-teal-md hover:shadow-teal-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
               {t(H.cta1)}
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
-              </svg>
             </Link>
             <button
               onClick={scrollToHow}
@@ -221,8 +218,8 @@ export default function Hero() {
               ))}
             </div>
             <p className="text-[13px] text-gray-400">
-              <span className="font-semibold text-gray-700 dark:text-gray-200">{t({ fr: "Accès bêta disponible", en: "Beta access available" })}</span>
-              {" · "}{t({ fr: "14 jours gratuits, sans carte", en: "14 days free, no card" })}
+              <span className="font-semibold text-gray-700 dark:text-gray-200">414 {t(H.social)}</span>
+              {" · "}{t({ fr: "À 500, on ouvre les portes", en: "At 500, we launch" })}
             </p>
           </div>
         </div>

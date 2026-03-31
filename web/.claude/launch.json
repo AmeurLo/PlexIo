@@ -4,8 +4,8 @@
     {
       "name": "Domely Web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "preview"],
-      "port": 4000
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
     }
   ]
 }

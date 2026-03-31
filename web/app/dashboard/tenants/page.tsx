@@ -5,6 +5,7 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { useToast } from "@/lib/ToastContext";
 import { requireAuth } from "@/lib/auth";
 import { api } from "@/lib/api";
+import { formatPhone, isValidPhone, downloadCsv } from "@/lib/format";
 import type { Tenant, Property } from "@/lib/types";
 import PageHeader from "@/components/dashboard/PageHeader";
 import Modal from "@/components/dashboard/Modal";
@@ -13,6 +14,7 @@ import EmptyState from "@/components/dashboard/EmptyState";
 import FormField, { inputClass, selectClass } from "@/components/dashboard/FormField";
 import StatusBadge from "@/components/dashboard/StatusBadge";
 import { Icon } from "@/lib/icons";
+import { useSortable, SortIndicator } from "@/lib/useSortable";
 
 const T = {
   title:       { fr: "Locataires",          en: "Tenants" },
@@ -24,7 +26,7 @@ const T = {
   save:        { fr: "Enregistrer",         en: "Save" },
   saving:      { fr: "Enregistrement…",     en: "Saving…" },
   empty:       { fr: "Aucun locataire",     en: "No tenants yet" },
-  emptySub:    { fr: "Ajoutez votre premier locataire.", en: "Add your first tenant to get started." },
+  emptySub:    { fr: "Gérez les coordonnées, les contacts d'urgence et les documents de chaque locataire en un seul endroit.", en: "Manage contact info, emergency contacts and documents for every tenant in one place." },
   delTitle:    { fr: "Supprimer le locataire ?", en: "Delete tenant?" },
   delMsg:      { fr: "Cette action est irréversible.", en: "This action cannot be undone." },
   search:      { fr: "Rechercher…",         en: "Search…" },
@@ -46,16 +48,22 @@ const emptyForm = {
   move_in_date: "", emergency_contact_name: "", emergency_contact_phone: "",
 };
 
+const PAGE_SIZE = 20;
+
+function getPageNumbers(current: number, total: number): (number | null)[] {
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const delta = 2;
+  const left = Math.max(2, current - delta);
+  const right = Math.min(total - 1, current + delta);
+  const items: (number | null)[] = [1];
+  if (left > 2) items.push(null);
+  for (let i = left; i <= right; i++) items.push(i);
+  if (right < total - 1) items.push(null);
+  items.push(total);
+  return items;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function formatPhone(val: string): string {
-  const d = val.replace(/\D/g, "").slice(0, 10);
-  if (d.length <= 3) return d;
-  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
-  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
-}
-function isValidPhone(v: string): boolean {
-  return !v.trim() || v.replace(/\D/g, "").length >= 10;
-}
 function isValidEmail(v: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 }
@@ -78,6 +86,10 @@ export default function TenantsPage() {
   const propDropRef = useRef<HTMLDivElement>(null);
   const [phoneError, setPhoneError] = useState("");
   const [emailError, setEmailError] = useState("");
+  const { sort: tenSort, toggle: toggleTenSort, sortItems: sortTenItems } = useSortable<"name" | "email" | "property" | "status">("name");
+  const [page, setPage] = useState(1);
+
+  useEffect(() => { setPage(1); }, [search]);
 
   useEffect(() => {
     if (!requireAuth()) return;
@@ -156,16 +168,48 @@ export default function TenantsPage() {
 
   const f = (k: string, v: any) => setForm(prev => ({ ...prev, [k]: v }));
 
-  const filtered = tenants.filter(t => {
+  const propName = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
+
+  const baseFiltered = tenants.filter(t => {
     const q = search.toLowerCase();
     return !q || `${t.first_name} ${t.last_name} ${t.email}`.toLowerCase().includes(q);
   });
+  const filtered = sortTenItems(baseFiltered, (col, t) => {
+    if (col === "name")     return `${t.first_name} ${t.last_name}`;
+    if (col === "email")    return t.email ?? "";
+    if (col === "property") return t.property_id ? propName(t.property_id) : "";
+    if (col === "status")   return t.status ?? "";
+    return "";
+  });
 
-  const propName = (id: string) => properties.find(p => p.id === id || p._id === id)?.name ?? id;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   return (
     <div className="p-6 max-w-6xl space-y-6">
-      <PageHeader title={t(T.title)} subtitle={t(T.sub)} actions={[{ label: `+ ${t(T.add)}`, onClick: openAdd, primary: true }]} />
+      <PageHeader
+        title={t(T.title)}
+        subtitle={t(T.sub)}
+        actions={[
+          {
+            label: lang === "fr" ? "Exporter CSV" : "Export CSV",
+            onClick: () => {
+              const rows = tenants.map(t => ({
+                Prénom: t.first_name ?? "",
+                Nom: t.last_name ?? "",
+                Courriel: t.email ?? "",
+                Téléphone: t.phone ?? "",
+                Propriété: t.property_id ? propName(t.property_id) : "",
+                Unité: t.unit_number ?? "",
+                Statut: t.status ?? "",
+                "Date d'emménagement": t.move_in_date?.slice(0, 10) ?? "",
+              }));
+              if (rows.length) downloadCsv(rows, `locataires-${new Date().toISOString().slice(0,10)}.csv`);
+            },
+          },
+          { label: `+ ${t(T.add)}`, onClick: openAdd, primary: true },
+        ]}
+      />
 
       {/* Search */}
       <div className="relative max-w-sm">
@@ -188,16 +232,33 @@ export default function TenantsPage() {
             <table className="w-full text-[13px]">
               <thead>
                 <tr className="border-b border-gray-100 dark:border-gray-800 text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
-                  <th className="px-5 py-3 text-left">{lang === "fr" ? "Nom" : "Name"}</th>
-                  <th className="px-5 py-3 text-left">{t(T.email)}</th>
-                  <th className="px-5 py-3 text-left">{t(T.property)}</th>
+                  {([
+                    ["name",     lang === "fr" ? "Nom" : "Name"],
+                    ["email",    t(T.email)],
+                    ["property", t(T.property)],
+                  ] as [string, string][]).map(([col, label]) => (
+                    <th
+                      key={col}
+                      className="px-5 py-3 text-left cursor-pointer select-none group hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                      onClick={() => toggleTenSort(col as any)}
+                    >
+                      {label}
+                      <SortIndicator active={tenSort.col === col} dir={tenSort.dir} />
+                    </th>
+                  ))}
                   <th className="px-5 py-3 text-left">{t(T.unit)}</th>
-                  <th className="px-5 py-3 text-left">{t(T.status)}</th>
+                  <th
+                    className="px-5 py-3 text-left cursor-pointer select-none group hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                    onClick={() => toggleTenSort("status")}
+                  >
+                    {t(T.status)}
+                    <SortIndicator active={tenSort.col === "status"} dir={tenSort.dir} />
+                  </th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50 dark:divide-gray-800">
-                {filtered.map(ten => (
+                {paginated.map(ten => (
                   <tr key={ten.id ?? ten._id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
@@ -230,7 +291,7 @@ export default function TenantsPage() {
           </div>
           {/* Mobile cards */}
           <div className="md:hidden divide-y divide-gray-50 dark:divide-gray-800">
-            {filtered.map(ten => (
+            {paginated.map(ten => (
               <div key={ten.id ?? ten._id} className="p-4 flex items-center gap-3">
                 <div className="w-10 h-10 bg-teal-100 dark:bg-teal-900/30 rounded-full flex items-center justify-center flex-shrink-0">
                   <span className="text-[12px] font-bold text-teal-700 dark:text-teal-400">
@@ -257,6 +318,41 @@ export default function TenantsPage() {
               </div>
             ))}
           </div>
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between px-5 py-3 border-t border-gray-100 dark:border-gray-800">
+              <span className="text-[12px] text-gray-500 dark:text-gray-400">
+                {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} {lang === "fr" ? "sur" : "of"} {filtered.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setPage(p => Math.max(1, p - 1))}
+                  disabled={page === 1}
+                  className="px-2.5 py-1 text-[12px] rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >&#8249;</button>
+                {getPageNumbers(page, totalPages).map((n, i) =>
+                  n === null ? (
+                    <span key={`ell-${i}`} className="px-1.5 text-[12px] text-gray-400">…</span>
+                  ) : (
+                    <button
+                      key={n}
+                      onClick={() => setPage(n)}
+                      className={`min-w-[28px] px-2 py-1 text-[12px] rounded-lg border transition-colors ${
+                        page === n
+                          ? "bg-teal-600 text-white border-teal-600 font-semibold"
+                          : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"
+                      }`}
+                    >{n}</button>
+                  )
+                )}
+                <button
+                  onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                  disabled={page === totalPages}
+                  className="px-2.5 py-1 text-[12px] rounded-lg border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >&#8250;</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

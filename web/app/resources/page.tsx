@@ -203,10 +203,10 @@ export default function ResourcesPage() {
             <p className="text-[16px] mb-8" style={{ color: "var(--text-secondary)" }}>
               {t({ fr: "Domely automatise tout ce que vous venez de lire.", en: "Domely automates everything you just read." })}
             </p>
-            <Link href="/login?signup=true"
+            <Link href="/early-access"
               className="inline-flex items-center gap-2 px-7 py-3 text-[15px] font-semibold text-white rounded-xl transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
-              {t({ fr: "Essayer gratuitement · 14 jours", en: "Try free · 14 days" })}
+              {t({ fr: "S'inscrire à la liste d'attente · 14 jours", en: "Try free · 14 days" })}
             </Link>
           </div>
         </section>

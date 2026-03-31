@@ -12,6 +12,7 @@ const NAV = [
   { href: "/portail/dashboard/payments",     icon: "credit-card" as IconName, fr: "Loyers",     en: "Rent" },
   { href: "/portail/dashboard/maintenance",  icon: "wrench"      as IconName, fr: "Maintenance", en: "Maintenance" },
   { href: "/portail/dashboard/messages",     icon: "chat"        as IconName, fr: "Messages",   en: "Messages" },
+  { href: "/portail/dashboard/documents",    icon: "document"    as IconName, fr: "Documents",  en: "Documents" },
 ];
 
 export default function TenantLayout({ children }: { children: React.ReactNode }) {

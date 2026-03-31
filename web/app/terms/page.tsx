@@ -21,7 +21,7 @@ const sections = {
       },
       {
         h: "3. Création de compte",
-        p: "Vous devez fournir des informations exactes lors de l'inscription. Vous êtes responsable de la confidentialité de vos identifiants et de toute activité effectuée depuis votre compte. Signalez immédiatement tout accès non autorisé à hello@domely.app.",
+        p: "Vous devez fournir des informations exactes lors de l'inscription. Vous êtes responsable de la confidentialité de vos identifiants et de toute activité effectuée depuis votre compte. Signalez immédiatement tout accès non autorisé à hello@domely.ca.",
       },
       {
         h: "4. Utilisation acceptable",
@@ -61,7 +61,7 @@ const sections = {
       },
       {
         h: "13. Contact",
-        p: "Pour toute question relative à ces conditions : hello@domely.app — Les Solutions Privatris Inc., Canada.",
+        p: "Pour toute question relative à ces conditions : hello@domely.ca — Les Solutions Privatris Inc., Canada.",
       },
     ],
   },
@@ -81,7 +81,7 @@ const sections = {
       },
       {
         h: "3. Account creation",
-        p: "You must provide accurate information when registering. You are responsible for the confidentiality of your credentials and all activity on your account. Report any unauthorized access immediately to hello@domely.app.",
+        p: "You must provide accurate information when registering. You are responsible for the confidentiality of your credentials and all activity on your account. Report any unauthorized access immediately to hello@domely.ca.",
       },
       {
         h: "4. Acceptable use",
@@ -121,7 +121,7 @@ const sections = {
       },
       {
         h: "13. Contact",
-        p: "For any questions about these terms: hello@domely.app — Les Solutions Privatris Inc., Canada.",
+        p: "For any questions about these terms: hello@domely.ca — Les Solutions Privatris Inc., Canada.",
       },
     ],
   },

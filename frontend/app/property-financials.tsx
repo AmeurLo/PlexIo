@@ -153,7 +153,7 @@ tr:last-child td{border-bottom:none}
   <!-- Header -->
   <div class="header">
     <div class="logo-row">
-      <div class="logo">🏠</div>
+      <div class="logo" style="width:36px;height:36px;background:#1E7A6E;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:16px">D</div>
       <div>
         <div class="brand">Domely</div>
         <div class="brand-sub">Gestion immobilière intelligente</div>
@@ -187,7 +187,7 @@ tr:last-child td{border-bottom:none}
   <div class="section">
     <div class="sec-title">Synthèse</div>
     <div class="flow-bar">
-      <div class="flow-icon">${isPositive ? '📈' : '📉'}</div>
+      <div class="flow-icon" style="font-size:20px;font-weight:700;color:${isPositive ? '#059669' : '#DC2626'}">${isPositive ? '▲' : '▼'}</div>
       <div>
         <div class="flow-title">${isPositive ? 'Flux de trésorerie positif' : 'Flux de trésorerie négatif'}</div>
         <div class="flow-desc">Taux d'occupation : ${financials?.occupancy_rate ?? 0}% &nbsp;·&nbsp; Ratio de dépenses : ${Math.round((financials?.expense_ratio ?? 0) * 100)}% &nbsp;·&nbsp; Coûts maintenance : ${formatCurrency(financials?.maintenance_expenses ?? 0)}</div>
@@ -292,11 +292,11 @@ export default function PropertyFinancialsScreen() {
       'Choisissez le format d\'export :',
       [
         {
-          text: '📄 Rapport PDF (HTML)',
+          text: 'Rapport PDF (HTML)',
           onPress: exportPDF,
         },
         {
-          text: '📊 Données CSV',
+          text: 'Données CSV',
           onPress: exportCSV,
         },
         { text: 'Annuler', style: 'cancel' },

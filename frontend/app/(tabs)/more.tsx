@@ -316,6 +316,25 @@ export default function MoreScreen() {
               <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Automatisations</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Row 4 — AI + Health Score */}
+          <View style={[styles.toolsGrid, { marginTop: theme.spacing.sm }]}>
+            <TouchableOpacity style={[styles.toolCard, styles.toolCardAI]} onPress={() => router.push('/ai')}>
+              <View style={[styles.toolIcon, { backgroundColor: theme.colors.primary + '18' }]}>
+                <Ionicons name="sparkles" size={22} color={theme.colors.primary} />
+              </View>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Domely AI</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.toolCard} onPress={() => router.push('/(tabs)/insights')}>
+              <View style={[styles.toolIcon, { backgroundColor: '#10B98118' }]}>
+                <Ionicons name="analytics-outline" size={22} color="#10B981" />
+              </View>
+              <Text style={styles.toolLabel} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>Score Santé</Text>
+            </TouchableOpacity>
+            <View style={styles.toolCard} pointerEvents="none">
+              {/* placeholder to keep 3-column grid */}
+            </View>
+          </View>
         </View>
 
         {/* ── Finances ─────────────────────────────────────────────────── */}
@@ -455,7 +474,7 @@ export default function MoreScreen() {
               </View>
             </View>
             <View style={styles.menuDivider} />
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/notifications')}>
               <View style={styles.menuIcon}>
                 <Ionicons name="notifications-outline" size={20} color={theme.colors.textSecondary} />
               </View>
@@ -558,6 +577,7 @@ const styles = StyleSheet.create({
   langBtnTextActive: { color: '#FFFFFF' },
   toolsGrid: { flexDirection: 'row', gap: theme.spacing.sm },
   toolCard: { flex: 1, backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.lg, padding: theme.spacing.md, borderWidth: 1, borderColor: theme.colors.borderLight, alignItems: 'center', gap: 8 },
+  toolCardAI: { borderColor: theme.colors.primary + '40', backgroundColor: theme.colors.primaryLight + '60' },
   toolIcon: { width: 48, height: 48, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   toolLabel: { fontSize: 12, fontWeight: '600', color: theme.colors.textPrimary, textAlign: 'center' },
   seedBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: theme.spacing.sm, gap: theme.spacing.sm, marginBottom: theme.spacing.xs },

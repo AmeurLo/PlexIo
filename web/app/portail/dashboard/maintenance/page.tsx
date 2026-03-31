@@ -53,6 +53,7 @@ export default function TenantMaintenancePage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ title: "", description: "", urgency: "normal" });
+  const [tenantPhotos, setTenantPhotos] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
   function load() {
@@ -72,9 +73,10 @@ export default function TenantMaintenancePage() {
     if (!form.title.trim()) return;
     setSubmitting(true);
     try {
-      await tenantApi.createMaintenance(form);
+      await (tenantApi.createMaintenance as any)({ ...form, photos: tenantPhotos });
       showToast(lang === "fr" ? "Demande soumise !" : "Request submitted!", "success");
       setForm({ title: "", description: "", urgency: "normal" });
+      setTenantPhotos([]);
       setShowForm(false);
       load();
     } catch (err: any) {
@@ -91,7 +93,7 @@ export default function TenantMaintenancePage() {
         </div>
         {!showForm && (
           <button
-            onClick={() => setShowForm(true)}
+            onClick={() => { setShowForm(true); setTenantPhotos([]); }}
             className="flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-[13px] font-semibold transition-colors"
           >
             <Icon name="plus" size={15} />
@@ -132,6 +134,55 @@ export default function TenantMaintenancePage() {
                 ))}
               </select>
             </div>
+            {/* Photo attachments */}
+            <div>
+              <label className="block text-[13px] font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                {lang === "fr" ? "Photos (optionnel)" : "Photos (optional)"}
+              </label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {tenantPhotos.map((src, i) => (
+                  <div key={i} className="relative">
+                    <img src={src} alt="" className="w-16 h-16 object-cover rounded-lg border border-gray-200" />
+                    <button
+                      type="button"
+                      onClick={() => setTenantPhotos(p => p.filter((_, j) => j !== i))}
+                      className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[10px] flex items-center justify-center"
+                    >×</button>
+                  </div>
+                ))}
+                {tenantPhotos.length < 4 && (
+                  <label className="w-16 h-16 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg flex items-center justify-center cursor-pointer hover:border-teal-400 transition-colors">
+                    <svg className="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const canvas = document.createElement("canvas");
+                        const img = new Image();
+                        img.src = URL.createObjectURL(file);
+                        await new Promise(res => { img.onload = res; });
+                        const max = 800;
+                        let w = img.width, h = img.height;
+                        if (w > max || h > max) {
+                          if (w > h) { h = Math.round(h * max / w); w = max; }
+                          else { w = Math.round(w * max / h); h = max; }
+                        }
+                        canvas.width = w; canvas.height = h;
+                        canvas.getContext("2d")!.drawImage(img, 0, 0, w, h);
+                        const base64 = canvas.toDataURL("image/jpeg", 0.7);
+                        setTenantPhotos(p => [...p, base64]);
+                        URL.revokeObjectURL(img.src);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400">{lang === "fr" ? "Max 4 photos · Compressées automatiquement" : "Max 4 photos · Auto-compressed"}</p>
+            </div>
             <div className="flex gap-3 pt-1">
               <button
                 type="submit" disabled={submitting}
@@ -140,7 +191,7 @@ export default function TenantMaintenancePage() {
                 {submitting && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
                 {submitting ? t(T.submitting) : t(T.submit)}
               </button>
-              <button type="button" onClick={() => setShowForm(false)}
+              <button type="button" onClick={() => { setShowForm(false); setTenantPhotos([]); }}
                 className="px-5 py-2.5 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 rounded-xl font-medium text-[14px] hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors">
                 {t(T.cancel)}
               </button>
@@ -171,6 +222,16 @@ export default function TenantMaintenancePage() {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-gray-900 dark:text-white text-[14px]">{req.title}</p>
                     {req.description && <p className="text-[13px] text-gray-500 dark:text-gray-400 mt-1 line-clamp-2">{req.description}</p>}
+                    {req.photos?.length > 0 && (
+                      <div className="flex gap-1 mt-2">
+                        {req.photos.slice(0, 3).map((src: string, pi: number) => (
+                          <img key={pi} src={src} alt="" className="w-10 h-10 object-cover rounded-lg border border-gray-200" />
+                        ))}
+                        {req.photos.length > 3 && (
+                          <span className="text-[11px] text-gray-400 self-center">+{req.photos.length - 3}</span>
+                        )}
+                      </div>
+                    )}
                     <p className="text-[12px] text-gray-400 mt-2">{formatDate(req.created_at ?? req.date)}</p>
                   </div>
                   <div className="flex flex-col items-end gap-1.5 flex-shrink-0">

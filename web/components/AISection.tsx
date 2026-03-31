@@ -127,7 +127,7 @@ export default function AISection() {
               ))}
             </div>
 
-            <Link href="/login?signup=true"
+            <Link href="/early-access"
               className="inline-flex items-center gap-2 px-6 py-3.5 text-[15px] font-semibold text-white rounded-xl transition-all shadow-teal-sm hover:shadow-teal-md hover:scale-[1.02]"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
               {t(A.cta)}

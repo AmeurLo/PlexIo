@@ -11,14 +11,13 @@ const T = {
   h1a:      { fr: "On est là", en: "We're here" },
   h1b:      { fr: "pour vous.", en: "for you." },
   sub:      {
-    fr: "Une question, un problème ou une idée ? Notre équipe vous répond en moins de 24h.",
-    en: "A question, an issue or an idea? Our team replies within 24 hours.",
+    fr: "Une question, un problème ou une idée ? Notre équipe vous répond en moins de 12h.",
+    en: "A question, an issue or an idea? Our team replies within 12 hours.",
   },
   // Info card
   emailLabel:    { fr: "Email", en: "Email" },
   responseLabel: { fr: "Temps de réponse", en: "Response time" },
-  responseValue: { fr: "Moins de 24h en semaine", en: "Under 24h on weekdays" },
-  followLabel:   { fr: "Nous suivre", en: "Follow us" },
+  responseValue: { fr: "Moins de 12h en semaine", en: "Under 12h on weekdays" },
   // Form
   nameLabel:    { fr: "Votre nom", en: "Your name" },
   namePh:       { fr: "Alex Tremblay", en: "Alex Smith" },
@@ -43,8 +42,8 @@ const T = {
   // Success
   successTitle: { fr: "Message envoyé !", en: "Message sent!" },
   successSub:   {
-    fr: "Merci ! On vous répond dans les 24h.",
-    en: "Thanks! We'll get back to you within 24 hours.",
+    fr: "Merci ! On vous répond dans les 12h.",
+    en: "Thanks! We'll get back to you within 12 hours.",
   },
   backHome: { fr: "Retour à l'accueil", en: "Back to home" },
   sendAnother: { fr: "Envoyer un autre message", en: "Send another message" },
@@ -115,9 +114,9 @@ export default function ContactPage() {
                 <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-1">
                   {t(T.emailLabel)}
                 </p>
-                <a href="mailto:hello@domely.app"
+                <a href="mailto:hello@domely.ca"
                   className="text-[16px] font-semibold text-teal-600 dark:text-teal-400 hover:underline">
-                  hello@domely.app
+                  hello@domely.ca
                 </a>
               </div>
 
@@ -134,39 +133,6 @@ export default function ContactPage() {
                 </div>
               </div>
 
-              {/* Social */}
-              <div className="p-6 rounded-2xl border border-gray-100 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50">
-                <p className="text-[11px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500 mb-4">
-                  {t(T.followLabel)}
-                </p>
-                <div className="flex gap-3">
-                  {[
-                    {
-                      label: "LinkedIn",
-                      href: "#",
-                      icon: (
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-                        </svg>
-                      ),
-                    },
-                    {
-                      label: "X",
-                      href: "#",
-                      icon: (
-                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
-                          <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-                        </svg>
-                      ),
-                    },
-                  ].map((s) => (
-                    <Link key={s.label} href={s.href} aria-label={s.label}
-                      className="w-9 h-9 rounded-lg bg-gray-200 dark:bg-gray-800 hover:bg-teal-100 dark:hover:bg-teal-900/40 flex items-center justify-center text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors">
-                      {s.icon}
-                    </Link>
-                  ))}
-                </div>
-              </div>
             </div>
 
             {/* Right — form */}

@@ -34,9 +34,9 @@ type TenantDoc = {
   color?: string;
 };
 
-const TYPE_STYLES: Record<string, { bg: string; text: string; dot: string; emoji: string }> = {
-  lease:   { bg: "bg-blue-50 dark:bg-blue-900/20",  text: "text-blue-700 dark:text-blue-400",  dot: "bg-blue-500",  emoji: "📄" },
-  receipt: { bg: "bg-teal-50 dark:bg-teal-900/20",  text: "text-teal-700 dark:text-teal-400",  dot: "bg-teal-500",  emoji: "💳" },
+const TYPE_STYLES: Record<string, { bg: string; text: string; dot: string; iconPath: string }> = {
+  lease:   { bg: "bg-blue-50 dark:bg-blue-900/20",  text: "text-blue-700 dark:text-blue-400",  dot: "bg-blue-500",  iconPath: "M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" },
+  receipt: { bg: "bg-teal-50 dark:bg-teal-900/20",  text: "text-teal-700 dark:text-teal-400",  dot: "bg-teal-500",  iconPath: "M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" },
 };
 
 export default function TenantDocumentsPage() {
@@ -97,8 +97,8 @@ export default function TenantDocumentsPage() {
               return (
                 <div key={doc.id} className="flex items-center gap-4 px-5 py-4 hover:bg-gray-50 dark:hover:bg-gray-800/30 transition-colors">
                   {/* Icon */}
-                  <div className={`w-10 h-10 rounded-xl ${style.bg} flex items-center justify-center flex-shrink-0 text-xl`}>
-                    {style.emoji}
+                  <div className={`w-10 h-10 rounded-xl ${style.bg} flex items-center justify-center flex-shrink-0`}>
+                    <svg className={`w-5 h-5 ${style.text}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d={style.iconPath} /></svg>
                   </div>
 
                   {/* Info */}
@@ -162,7 +162,9 @@ export default function TenantDocumentsPage() {
         </div>
       ) : docs.length === 0 ? (
         <div className={`${cardClass} p-12 text-center`}>
-          <div className="text-5xl mb-4">📁</div>
+          <div className="w-14 h-14 bg-gray-100 dark:bg-gray-800 rounded-2xl flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>
+          </div>
           <p className="font-semibold text-gray-700 dark:text-gray-300 mb-1">{t(T.empty)}</p>
           <p className="text-[13px] text-gray-400">{t(T.emptySub)}</p>
         </div>

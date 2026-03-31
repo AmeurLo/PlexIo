@@ -13,7 +13,7 @@ const sections = {
     items: [
       {
         h: "1. Qui sommes-nous",
-        p: "Les Solutions Privatris Inc. est une société constituée au Canada, exploitant la plateforme de gestion locative Domely à destination des propriétaires et investisseurs immobiliers d'Amérique du Nord. Responsable de la protection des renseignements personnels : hello@domely.app. Pour toute question relative à vos données personnelles, cette adresse est votre point de contact principal.",
+        p: "Les Solutions Privatris Inc. est une société constituée au Canada, exploitant la plateforme de gestion locative Domely à destination des propriétaires et investisseurs immobiliers d'Amérique du Nord. Responsable de la protection des renseignements personnels : hello@domely.ca. Pour toute question relative à vos données personnelles, cette adresse est votre point de contact principal.",
       },
       {
         h: "2. Âge minimum",
@@ -49,7 +49,7 @@ const sections = {
       },
       {
         h: "10. Vos droits",
-        p: "Conformément à la Loi 25 et au PIPEDA, vous avez le droit : d'accéder à vos données personnelles, de les corriger si elles sont inexactes, de les supprimer (sous réserve d'obligations légales), de vous opposer à certains traitements, d'obtenir une copie de vos données dans un format structuré et lisible par machine (portabilité), et d'être informé de toute décision automatisée vous concernant. Pour exercer ces droits, écrivez à hello@domely.app. Nous répondons dans un délai de 30 jours.",
+        p: "Conformément à la Loi 25 et au PIPEDA, vous avez le droit : d'accéder à vos données personnelles, de les corriger si elles sont inexactes, de les supprimer (sous réserve d'obligations légales), de vous opposer à certains traitements, d'obtenir une copie de vos données dans un format structuré et lisible par machine (portabilité), et d'être informé de toute décision automatisée vous concernant. Pour exercer ces droits, écrivez à hello@domely.ca. Nous répondons dans un délai de 30 jours.",
       },
       {
         h: "11. Témoins (cookies)",
@@ -61,7 +61,7 @@ const sections = {
       },
       {
         h: "13. Contact et responsable de la protection",
-        p: "Responsable de la protection des renseignements personnels : Les Solutions Privatris Inc. — hello@domely.app. Si vous estimez que vos droits ne sont pas respectés, vous pouvez déposer une plainte auprès de la Commission d'accès à l'information du Québec (cai.gouv.qc.ca) ou du Commissariat à la protection de la vie privée du Canada (priv.gc.ca).",
+        p: "Responsable de la protection des renseignements personnels : Les Solutions Privatris Inc. — hello@domely.ca. Si vous estimez que vos droits ne sont pas respectés, vous pouvez déposer une plainte auprès de la Commission d'accès à l'information du Québec (cai.gouv.qc.ca) ou du Commissariat à la protection de la vie privée du Canada (priv.gc.ca).",
       },
     ],
   },
@@ -73,7 +73,7 @@ const sections = {
     items: [
       {
         h: "1. Who we are",
-        p: "Les Solutions Privatris Inc. is a company incorporated in Canada, operating the Domely rental management platform for property owners and real estate investors across North America. Privacy Officer: hello@domely.app. For any questions about your personal data, this address is your primary point of contact.",
+        p: "Les Solutions Privatris Inc. is a company incorporated in Canada, operating the Domely rental management platform for property owners and real estate investors across North America. Privacy Officer: hello@domely.ca. For any questions about your personal data, this address is your primary point of contact.",
       },
       {
         h: "2. Minimum age",
@@ -109,7 +109,7 @@ const sections = {
       },
       {
         h: "10. Your rights",
-        p: "Under PIPEDA and applicable provincial privacy laws, you have the right to: access your personal data, correct it if inaccurate, delete it (subject to legal obligations), object to certain processing, obtain a copy of your data in a structured machine-readable format (portability), and be informed of any automated decision concerning you. To exercise these rights, write to hello@domely.app. We respond within 30 days.",
+        p: "Under PIPEDA and applicable provincial privacy laws, you have the right to: access your personal data, correct it if inaccurate, delete it (subject to legal obligations), object to certain processing, obtain a copy of your data in a structured machine-readable format (portability), and be informed of any automated decision concerning you. To exercise these rights, write to hello@domely.ca. We respond within 30 days.",
       },
       {
         h: "11. Cookies",
@@ -121,7 +121,7 @@ const sections = {
       },
       {
         h: "13. Contact and Privacy Officer",
-        p: "Privacy Officer: Les Solutions Privatris Inc. — hello@domely.app. If you believe your rights have not been respected, you may file a complaint with the Commission d'accès à l'information du Québec (cai.gouv.qc.ca) or the Office of the Privacy Commissioner of Canada (priv.gc.ca).",
+        p: "Privacy Officer: Les Solutions Privatris Inc. — hello@domely.ca. If you believe your rights have not been respected, you may file a complaint with the Commission d'accès à l'information du Québec (cai.gouv.qc.ca) or the Office of the Privacy Commissioner of Canada (priv.gc.ca).",
       },
     ],
   },

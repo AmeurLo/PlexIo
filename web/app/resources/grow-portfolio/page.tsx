@@ -39,7 +39,7 @@ const CONTENT = {
       },
     ],
     cta: "Domely calcule votre rendement net en temps réel et vous alerte quand vos loyers s'éloignent du marché.",
-    ctaBtn: "Essayer gratuitement",
+    ctaBtn: "S'inscrire à la liste d'attente",
     back: "Retour aux ressources",
   },
   en: {
@@ -75,7 +75,7 @@ const CONTENT = {
       },
     ],
     cta: "Domely calculates your net return in real time and alerts you when your rents diverge from the market.",
-    ctaBtn: "Try for free",
+    ctaBtn: "Join the waitlist",
     back: "Back to resources",
   },
 };
@@ -124,7 +124,7 @@ export default function GrowPortfolioPage() {
           {/* Domely CTA */}
           <div className="mt-16 rounded-2xl p-8 text-center" style={{ background: "linear-gradient(135deg, rgba(30,122,110,0.06), rgba(63,175,134,0.08))", border: "1px solid var(--border-subtle)" }}>
             <p className="text-[15px] text-gray-700 dark:text-gray-200 mb-5 font-medium">{S.cta}</p>
-            <Link href="/login?signup=true"
+            <Link href="/early-access"
               className="inline-flex items-center gap-2 px-6 py-3 text-[14px] font-semibold text-white rounded-xl transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
               {S.ctaBtn}

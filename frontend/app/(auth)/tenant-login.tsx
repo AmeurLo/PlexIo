@@ -37,7 +37,7 @@ export default function TenantLoginScreen() {
       setShowCode(true);
       if (res.dev_code) {
         setDevCode(res.dev_code);
-        Alert.alert('🔧 Mode développement', `Code d'accès : ${res.dev_code}\n\n(Configurez RESEND_API_KEY pour envoyer par courriel.)`);
+        Alert.alert('Mode développement', `Code d'accès : ${res.dev_code}\n\n(Configurez RESEND_API_KEY pour envoyer par courriel.)`);
       } else {
         Alert.alert('Code envoyé', `Vérifiez votre boîte de réception à ${normalizedEmail}.`);
       }

@@ -123,7 +123,7 @@ function PortailContent() {
               </a>
 
               {/* Google Play button */}
-              <a href="https://play.google.com/store/apps/details?id=com.domely.app" target="_blank" rel="noopener noreferrer"
+              <a href="https://play.google.com/store/apps/details?id=com.domely.ca" target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-3 bg-black text-white px-5 py-3 rounded-xl hover:bg-gray-900 transition-colors w-full sm:w-auto">
                 {/* Play Store logo */}
                 <svg className="w-6 h-6 flex-shrink-0" viewBox="0 0 24 24" fill="currentColor">

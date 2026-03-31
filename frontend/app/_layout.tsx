@@ -88,6 +88,18 @@ export default function RootLayout() {
         <Stack.Screen name="expenses" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="leases" options={{ headerShown: false, presentation: 'card' }} />
         <Stack.Screen name="rent-history" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="ai" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="notifications" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="documents" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="contractors" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="inspections" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="team" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="vacancy" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="applicants" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="automations" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="mortgage" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="market-rent" options={{ headerShown: false, presentation: 'card' }} />
+        <Stack.Screen name="chat" options={{ headerShown: false, presentation: 'card' }} />
       </Stack>
     </>
   );

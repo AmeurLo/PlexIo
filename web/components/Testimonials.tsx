@@ -17,7 +17,7 @@ const TESTIMONIALS = [
   },
   {
     initials: "SM", color: "from-violet-500 to-violet-600", stars: 5,
-    name: "Sarah Mitchell",
+    name: "S.M.",
     role: { fr: "Investisseuse · Toronto, ON", en: "Investor · Toronto, ON" },
     tag:  { fr: "Procédures locatives", en: "Rental procedures" },
     quote: {
@@ -27,8 +27,8 @@ const TESTIMONIALS = [
   },
   {
     initials: "JR", color: "from-blue-500 to-blue-600", stars: 5,
-    name: "James Rivera",
-    role: { fr: "Propriétaire occupant · Austin, TX", en: "Owner-landlord · Austin, TX" },
+    name: "J.R.",
+    role: { fr: "Propriétaire · Ottawa, ON", en: "Landlord · Ottawa, ON" },
     tag:  { fr: "Portail locataire", en: "Tenant portal" },
     quote: {
       fr: "Mon locataire soumet ses demandes dans le portail, je reçois une notification et je gère. Zéro texto à 22h. Pour ce que ça coûte par mois, c'est l'un des meilleurs investissements que j'aie faits.",
@@ -47,7 +47,7 @@ const TESTIMONIALS = [
   },
   {
     initials: "DC", color: "from-indigo-500 to-blue-500", stars: 5,
-    name: "David Chen",
+    name: "D.C.",
     role: { fr: "Investisseur · Vancouver, BC", en: "Investor · Vancouver, BC" },
     tag:  { fr: "Finances & ROI", en: "Finances & ROI" },
     quote: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -21,8 +21,64 @@ function LoginForm() {
   const [fullName, setFullName]         = useState("");
   const [loading, setLoading]           = useState(false);
   const [demoLoading, setDemoLoading]   = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [error, setError]               = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [consentTerms, setConsentTerms]   = useState(false);
+  const googleBtnRef = useRef<HTMLDivElement>(null);
+
+  // MFA second step
+  const [mfaToken, setMfaToken]     = useState("");
+  const [mfaCode, setMfaCode]       = useState("");
+  const [mfaLoading, setMfaLoading] = useState(false);
+
+  // Load Google Identity Services and render the button
+  useEffect(() => {
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    if (!clientId || isSignup) return;
+
+    const existing = document.getElementById("gsi-script");
+    const initGoogle = () => {
+      const g = (window as any).google;
+      if (!g?.accounts?.id || !googleBtnRef.current) return;
+      g.accounts.id.initialize({
+        client_id: clientId,
+        callback: async (response: { credential: string }) => {
+          setGoogleLoading(true);
+          setError("");
+          try {
+            const res = await fetch(`${API_URL}/auth/google`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ credential: response.credential }),
+            });
+            if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error((d as any).detail || "Connexion Google échouée"); }
+            const data = await res.json();
+            localStorage.setItem("domely_token", data.access_token);
+            localStorage.setItem("domely_user", JSON.stringify(data.user));
+            window.location.href = "/dashboard";
+          } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Connexion Google échouée");
+          } finally {
+            setGoogleLoading(false);
+          }
+        },
+      });
+      g.accounts.id.renderButton(googleBtnRef.current, {
+        type: "standard", theme: "outline", size: "large", width: "100%",
+        text: "continue_with", locale: lang === "fr" ? "fr" : "en",
+      });
+    };
+
+    if (existing) { initGoogle(); return; }
+    const script = document.createElement("script");
+    script.id = "gsi-script";
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = initGoogle;
+    document.head.appendChild(script);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignup, lang]);
 
   const handleDemoLogin = async () => {
     setDemoLoading(true);
@@ -64,6 +120,10 @@ function LoginForm() {
         throw new Error(data.detail || (isSignup ? "Inscription échouée." : "Identifiants incorrects."));
       }
       const data = await res.json();
+      if (data.mfa_required) {
+        setMfaToken(data.mfa_token ?? "");
+        return;
+      }
       localStorage.setItem("domely_token", data.access_token);
       localStorage.setItem("domely_user", JSON.stringify(data.user));
       window.location.href = "/dashboard";
@@ -73,6 +133,85 @@ function LoginForm() {
       setLoading(false);
     }
   };
+
+  const handleMfaSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaLoading(true); setError("");
+    try {
+      const res = await fetch(`${API_URL}/auth/mfa/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mfa_token: mfaToken, code: mfaCode }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.detail || "Code invalide.");
+      }
+      const data = await res.json();
+      localStorage.setItem("domely_token", data.access_token);
+      localStorage.setItem("domely_user", JSON.stringify(data.user));
+      window.location.href = "/dashboard";
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+    } finally {
+      setMfaLoading(false);
+    }
+  };
+
+  // ── MFA second-step screen ──────────────────────────────────────────────────
+  if (mfaToken) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFB] dark:bg-gray-950 bg-dot-grid flex items-center justify-center px-5">
+        <div className="w-full max-w-[380px]">
+          <div className="text-center mb-8">
+            <div className="inline-flex w-14 h-14 rounded-2xl items-center justify-center mb-4" style={{ background: "linear-gradient(135deg,#1E7A6E,#3FAF86)" }}>
+              <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+            </div>
+            <h1 className="text-[22px] font-bold text-gray-900 dark:text-white">
+              {lang === "fr" ? "Vérification en deux étapes" : "Two-step verification"}
+            </h1>
+            <p className="text-[13px] text-gray-400 mt-1.5">
+              {lang === "fr" ? "Entrez le code à 6 chiffres de votre app d'authentification" : "Enter the 6-digit code from your authenticator app"}
+            </p>
+          </div>
+          <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-card p-7">
+            <form onSubmit={handleMfaSubmit} className="space-y-4">
+              {error && (
+                <div className="px-4 py-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-[13px] text-red-600 dark:text-red-400">{error}</div>
+              )}
+              <input
+                className="w-full px-4 py-3.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-[22px] font-mono tracking-[0.4em] text-center focus:ring-2 focus:ring-teal-500 focus:border-teal-500 outline-none"
+                type="text"
+                inputMode="numeric"
+                maxLength={6}
+                placeholder="000000"
+                autoFocus
+                value={mfaCode}
+                onChange={e => { setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+              />
+              <button
+                type="submit"
+                disabled={mfaCode.length !== 6 || mfaLoading}
+                className="w-full py-3.5 text-[15px] font-semibold text-white rounded-xl disabled:opacity-60 transition-all"
+                style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
+              >
+                {mfaLoading ? "…" : (lang === "fr" ? "Vérifier" : "Verify")}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setMfaToken(""); setMfaCode(""); setError(""); }}
+                className="w-full text-[13px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors py-1"
+              >
+                {lang === "fr" ? "Retour à la connexion" : "Back to login"}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFB] dark:bg-gray-950 bg-dot-grid flex flex-col">
@@ -118,17 +257,19 @@ function LoginForm() {
           <div className="bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-card p-7">
             {/* Tabs */}
             <div className="flex bg-gray-100 dark:bg-gray-800 rounded-xl p-1 mb-7">
-              {[
-                { key: false, label: t(L.tabLogin) },
-                { key: true,  label: t(L.tabSignup) },
-              ].map(({ key, label }) => (
-                <button key={String(key)} onClick={() => { setIsSignup(key); setError(""); }}
-                  className={`flex-1 py-2 text-[14px] font-medium rounded-lg transition-all ${
-                    isSignup === key ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"
-                  }`}>
-                  {label}
-                </button>
-              ))}
+              <button onClick={() => { setIsSignup(false); setError(""); }}
+                className={`flex-1 py-2 text-[14px] font-medium rounded-lg transition-all ${
+                  !isSignup ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400"
+                }`}>
+                {t(L.tabLogin)}
+              </button>
+              <Link href="/early-access"
+                className="flex-1 py-2 text-[14px] font-medium rounded-lg transition-all text-center text-gray-500 dark:text-gray-400 hover:text-teal-600 dark:hover:text-teal-400 flex items-center justify-center gap-1.5">
+                {t(L.tabSignup)}
+                <span className="text-[10px] font-bold bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300 px-1.5 py-0.5 rounded-full">
+                  {lang === "fr" ? "Bientôt" : "Soon"}
+                </span>
+              </Link>
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -173,6 +314,24 @@ function LoginForm() {
                 </div>
               </div>
 
+              {isSignup && (
+                <div className="flex items-start gap-2.5 pt-1">
+                  <input
+                    type="checkbox"
+                    id="consentTerms"
+                    checked={consentTerms}
+                    onChange={e => setConsentTerms(e.target.checked)}
+                    className="mt-0.5 w-4 h-4 accent-teal-600 flex-shrink-0"
+                  />
+                  <label htmlFor="consentTerms" className="text-[12px] text-gray-500 dark:text-gray-400 leading-relaxed cursor-pointer">
+                    {lang === "fr"
+                      ? <>J&apos;accepte les <Link href="/terms" target="_blank" className="text-teal-600 hover:underline font-medium">Conditions d&apos;utilisation</Link> et la <Link href="/privacy" target="_blank" className="text-teal-600 hover:underline font-medium">Politique de confidentialité</Link>, incluant la collecte de mes données personnelles conformément à la <strong>Loi 25 (Québec)</strong> et à la <strong>LPRPDE</strong>.</>
+                      : <>I agree to the <Link href="/terms" target="_blank" className="text-teal-600 hover:underline font-medium">Terms of Service</Link> and <Link href="/privacy" target="_blank" className="text-teal-600 hover:underline font-medium">Privacy Policy</Link>, including the collection of my personal data under <strong>Quebec Law 25</strong> and <strong>PIPEDA</strong>.</>
+                    }
+                  </label>
+                </div>
+              )}
+
               {error && (
                 <div className="flex items-center gap-2.5 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3">
                   <svg className="w-4 h-4 text-red-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -182,7 +341,7 @@ function LoginForm() {
                 </div>
               )}
 
-              <button type="submit" disabled={loading}
+              <button type="submit" disabled={loading || (isSignup && !consentTerms)}
                 className="w-full py-3.5 text-[15px] font-semibold text-white rounded-xl transition-all shadow-teal-sm hover:shadow-teal-md hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed disabled:scale-100 mt-2"
                 style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}>
                 {loading
@@ -199,23 +358,22 @@ function LoginForm() {
 
               {!isSignup && (
                 <>
-                  <div className="flex items-center gap-3 my-1">
-                    <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
-                    <span className="text-[11px] text-gray-400 font-medium">ou</span>
-                    <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleDemoLogin}
-                    disabled={demoLoading}
-                    className="w-full py-3 text-[14px] font-semibold rounded-xl border-2 border-teal-600 text-teal-700 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-900/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {demoLoading
-                      ? <><svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg> Chargement…</>
-                      : <><span>🏠</span> Essayer la démo</>
-                    }
-                  </button>
-                  <p className="text-center text-[11px] text-gray-400 mt-1">Compte de démonstration pré-rempli — aucune inscription requise</p>
+                  {process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID && (
+                    <>
+                      <div className="flex items-center gap-3 my-1">
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                        <span className="text-[11px] text-gray-400 font-medium">ou</span>
+                        <div className="flex-1 h-px bg-gray-100 dark:bg-gray-800" />
+                      </div>
+                      <div ref={googleBtnRef} className="w-full flex justify-center" />
+                      {googleLoading && (
+                        <p className="text-center text-[12px] text-gray-400 flex items-center justify-center gap-1.5">
+                          <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                          Connexion Google…
+                        </p>
+                      )}
+                    </>
+                  )}
                 </>
               )}
             </form>

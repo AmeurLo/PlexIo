@@ -55,28 +55,28 @@ const CONTEXT_PROMPTS: Record<AIContext, string[]> = {
 // ─── Mock AI responses ────────────────────────────────────────────────────────
 const MOCK_RESPONSES: Record<string, string> = {
   'Résume ma situation financière ce mois-ci':
-    '📊 Ce mois-ci vous avez collecté 4 650 $ sur 5 200 $ attendus (89%). Il reste 2 loyers en retard : Michael John (250 $) et Émilie Tremblay (300 $). Vos dépenses totales sont de 1 200 $, ce qui donne un flux net de +3 450 $.',
+    'Ce mois-ci vous avez collecté 4 650 $ sur 5 200 $ attendus (89%). Il reste 2 loyers en retard : Michael John (250 $) et Émilie Tremblay (300 $). Vos dépenses totales sont de 1 200 $, ce qui donne un flux net de +3 450 $.',
   'Quels loyers sont en retard?':
-    '⚠️ 2 loyers en retard :\n• Michael John — Duplex St-Henri #101 — 250 $ — 5 jours\n• Émilie Tremblay — Triplex Rosemont #2 — 300 $ — 2 jours\n\nJe peux rédiger un rappel automatique pour les deux si vous voulez.',
+    '2 loyers en retard :\n• Michael John — Duplex St-Henri #101 — 250 $ — 5 jours\n• Émilie Tremblay — Triplex Rosemont #2 — 300 $ — 2 jours\n\nJe peux rédiger un rappel automatique pour les deux si vous voulez.',
   'Y a-t-il des actions urgentes à faire?':
-    '🔴 3 actions prioritaires :\n1. Fuite plomberie — Rosemont #1 (ouvert depuis 3 jours)\n2. Bail de Sophie Bernard expire dans 21 jours\n3. Loyer d\'Émilie en retard de 300 $\n\nVoulez-vous que je prépare les communications?',
+    '3 actions prioritaires :\n1. Fuite plomberie — Rosemont #1 (ouvert depuis 3 jours)\n2. Bail de Sophie Bernard expire dans 21 jours\n3. Loyer d\'Émilie en retard de 300 $\n\nVoulez-vous que je prépare les communications?',
   'Quel immeuble performe le mieux?':
-    '🏆 Duplex St-Henri : rendement net de 7.2%/an, taux d\'occupation 100%, 0 ticket de maintenance ouvert. C\'est votre meilleur actif.\n\nTriplex Rosemont performe à 5.8% — une unité vacante depuis 12 jours impacte le rendement.',
+    'Duplex St-Henri : rendement net de 7.2%/an, taux d\'occupation 100%, 0 ticket de maintenance ouvert. C\'est votre meilleur actif.\n\nTriplex Rosemont performe à 5.8% — une unité vacante depuis 12 jours impacte le rendement.',
   'Priorise mes tickets ouverts':
-    '📋 Ordre de priorité :\n1. 🔴 URGENT — Fuite robinet Rosemont #1 (humidité sous lavabo)\n2. 🟠 MOYEN — Courant d\'air fenêtre Rosemont #2\n3. 🟡 FAIBLE — Ampoule entrée Duplex St-Henri\n\nJe recommande d\'appeler Mario Plante (plombier ⭐) pour le #1 dès aujourd\'hui.',
+    'Ordre de priorité :\n1. [URGENT] Fuite robinet Rosemont #1 (humidité sous lavabo)\n2. [MOYEN] Courant d\'air fenêtre Rosemont #2\n3. [FAIBLE] Ampoule entrée Duplex St-Henri\n\nJe recommande d\'appeler Mario Plante (plombier, favori) pour le #1 dès aujourd\'hui.',
 };
 
 function getDefaultResponse(msg: string): string {
   const lower = msg.toLowerCase();
   if (lower.includes('loyer') || lower.includes('rent'))
-    return '💡 Je vois votre question sur les loyers. Basé sur votre portefeuille actuel, votre taux de collecte moyen est de 91% sur les 3 derniers mois. Voulez-vous un rapport détaillé?';
+    return 'Je vois votre question sur les loyers. Basé sur votre portefeuille actuel, votre taux de collecte moyen est de 91% sur les 3 derniers mois. Voulez-vous un rapport détaillé?';
   if (lower.includes('bail') || lower.includes('renouvellement'))
-    return '📄 Je peux vous aider à préparer un document de renouvellement. Quel locataire est concerné?';
+    return 'Je peux vous aider à préparer un document de renouvellement. Quel locataire est concerné?';
   if (lower.includes('maintenance') || lower.includes('réparation') || lower.includes('entretien'))
-    return '🔧 Pour les demandes de maintenance, je recommande de documenter avec une photo et d\'assigner à un entrepreneur de votre liste. Voulez-vous que je priorise vos tickets ouverts?';
+    return 'Pour les demandes de maintenance, je recommande de documenter avec une photo et d\'assigner à un entrepreneur de votre liste. Voulez-vous que je priorise vos tickets ouverts?';
   if (lower.includes('merci'))
-    return '😊 Avec plaisir! N\'hésitez pas si vous avez d\'autres questions sur votre portefeuille.';
-  return '🤖 Je traite votre demande... En production, Domely AI analysera l\'ensemble de votre portefeuille pour vous donner une réponse personnalisée. Pour l\'instant, voici ce que je peux faire : analyser vos finances, prioriser vos tickets, rédiger des communications et surveiller vos baux.';
+    return 'Avec plaisir! N\'hésitez pas si vous avez d\'autres questions sur votre portefeuille.';
+  return 'Je traite votre demande... En production, Domely AI analysera l\'ensemble de votre portefeuille pour vous donner une réponse personnalisée. Pour l\'instant, voici ce que je peux faire : analyser vos finances, prioriser vos tickets, rédiger des communications et surveiller vos baux.';
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ export default function DomelyAI({ context = 'home' }: Props) {
     {
       id: 'welcome',
       role: 'assistant',
-      text: '👋 Bonjour! Je suis Domely AI. Je connais votre portefeuille et je suis là pour vous aider. Que puis-je faire pour vous?',
+      text: 'Bonjour! Je suis Domely AI. Je connais votre portefeuille et je suis là pour vous aider. Que puis-je faire pour vous?',
       time: 'Maintenant',
     },
   ]);

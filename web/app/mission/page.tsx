@@ -9,71 +9,71 @@ const PILLARS = [
   {
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
       </svg>
     ),
     color: "from-teal-500 to-teal-600",
-    title: { fr: "Autonomiser les investisseurs", en: "Empower investors" },
+    title: { fr: "Bâti par des propriétaires, pour des propriétaires", en: "Built by landlords, for landlords" },
     desc: {
-      fr: "Nous donnons aux propriétaires et investisseurs les outils, les données et l'intelligence artificielle pour prendre de meilleures décisions, plus vite. Gérer un portefeuille locatif ne devrait pas exiger une équipe.",
-      en: "We give landlords and investors the tools, data, and AI to make better decisions, faster. Managing a rental portfolio shouldn't require a full team.",
+      fr: "Domely n'a pas été conçu en salle de conférence. Il est né d'une frustration vécue : gérer des logements avec des textos, des fichiers Excel et des rappels sur Post-it. Nous avons construit ce qu'on aurait voulu avoir.",
+      en: "Domely wasn't designed in a boardroom. It was born from a lived frustration: managing units with texts, Excel files, and Post-it reminders. We built what we wished we had.",
     },
   },
   {
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
       </svg>
     ),
     color: "from-emerald-500 to-teal-500",
-    title: { fr: "Offrir une expérience locataire exceptionnelle", en: "Elevate the tenant experience" },
+    title: { fr: "Élever le standard de l'industrie", en: "Raising the industry standard" },
     desc: {
-      fr: "Les locataires méritent un propriétaire professionnel. Notre portail locataire permet de soumettre des demandes, consulter les documents et communiquer facilement — le tout sans appel à 22h.",
-      en: "Tenants deserve a professional landlord. Our tenant portal makes it easy to submit requests, access documents, and communicate clearly — no more calls at 10pm.",
+      fr: "Nous croyons qu'un propriétaire bien équipé est un meilleur propriétaire. Quand la gestion est simple et transparente, tout le monde en bénéficie — les propriétaires comme les locataires.",
+      en: "We believe a well-equipped landlord is a better landlord. When management is simple and transparent, everyone benefits — landlords and tenants alike.",
     },
   },
   {
     icon: (
       <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
       </svg>
     ),
     color: "from-blue-500 to-teal-500",
-    title: { fr: "Croître intelligemment", en: "Grow smarter" },
+    title: { fr: "Construire pour le long terme", en: "Building for the long term" },
     desc: {
-      fr: "Domely vous donne une vision claire de votre rendement réel : flux de trésorerie, taux d'occupation, hausses optimales. Parce que croître sans données, c'est naviguer à l'aveugle.",
-      en: "Domely gives you a clear picture of your real returns: cash flow, occupancy rates, optimal rent increases. Because growing without data is flying blind.",
+      fr: "Nous ne cherchons pas la croissance à tout prix. Nous bâtissons une entreprise durable, avec des produits qui fonctionnent vraiment — et des clients qui restent parce qu'ils en ont envie, pas parce qu'ils sont piégés.",
+      en: "We don't chase growth at any cost. We build a sustainable company with products that actually work — and customers who stay because they want to, not because they're locked in.",
     },
   },
 ];
 
 const VALUES = [
   {
-    title: { fr: "Transparence", en: "Transparency" },
+    title: { fr: "Intégrité", en: "Integrity" },
     desc: {
-      fr: "Pas de frais cachés. Pas de langage juridique opaque. Vous savez exactement ce que vous payez et pourquoi.",
-      en: "No hidden fees. No opaque legalese. You know exactly what you're paying for and why.",
+      fr: "On dit ce qu'on fait. On fait ce qu'on dit. Pas de frais cachés, pas de promesses qu'on ne peut pas tenir, pas de pratiques trompeuses — jamais.",
+      en: "We say what we do. We do what we say. No hidden fees, no promises we can't keep, no misleading practices — ever.",
     },
   },
   {
-    title: { fr: "Efficacité", en: "Efficiency" },
+    title: { fr: "La simplicité comme promesse", en: "Simplicity as a promise" },
     desc: {
-      fr: "Chaque fonctionnalité de Domely a été conçue pour vous faire gagner du temps. Ce que d'autres font en une journée, vous le faites en 10 minutes.",
-      en: "Every Domely feature is designed to save you time. What others do in a day, you do in 10 minutes.",
+      fr: "On offre une plateforme puissante, sans la complexité qui vient habituellement avec. Pas de jargon, pas de courbe d'apprentissage, pas de manuel. Nos clients se concentrent sur ce qui compte vraiment — leurs immeubles, leurs locataires, leur patrimoine. Le reste, c'est notre problème.",
+      en: "We offer a powerful platform, without the complexity that usually comes with it. No jargon, no learning curve, no manual. Our clients focus on what truly matters — their properties, their tenants, their wealth. The rest is our problem.",
     },
   },
   {
-    title: { fr: "Croissance", en: "Growth" },
+    title: { fr: "Excellence", en: "Excellence" },
     desc: {
-      fr: "Nous ne sommes pas juste un outil de gestion — nous sommes votre partenaire pour augmenter vos revenus et agrandir votre portefeuille sereinement.",
-      en: "We're not just a management tool — we're your partner for increasing revenue and growing your portfolio with confidence.",
+      fr: "Nous refusons le compromis sur la qualité. Ce qu'on livre doit fonctionner, point. Pas presque, pas la plupart du temps — toujours.",
+      en: "We refuse to compromise on quality. What we deliver must work, full stop. Not almost, not most of the time — always.",
     },
   },
   {
-    title: { fr: "Conformité", en: "Compliance" },
+    title: { fr: "Impact réel", en: "Real impact" },
     desc: {
-      fr: "Les lois locatives changent. Domely vous tient informé et génère automatiquement les documents conformes, pour que vous ne manquiez jamais une échéance.",
-      en: "Rental laws change. Domely keeps you informed and automatically generates compliant documents so you never miss a deadline.",
+      fr: "On ne mesure pas notre succès en fonctionnalités lancées. On le mesure en heures récupérées, en revenus optimisés et en problèmes réellement résolus pour nos clients.",
+      en: "We don't measure success in features shipped. We measure it in hours reclaimed, revenue optimized, and problems genuinely solved for our clients.",
     },
   },
 ];
@@ -109,14 +109,11 @@ export default function MissionPage() {
               })}
             </p>
             <Link
-              href="/login?signup=true"
+              href="/early-access"
               className="inline-flex items-center gap-2 px-6 py-3 text-[15px] font-semibold text-white rounded-xl transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
             >
-              {t({ fr: "Essayer gratuitement", en: "Try for free" })}
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              {t({ fr: "S'inscrire à la liste d'attente", en: "Join the waitlist" })}
             </Link>
           </div>
         </section>
@@ -241,19 +238,16 @@ export default function MissionPage() {
             </h2>
             <p className="text-[17px] mb-8 max-w-lg mx-auto" style={{ color: "var(--text-secondary)" }}>
               {t({
-                fr: "14 jours gratuits. Aucune carte requise. Configuré en moins de 10 minutes.",
-                en: "14 days free. No credit card required. Set up in under 10 minutes.",
+                fr: "Rejoignez les premiers. Gelez votre prix pour toujours.",
+                en: "Join the first wave. Lock your price forever.",
               })}
             </p>
             <Link
-              href="/login?signup=true"
+              href="/early-access"
               className="inline-flex items-center gap-2 px-8 py-3.5 text-[16px] font-semibold text-white rounded-xl transition-all hover:opacity-90"
               style={{ background: "linear-gradient(135deg, #1E7A6E, #3FAF86)" }}
             >
-              {t({ fr: "Démarrer gratuitement", en: "Start for free" })}
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
+              {t({ fr: "S'inscrire à la liste d'attente", en: "Join the waitlist" })}
             </Link>
           </div>
         </section>

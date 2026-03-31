@@ -219,7 +219,7 @@ export default function TenantHomeScreen() {
     <>
       <View style={s.greetCard}>
         <View style={{ flex: 1 }}>
-          <Text style={s.greetHello}>Bonjour, {(profile.name || '').split(' ')[0]} 👋</Text>
+          <Text style={s.greetHello}>Bonjour, {(profile.name || '').split(' ')[0]}</Text>
           <Text style={s.greetUnit}>{profile.property_name} · Logement {profile.unit_number}</Text>
           {profile.property_address ? <Text style={s.greetAddr}>{profile.property_address}</Text> : null}
         </View>

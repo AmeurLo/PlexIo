@@ -161,6 +161,10 @@ export interface MaintenanceRequest {
   cost?: number;
   estimated_cost?: number;
   assigned_contractor?: string;
+  assigned_contractor_id?: string;
+  assigned_contractor_name?: string;
+  assigned_contractor_trade?: string;
+  assigned_contractor_phone?: string;
   notes?: string;
   created_at?: string;
   updated_at?: string;
@@ -179,8 +183,11 @@ export interface Reminder {
   due_date: string;
   reminder_type: string;
   related_id?: string;
+  property_id?: string;
+  is_flagged?: boolean;
   is_completed: boolean;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface DashboardStats {
@@ -343,10 +350,14 @@ export interface TeamMember {
   name?: string;
   full_name?: string;
   email: string;
+  /** "owner" | "manager" | "accountant" */
   role?: string;
+  /** "pending" | "active" */
   status?: string;
+  owner_id?: string;
   permissions?: Record<string, boolean>;
   created_at?: string;
+  accepted_at?: string;
 }
 
 export interface Mortgage {
@@ -385,16 +396,27 @@ export interface Insurance {
   notes?: string;
 }
 
+export interface InspectionChecklistItem {
+  label: string;
+  status: "ok" | "issue" | "na";
+  note?: string;
+}
+
 export interface Inspection {
   id: string;
-  type: string;
-  unit?: string;
-  tenant?: string;
-  date: string;
-  status: string;
-  items_done?: number;
-  total_items?: number;
+  user_id?: string;
+  property_id: string;
+  property_name?: string;
+  unit_id?: string;
+  type: string;          // "move_in" | "move_out" | "periodic"
+  status: string;        // "scheduled" | "completed"
+  scheduled_date?: string;
+  completed_date?: string;
+  checklist?: InspectionChecklistItem[];
+  notes?: string;
+  photos?: string[];     // base64 data URLs
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface Notification {
@@ -421,11 +443,14 @@ export interface Applicant {
   monthly_income?: number;
   credit_score?: number;
   unit_number?: string;
+  property_name?: string;
   message?: string;
   notes?: string;
-  status?: "pending" | "reviewing" | "approved" | "rejected";
+  source?: string;
+  status?: "new" | "contacted" | "screened" | "visited" | "approved" | "rejected" | "pending" | "reviewing" | "waiting";
   applied_at?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────

@@ -28,6 +28,9 @@ export const metadata: Metadata = {
     images: ["/api/og"],
   },
   icons: { icon: "/favicon.svg" },
+  manifest: "/manifest.json",
+  themeColor: "#0d9488",
+  appleWebApp: { capable: true, statusBarStyle: "default", title: "Domely" },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {

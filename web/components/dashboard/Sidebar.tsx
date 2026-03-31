@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Icon, type IconName } from "@/lib/icons";
 import { useLanguage } from "@/lib/LanguageContext";
 import { getUser } from "@/lib/auth";
+import { useBadges } from "@/lib/BadgeContext";
 
 // ─── Navigation groups ────────────────────────────────────────────────────────
 // Daily:     what a landlord checks every day — rent, maintenance, messages.
@@ -20,17 +21,15 @@ const NAV_DAILY = [
   { href: "/dashboard/rent",        icon: "credit-card" as const, fr: "Loyers",      en: "Rent" },
   { href: "/dashboard/maintenance", icon: "wrench"      as const, fr: "Maintenance", en: "Maintenance" },
   { href: "/dashboard/messages",    icon: "chat"        as const, fr: "Messages",    en: "Messages" },
+  { href: "/dashboard/tasks",       icon: "calendar"    as const, fr: "Tâches",      en: "Tasks" },
 ];
 
 const NAV_PORTFOLIO = [
-  { href: "/dashboard/properties",    icon: "home"     as const, fr: "Propriétés",       en: "Properties" },
-  { href: "/dashboard/units",         icon: "home"     as const, fr: "Unités",           en: "Units" },
-  { href: "/dashboard/tenants",       icon: "users"    as const, fr: "Locataires",       en: "Tenants" },
-  { href: "/dashboard/leases",        icon: "document" as const, fr: "Baux",             en: "Leases" },
-  { href: "/dashboard/documents",     icon: "document" as const, fr: "Documents",        en: "Documents" },
-  { href: "/dashboard/applicants",    icon: "users"    as const, fr: "Candidats",        en: "Applicants" },
-  { href: "/dashboard/vacancy",       icon: "home"     as const, fr: "Logements vacants", en: "Vacancy" },
-  { href: "/dashboard/inspections",   icon: "document" as const, fr: "Inspections",      en: "Inspections" },
+  { href: "/dashboard/properties", icon: "home"     as const, fr: "Propriétés",  en: "Properties" },
+  { href: "/dashboard/tenants",    icon: "users"    as const, fr: "Locataires",  en: "Tenants" },
+  { href: "/dashboard/leases",     icon: "document" as const, fr: "Baux",        en: "Leases" },
+  { href: "/dashboard/documents",  icon: "document" as const, fr: "Documents",   en: "Documents" },
+  { href: "/dashboard/applicants", icon: "users"    as const, fr: "Candidats",   en: "Applicants" },
 ];
 
 const NAV_FINANCES = [
@@ -41,8 +40,7 @@ const NAV_FINANCES = [
 
 const NAV_ADMIN = [
   { href: "/dashboard/contractors", icon: "briefcase" as const, fr: "Entrepreneurs", en: "Contractors" },
-  { href: "/dashboard/team",        icon: "users"    as const, fr: "Équipe",        en: "Team" },
-  { href: "/dashboard/settings",    icon: "user"     as const, fr: "Paramètres",   en: "Settings" },
+  { href: "/dashboard/settings",    icon: "user"      as const, fr: "Paramètres",    en: "Settings" },
 ];
 
 interface Props { onClose?: () => void }
@@ -51,13 +49,23 @@ export default function Sidebar({ onClose }: Props) {
   const pathname = usePathname();
   const { lang } = useLanguage();
   const [isAdmin, setIsAdmin] = useState(false);
+  const badges = useBadges();
 
   useEffect(() => {
     setIsAdmin(getUser()?.is_admin === true);
   }, []);
 
+  // Map href → badge count
+  const badgeFor = (href: string): number => {
+    if (href === "/dashboard/rent")        return badges.lateRent;
+    if (href === "/dashboard/maintenance") return badges.openMaintenance;
+    if (href === "/dashboard/messages")    return badges.unreadMessages;
+    return 0;
+  };
+
   function NavLink({ href, icon, fr, en }: { href: string; icon: IconName; fr: string; en: string }) {
     const isActive = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+    const count = badgeFor(href);
     return (
       <Link
         href={href}
@@ -80,7 +88,18 @@ export default function Sidebar({ onClose }: Props) {
             ? "text-teal-600 dark:text-teal-400"
             : "text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300"}
         />
-        <span className="tracking-[-0.01em]">{lang === "fr" ? fr : en}</span>
+        <span className="tracking-[-0.01em] flex-1">{lang === "fr" ? fr : en}</span>
+        {count > 0 && (
+          <span className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold flex items-center justify-center leading-none ${
+            href === "/dashboard/rent"
+              ? "bg-red-500 text-white"
+              : href === "/dashboard/messages"
+              ? "bg-blue-500 text-white"
+              : "bg-orange-500 text-white"
+          }`}>
+            {count > 99 ? "99+" : count}
+          </span>
+        )}
       </Link>
     );
   }

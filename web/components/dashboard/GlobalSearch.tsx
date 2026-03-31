@@ -10,11 +10,11 @@ type Result = {
   label: string;
   sub?: string;
   href: string;
-  icon: "home" | "users" | "document" | "wrench" | "credit-card";
+  icon: "home" | "users" | "document" | "wrench" | "credit-card" | "briefcase" | "dollar";
   category: string;
 };
 
-const CATEGORY_ORDER = ["properties", "tenants", "leases", "maintenance", "rent"];
+const CATEGORY_ORDER = ["properties", "tenants", "leases", "maintenance", "rent", "contractors", "expenses"];
 
 export default function GlobalSearch() {
   const { lang } = useLanguage();
@@ -27,7 +27,7 @@ export default function GlobalSearch() {
   const inputRef = useRef<HTMLInputElement>(null);
   const cache = useRef<{
     properties: any[]; tenants: any[]; leases: any[];
-    maintenance: any[]; payments: any[];
+    maintenance: any[]; payments: any[]; contractors: any[]; expenses: any[];
   } | null>(null);
 
   // ─── Open/close ─────────────────────────────────────────────────────────────
@@ -63,12 +63,14 @@ export default function GlobalSearch() {
     if (cache.current) return;
     setLoading(true);
     try {
-      const [properties, tenants, leases, maintenance, payments] = await Promise.all([
+      const [properties, tenants, leases, maintenance, payments, contractors, expenses] = await Promise.all([
         api.getProperties(),
         api.getTenants(),
         api.getLeases(),
         api.getMaintenanceRequests(),
         api.getRentPayments(),
+        api.getContractors(),
+        api.getExpenses(),
       ]);
       cache.current = {
         properties: properties as any[],
@@ -76,6 +78,8 @@ export default function GlobalSearch() {
         leases: leases as any[],
         maintenance: maintenance as any[],
         payments: payments as any[],
+        contractors: contractors as any[],
+        expenses: expenses as any[],
       };
     } catch {}
     finally { setLoading(false); }
@@ -91,7 +95,7 @@ export default function GlobalSearch() {
     const q = query.toLowerCase();
     const res: Result[] = [];
 
-    const { properties, tenants, leases, maintenance, payments } = cache.current;
+    const { properties, tenants, leases, maintenance, payments, contractors, expenses } = cache.current;
 
     for (const p of properties) {
       if ((p.name ?? "").toLowerCase().includes(q) || (p.address ?? "").toLowerCase().includes(q)) {
@@ -100,19 +104,19 @@ export default function GlobalSearch() {
     }
     for (const t of tenants) {
       const name = `${t.first_name ?? ""} ${t.last_name ?? ""}`.trim();
-      if (name.toLowerCase().includes(q) || (t.email ?? "").toLowerCase().includes(q) || (t.phone ?? "").includes(q)) {
+      if (name.toLowerCase().includes(q) || (t.email ?? "").toLowerCase().includes(q) || (t.phone ?? "").includes(q) || (t.notes ?? "").toLowerCase().includes(q)) {
         res.push({ id: t.id ?? t._id, label: name, sub: t.email, href: `/dashboard/tenants`, icon: "users", category: lang === "fr" ? "Locataires" : "Tenants" });
       }
     }
     for (const l of leases) {
       const name = l.tenant_name ?? `${l.tenant_first_name ?? ""} ${l.tenant_last_name ?? ""}`.trim();
-      if (name.toLowerCase().includes(q) || (l.property_name ?? "").toLowerCase().includes(q)) {
+      if (name.toLowerCase().includes(q) || (l.property_name ?? "").toLowerCase().includes(q) || (l.notes ?? "").toLowerCase().includes(q)) {
         res.push({ id: l.id ?? l._id, label: lang === "fr" ? `Bail — ${name}` : `Lease — ${name}`, sub: l.property_name, href: `/dashboard/leases`, icon: "document", category: lang === "fr" ? "Baux" : "Leases" });
       }
     }
     for (const m of maintenance) {
       if ((m.title ?? "").toLowerCase().includes(q) || (m.description ?? "").toLowerCase().includes(q)) {
-        res.push({ id: m.id ?? m._id, label: m.title, sub: m.status, href: `/dashboard/maintenance`, icon: "wrench", category: lang === "fr" ? "Maintenance" : "Maintenance" });
+        res.push({ id: m.id ?? m._id, label: m.title, sub: m.property_name ?? m.description?.slice(0, 60), href: `/dashboard/maintenance`, icon: "wrench", category: lang === "fr" ? "Maintenance" : "Maintenance" });
       }
     }
     for (const p of payments) {
@@ -121,8 +125,30 @@ export default function GlobalSearch() {
         res.push({ id: p.id ?? p._id, label: lang === "fr" ? `Loyer — ${name}` : `Rent — ${name}`, sub: p.month_year, href: `/dashboard/rent`, icon: "credit-card", category: lang === "fr" ? "Loyers" : "Rent" });
       }
     }
+    for (const c of contractors) {
+      if (
+        (c.name ?? "").toLowerCase().includes(q) ||
+        (c.trade ?? "").toLowerCase().includes(q) ||
+        (c.company ?? "").toLowerCase().includes(q) ||
+        (c.specialty ?? "").toLowerCase().includes(q)
+      ) {
+        const sub = [c.trade, c.company].filter(Boolean).join(" · ");
+        res.push({ id: c.id ?? c._id, label: c.name, sub: sub || undefined, href: `/dashboard/contractors`, icon: "briefcase", category: lang === "fr" ? "Entrepreneurs" : "Contractors" });
+      }
+    }
+    for (const e of expenses) {
+      if (
+        (e.title ?? "").toLowerCase().includes(q) ||
+        (e.vendor ?? "").toLowerCase().includes(q) ||
+        (e.category ?? "").toLowerCase().includes(q) ||
+        (e.notes ?? "").toLowerCase().includes(q)
+      ) {
+        const sub = [e.category, e.vendor].filter(Boolean).join(" · ");
+        res.push({ id: e.id ?? e._id, label: e.title, sub: sub || undefined, href: `/dashboard/expenses`, icon: "dollar", category: lang === "fr" ? "Dépenses" : "Expenses" });
+      }
+    }
 
-    setResults(res.slice(0, 12));
+    setResults(res.slice(0, 20));
     setActive(0);
   }, [query, lang]);
 
@@ -168,7 +194,7 @@ export default function GlobalSearch() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={lang === "fr" ? "Rechercher propriétés, locataires, baux…" : "Search properties, tenants, leases…"}
+            placeholder={lang === "fr" ? "Rechercher propriétés, locataires, maintenance, dépenses…" : "Search properties, tenants, maintenance, expenses…"}
             className="flex-1 bg-transparent text-[14px] text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none"
           />
           {loading && <div className="w-4 h-4 border-2 border-teal-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />}

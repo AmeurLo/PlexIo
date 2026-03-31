@@ -168,7 +168,7 @@ export default function LoginScreen() {
               disabled={demoLoading}
               activeOpacity={0.8}
             >
-              <Text style={styles.demoIcon}>🏠</Text>
+              <Ionicons name="home-outline" size={18} color={theme.colors.primary} />
               <Text style={styles.demoButtonText}>
                 {demoLoading ? 'Chargement…' : 'Essayer la démo'}
               </Text>

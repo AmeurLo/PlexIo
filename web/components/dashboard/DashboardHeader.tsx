@@ -1,5 +1,5 @@
 "use client";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { Icon } from "@/lib/icons";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -17,17 +17,36 @@ export default function DashboardHeader({ onMenuClick }: Props) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [isNew, setIsNew] = useState(false);
+  const prevCountRef = useRef(0);
 
-  // Read localStorage only on the client to avoid SSR hydration mismatch
-  useEffect(() => {
-    setUser(getUser());
-    // Load unread count
+  // Fetch notifications, used for both initial load and polling
+  const fetchNotifs = useCallback(() => {
     if (typeof window !== "undefined" && localStorage.getItem("domely_token")) {
       api.getNotifications()
         .then(notifs => setUnreadCount(notifs.filter((n: any) => !n.is_read).length))
         .catch(() => {});
     }
   }, []);
+
+  // Initial load + poll every 30 seconds
+  useEffect(() => {
+    setUser(getUser());
+    fetchNotifs();
+    const id = setInterval(fetchNotifs, 30_000);
+    return () => clearInterval(id);
+  }, [fetchNotifs]);
+
+  // Pulse animation when count increases
+  useEffect(() => {
+    if (unreadCount > prevCountRef.current) {
+      setIsNew(true);
+      const t = setTimeout(() => setIsNew(false), 3000);
+      prevCountRef.current = unreadCount;
+      return () => clearTimeout(t);
+    }
+    prevCountRef.current = unreadCount;
+  }, [unreadCount]);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -69,7 +88,7 @@ export default function DashboardHeader({ onMenuClick }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
         {unreadCount > 0 && (
-          <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none">
+          <span className={`absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[9px] font-bold rounded-full flex items-center justify-center leading-none${isNew ? " animate-pulse" : ""}`}>
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}

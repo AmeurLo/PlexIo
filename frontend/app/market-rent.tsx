@@ -502,7 +502,7 @@ export default function MarketRentScreen() {
                           <View key={comp.id} style={styles.compRow}>
                             <View style={styles.compLeft}>
                               <Text style={styles.compAddress} numberOfLines={1}>{comp.address}</Text>
-                              <Text style={styles.compNeighbourhood}>{comp.neighbourhood} · {comp.sqft} pi²{comp.parking ? ' · 🅿️' : ''}</Text>
+                              <Text style={styles.compNeighbourhood}>{comp.neighbourhood} · {comp.sqft} pi²{comp.parking ? ' · Stat.' : ''}</Text>
                             </View>
                             <View style={styles.compRight}>
                               <Text style={styles.compRent}>{formatCurrency(comp.askingRent)}</Text>

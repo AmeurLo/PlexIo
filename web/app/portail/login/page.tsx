@@ -1,4 +1,5 @@
 "use client";
+"use client";
 import { useState } from "react";
 import Link from "next/link";
 import { useLanguage } from "@/lib/LanguageContext";
@@ -128,6 +129,14 @@ export default function TenantLoginPage() {
             </form>
           )}
         </div>
+
+        {/* Privacy note */}
+        <p className="text-center text-[11px] text-gray-400 dark:text-gray-500 mt-5 px-2 leading-relaxed">
+          {lang === "fr"
+            ? <>En accédant au portail, vous acceptez la <Link href="/privacy" target="_blank" className="text-teal-600 hover:underline">Politique de confidentialité</Link> de Domely. Vos données sont traitées conformément à la Loi 25 (Québec) et à la LPRPDE.</>
+            : <>By accessing the portal, you agree to Domely&apos;s <Link href="/privacy" target="_blank" className="text-teal-600 hover:underline">Privacy Policy</Link>. Your data is handled in compliance with Quebec Law 25 and PIPEDA.</>
+          }
+        </p>
 
         {/* Not invited callout */}
         <div className="mt-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl px-4 py-3 text-[13px] text-amber-700 dark:text-amber-400">

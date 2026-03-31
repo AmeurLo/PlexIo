@@ -93,22 +93,63 @@ export default function InsightsPage() {
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
   const [cashFlowData, setCashFlowData] = useState<ReturnType<typeof buildMonthlyCashFlow>>([]);
+  const [vacancyData, setVacancyData] = useState<any>(null);
+  const [reportMonth, setReportMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const [reportDownloading, setReportDownloading] = useState(false);
+  const [reportError, setReportError] = useState("");
 
-  useEffect(() => {
+  const handleDownloadReport = async () => {
+    setReportDownloading(true);
+    setReportError("");
+    try {
+      const blob = await api.downloadPortfolioReport(reportMonth);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `domely-rapport-${reportMonth}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e: any) {
+      setReportError(lang === "fr" ? "Erreur lors de la génération du rapport" : "Error generating report");
+    } finally {
+      setReportDownloading(false);
+    }
+  };
+
+  function loadData() {
     if (!requireAuth()) return;
-    Promise.all([
+    setLoading(true);
+    setError("");
+    // Vacancy losses — non-blocking, loaded independently
+    api.getVacancyLosses().then(setVacancyData).catch(() => {});
+
+    Promise.allSettled([
       api.getInsights(),
       api.getHealthScores(),
       api.getRentPayments(),
       api.getExpenses(),
-    ])
-      .then(([ins, hlt, payments, expenses]) => {
-        setInsights(ins);
-        setHealth(hlt);
-        setCashFlowData(buildMonthlyCashFlow(payments as any[], expenses as any[], lang));
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false));
+    ]).then(([insRes, hltRes, paymentsRes, expensesRes]) => {
+      if (insRes.status === "fulfilled") setInsights(insRes.value);
+      if (hltRes.status === "fulfilled") setHealth(hltRes.value);
+
+      const payments = paymentsRes.status === "fulfilled" ? paymentsRes.value as any[] : [];
+      const expenses = expensesRes.status === "fulfilled" ? expensesRes.value as any[] : [];
+      setCashFlowData(buildMonthlyCashFlow(payments, expenses, lang));
+
+      // Only show error if the main insights call failed (all others are supplementary)
+      const mainFailed = insRes.status === "rejected" && hltRes.status === "rejected";
+      if (mainFailed) {
+        const err = (insRes as PromiseRejectedResult).reason;
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    }).finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    loadData();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lang]);
 
   if (loading) return (
@@ -125,8 +166,26 @@ export default function InsightsPage() {
   );
 
   if (error) return (
-    <div className="p-6">
-      <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-[13px] text-red-600">{error}</div>
+    <div className="flex flex-col items-center justify-center min-h-[60vh] p-6 gap-5 text-center">
+      <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-800 flex items-center justify-center">
+        <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M3 7a9 9 0 0118 0c0 3.536-1.646 6.684-4.24 8.747M12 21v-1m0-4v-1M9 15l-1.5 1.5M15 15l1.5 1.5" />
+        </svg>
+      </div>
+      <div>
+        <p className="text-[17px] font-bold text-gray-800 dark:text-white mb-1">
+          {lang === "fr" ? "Connexion impossible" : "Cannot connect"}
+        </p>
+        <p className="text-[13px] text-gray-500 dark:text-gray-400 max-w-sm">
+          {lang === "fr" ? "Vérifiez votre connexion et réessayez." : "Check your connection and try again."}
+        </p>
+      </div>
+      <button onClick={loadData} className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white text-[13px] font-semibold rounded-xl transition-colors">
+        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        {lang === "fr" ? "Réessayer" : "Retry"}
+      </button>
     </div>
   );
 
@@ -144,6 +203,36 @@ export default function InsightsPage() {
     <div className="p-6 max-w-6xl space-y-6">
       <PageHeader title={t(T.title)} subtitle={t(T.sub)} />
 
+      {/* ── Portfolio Report ─────────────────────────────────────────────────── */}
+      <div className="mb-6 flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <label className="text-[13px] font-medium text-gray-700 dark:text-gray-300">
+            {lang === "fr" ? "Mois du rapport" : "Report month"}
+          </label>
+          <input
+            type="month"
+            value={reportMonth}
+            onChange={e => setReportMonth(e.target.value)}
+            className="text-[13px] border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-teal-500"
+          />
+        </div>
+        <button
+          onClick={handleDownloadReport}
+          disabled={reportDownloading}
+          className="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-[13px] font-medium rounded-xl transition-colors"
+        >
+          {reportDownloading ? (
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+          )}
+          {lang === "fr" ? "Télécharger le rapport PDF" : "Download PDF report"}
+        </button>
+        {reportError && <p className="text-[12px] text-red-500">{reportError}</p>}
+      </div>
+
       {/* ── KPI tiles ─────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         <StatCard icon="dollar"      label={t(T.revenue)}        value={formatCurrency(d.total_rent_collected ?? 0)} />
@@ -159,6 +248,44 @@ export default function InsightsPage() {
         <StatCard icon="check"       label={t(T.collections)}    value={`${Math.round(d.collection_rate ?? 0)}%`} />
         <StatCard icon="wrench"      label={t(T.maintenanceCost)} value={formatCurrency(d.maintenance_expenses ?? 0)} />
       </div>
+
+      {/* ── Vacancy losses ──────────────────────────────────────────────────── */}
+      {vacancyData && vacancyData.total_vacant_units > 0 && (
+        <div className="mb-6 bg-white dark:bg-gray-900 rounded-2xl border border-gray-100 dark:border-gray-800 shadow-[0_1px_4px_rgba(0,0,0,0.04)] p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-[14px] font-semibold text-gray-900 dark:text-gray-100">
+              {lang === "fr" ? "Pertes locatives" : "Vacancy Losses"}
+            </h3>
+            <span className="text-[12px] text-red-500 font-medium">
+              -{formatCurrency(vacancyData.total_daily_loss)}/{lang === "fr" ? "jour" : "day"}
+            </span>
+          </div>
+          <p className="text-[12px] text-gray-400 mb-4">
+            {lang === "fr"
+              ? `${vacancyData.total_vacant_units} unité(s) vacante(s) · ${formatCurrency(vacancyData.total_loss_mtd)} perdu ce mois`
+              : `${vacancyData.total_vacant_units} vacant unit(s) · ${formatCurrency(vacancyData.total_loss_mtd)} lost this month`}
+          </p>
+          <div className="space-y-0 divide-y divide-gray-50 dark:divide-gray-800">
+            {vacancyData.units.map((u: any) => (
+              <div key={u.unit_id} className="flex items-center justify-between py-2.5">
+                <div>
+                  <p className="text-[13px] font-medium text-gray-800 dark:text-gray-200">
+                    {u.property_name} — {u.unit_number}
+                  </p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    {lang === "fr" ? `Vacant depuis ${u.days_vacant} jour(s)` : `Vacant for ${u.days_vacant} day(s)`}
+                    {u.vacant_since ? ` · ${u.vacant_since.slice(0, 10)}` : ""}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[13px] font-semibold text-red-500">-{formatCurrency(u.total_loss)}</p>
+                  <p className="text-[11px] text-gray-400">{formatCurrency(u.daily_loss)}/{lang === "fr" ? "jour" : "day"}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── 6-month cash flow chart ──────────────────────────────────────────── */}
       {cashFlowData.some(m => m.collected > 0 || m.expenses > 0) && (

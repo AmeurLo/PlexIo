@@ -586,7 +586,7 @@ export default function MortgageScreen() {
 
                     <View style={styles.insuranceFooter}>
                       <Text style={styles.deductibleText}>Franchise: {formatCurrency(ins.deductible)}</Text>
-                      {ins.contact_phone ? <Text style={styles.contactText}>📞 {ins.contact_phone}</Text> : null}
+                      {ins.contact_phone ? <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Ionicons name="call-outline" size={12} color={theme.colors.textSecondary} /><Text style={styles.contactText}>{ins.contact_phone}</Text></View> : null}
                     </View>
                   </Card>
                 );
@@ -616,10 +616,10 @@ export default function MortgageScreen() {
                 </View>
                 <TextInput style={styles.calcInput} value={calcDown} onChangeText={setCalcDown} keyboardType="decimal-pad" placeholder="20" placeholderTextColor={theme.colors.textTertiary} />
                 {calcResults?.needsCMHC && (
-                  <Text style={styles.cmhcNote}>⚠️ Assurance CMHC requise ({(calcResults.cmhcRate * 100).toFixed(2)} % du prêt)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}><Ionicons name="warning-outline" size={12} color={theme.colors.warning} /><Text style={styles.cmhcNote}>Assurance CMHC requise ({(calcResults.cmhcRate * 100).toFixed(2)} % du prêt)</Text></View>
                 )}
                 {calcResults && calcResults.downPct < 5 && calcResults.downPct > 0 && (
-                  <Text style={[styles.cmhcNote, { color: theme.colors.error }]}>❌ Mise de fonds minimum 5 % requise</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}><Ionicons name="close-circle-outline" size={12} color={theme.colors.error} /><Text style={[styles.cmhcNote, { color: theme.colors.error }]}>Mise de fonds minimum 5 % requise</Text></View>
                 )}
               </View>
 

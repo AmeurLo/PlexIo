@@ -44,6 +44,39 @@ export function daysUntil(dateStr: string): number {
   return Math.round((target.getTime() - now.getTime()) / 86_400_000);
 }
 
+// ─── Phone formatting ─────────────────────────────────────────────────────────
+/**
+ * Smart North-American phone formatter.
+ * • Leading digit 1 is treated as country code (indicatif)
+ *   → 1-XXX-XXX-XXXX  (11 digits)
+ * • Otherwise → XXX-XXX-XXXX  (10 digits)
+ * Works during live typing AND on paste.
+ */
+export function formatPhone(val: string): string {
+  const d = val.replace(/\D/g, "");
+  if (d.length === 0) return "";
+
+  // Country-code variant: leading "1" → 1-XXX-XXX-XXXX
+  if (d[0] === "1" && d.length > 1) {
+    const rest = d.slice(1, 11); // up to 10 digits after the country code
+    if (rest.length <= 3) return `1-${rest}`;
+    if (rest.length <= 6) return `1-${rest.slice(0, 3)}-${rest.slice(3)}`;
+    return `1-${rest.slice(0, 3)}-${rest.slice(3, 6)}-${rest.slice(6)}`;
+  }
+
+  // Standard 10-digit: XXX-XXX-XXXX
+  const n = d.slice(0, 10);
+  if (n.length <= 3) return n;
+  if (n.length <= 6) return `${n.slice(0, 3)}-${n.slice(3)}`;
+  return `${n.slice(0, 3)}-${n.slice(3, 6)}-${n.slice(6)}`;
+}
+
+/** Returns true for a complete 10-digit or 11-digit (1 + 10) phone number. */
+export function isValidPhone(v: string): boolean {
+  const d = v.replace(/\D/g, "");
+  return d.length === 10 || (d.length === 11 && d[0] === "1");
+}
+
 // ─── CSV download ─────────────────────────────────────────────────────────────
 export function downloadCsv(rows: Record<string, unknown>[], filename: string): void {
   if (!rows.length) return;
