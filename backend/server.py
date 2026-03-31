@@ -8530,6 +8530,16 @@ async def export_waitlist(secret: str = ""):
         headers={"Content-Disposition": "attachment; filename=domely-waitlist.csv"}
     )
 
+@api_router.delete("/waitlist/remove")
+async def remove_from_waitlist(email: str, secret: str = ""):
+    if secret != os.environ.get("ADMIN_SECRET", "domely-admin-2026"):
+        raise HTTPException(403, "Unauthorized")
+    email = email.strip().lower()
+    result = await db.waitlist.delete_one({"email": email})
+    if result.deleted_count == 0:
+        raise HTTPException(404, f"{email} not found in waitlist")
+    return {"success": True, "removed": email}
+
 # Include the router
 app.include_router(api_router)
 
