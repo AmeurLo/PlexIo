@@ -8379,8 +8379,9 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
   </table>
 </body>
 </html>"""
-    async with aiohttp.ClientSession() as session:
-        await session.post(
+    import httpx
+    async with httpx.AsyncClient() as http:
+        await http.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={"from": "Domely <noreply@domely.ca>", "to": email, "subject": subject, "html": html},
@@ -8436,8 +8437,9 @@ async def _notify_admin_waitlist(email: str, first_name: Optional[str], unit_cou
   </table>
 </body>
 </html>"""
-    async with aiohttp.ClientSession() as session:
-        await session.post(
+    import httpx
+    async with httpx.AsyncClient() as http:
+        await http.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={"from": "Domely <noreply@domely.ca>", "to": admin_email,
