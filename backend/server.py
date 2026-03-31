@@ -8263,7 +8263,9 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
     """Send confirmation email to the new waitlist subscriber via Resend."""
     key = os.getenv("RESEND_API_KEY")
     if not key:
+        print("[waitlist email] RESEND_API_KEY not set — skipping", flush=True)
         return
+    print(f"[waitlist email] Sending confirmation to {email} (lang={lang})", flush=True)
     first = first_name.strip() if first_name else ""
     is_fr = lang != "en"
 
@@ -8380,12 +8382,16 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
 </body>
 </html>"""
     import httpx
-    async with httpx.AsyncClient() as http:
-        await http.post(
-            "https://api.resend.com/emails",
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"from": "Domely <noreply@domely.ca>", "to": email, "subject": subject, "html": html},
-        )
+    try:
+        async with httpx.AsyncClient() as http:
+            resp = await http.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json={"from": "Domely <noreply@domely.ca>", "to": email, "subject": subject, "html": html},
+            )
+            print(f"[waitlist email] Resend response: {resp.status_code} {resp.text}", flush=True)
+    except Exception as e:
+        print(f"[waitlist email] ERROR: {e}", flush=True)
 
 async def _notify_admin_waitlist(email: str, first_name: Optional[str], unit_count: Optional[str], pain_point: Optional[str], total_count: int):
     """Send admin notification for each new waitlist signup."""
@@ -8463,6 +8469,7 @@ async def join_waitlist(data: WaitlistEntry):
         raise HTTPException(400, "Email invalide")
     existing = await db.waitlist.find_one({"email": email})
     if existing:
+        print(f"[waitlist] {email} already registered — skipping email", flush=True)
         return {"success": True, "already_registered": True}
     entry = {
         "id": str(uuid.uuid4()),
