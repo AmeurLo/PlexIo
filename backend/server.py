@@ -8325,9 +8325,24 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
 
         <!-- Header -->
         <tr>
-          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:40px 40px 36px;text-align:center;">
-            <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;margin-bottom:8px;">Domely</div>
-            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">{subtitle}</div>
+          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:36px 40px 32px;text-align:center;">
+            <table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto 12px;">
+              <tr>
+                <td style="background:#ffffff;border-radius:12px;padding:8px 18px 8px 10px;vertical-align:middle;">
+                  <table cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="vertical-align:middle;padding-right:8px;">
+                        <img src="https://www.domely.ca/logo.svg" alt="Domely" width="30" height="30" style="display:block;">
+                      </td>
+                      <td style="vertical-align:middle;">
+                        <span style="font-size:18px;font-weight:800;color:#111827;letter-spacing:-0.3px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">Domely</span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+            <div style="font-size:13px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">{subtitle}</div>
           </td>
         </tr>
 
