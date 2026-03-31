@@ -8286,11 +8286,12 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
         <tr>
           <td style="padding:44px 40px 36px;">
 
-            <h1 style="margin:0 0 6px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{greeting}.</h1>
+            <h1 style="margin:0 0 20px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{greeting}.</h1>
+            <p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.7;">
+              Votre inscription est confirmée. À partir d'aujourd'hui, votre prix de lancement est gelé — pour toujours.
+            </p>
             <p style="margin:0 0 28px;font-size:15px;color:#374151;line-height:1.7;">
-              Votre place sur la liste d'attente Domely est confirmée. Vous faites partie des premiers propriétaires à rejoindre la plateforme, et ça compte.
-              <br><br>
-              Votre prix de lancement est verrouillé pour toujours. Quand on ouvre les portes, vous serez parmi les premiers à y accéder.
+              On construit Domely pour des propriétaires qui veulent gérer sérieusement, sans y passer leurs soirées. On a hâte de vous le faire découvrir.
             </p>
 
             <!-- Perks -->
