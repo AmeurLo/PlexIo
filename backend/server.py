@@ -3553,6 +3553,17 @@ async def download_rent_receipt(payment_id: str, current_user: dict = Depends(ge
     )
 
 
+async def get_current_tenant(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    token = credentials.credentials
+    payload = verify_token(token)
+    if payload.get("role") != "tenant":
+        raise HTTPException(status_code=403, detail="Tenant access only")
+    tenant = await db.tenants.find_one({"id": payload["sub"]})
+    if not tenant:
+        raise HTTPException(status_code=401, detail="Tenant not found")
+    return tenant
+
+
 @api_router.get("/tenant/payments/{payment_id}/receipt")
 async def tenant_download_receipt(payment_id: str, current_tenant: dict = Depends(get_current_tenant)):
     """Download a PDF rent receipt for a given payment (tenant portal)."""
@@ -6139,16 +6150,6 @@ def create_tenant_token(tenant_id: str, email: str) -> str:
         "exp": datetime.utcnow() + timedelta(days=30),
     }
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
-
-async def get_current_tenant(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    token = credentials.credentials
-    payload = verify_token(token)
-    if payload.get("role") != "tenant":
-        raise HTTPException(status_code=403, detail="Tenant access only")
-    tenant = await db.tenants.find_one({"id": payload["sub"]})
-    if not tenant:
-        raise HTTPException(status_code=401, detail="Tenant not found")
-    return tenant
 
 async def _send_otp_email(to_email: str, code: str, tenant_name: str):
     """Send OTP via Resend. In production, raises 500 if key not set. In dev, logs the code."""
