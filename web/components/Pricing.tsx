@@ -7,7 +7,7 @@ import { useLanguage } from "@/lib/LanguageContext";
 import { translations as T } from "@/lib/translations";
 
 // ── Launch promo expiry — change this date to extend or end the promo ──────────
-const PROMO_END = new Date("2026-04-30T23:59:59");
+const PROMO_END = new Date("2026-12-31T23:59:59");
 
 const CHECK = () => (
   <svg className="w-4 h-4 text-teal-500 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
