@@ -8264,60 +8264,83 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
     key = os.getenv("RESEND_API_KEY")
     if not key:
         return
-    first = first_name.strip() if first_name else "là"
+    first = first_name.strip() if first_name else ""
+    greeting = f"Bienvenue, {first}" if first else "Bienvenue"
     html = f"""<!DOCTYPE html>
 <html lang="fr">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="margin:0;padding:0;background:#f9fafb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;padding:40px 16px;">
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:48px 16px;">
     <tr><td align="center">
-      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 1px 8px rgba(0,0,0,0.06);">
+      <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.07);">
 
+        <!-- Header -->
         <tr>
-          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:36px 40px;text-align:center;">
-            <span style="font-size:26px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">Domely</span>
-            <div style="font-size:13px;color:rgba(255,255,255,0.75);margin-top:6px;">Gestion locative simplifiée</div>
+          <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:40px 40px 36px;text-align:center;">
+            <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;margin-bottom:8px;">Domely</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">Votre partenaire de gestion locative au Canada</div>
           </td>
         </tr>
 
+        <!-- Body -->
         <tr>
-          <td style="padding:40px 40px 32px;">
-            <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#111827;">Vous êtes sur la liste, {first}.</h1>
-            <p style="margin:0 0 24px;font-size:15px;color:#6b7280;line-height:1.6;">
-              On vous contacte en premier dès le lancement. Votre prix de lancement est gelé pour toujours.
+          <td style="padding:44px 40px 36px;">
+
+            <h1 style="margin:0 0 6px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{greeting}.</h1>
+            <p style="margin:0 0 28px;font-size:15px;color:#374151;line-height:1.7;">
+              Votre place sur la liste d'attente Domely est confirmée. Vous faites partie des premiers propriétaires à rejoindre la plateforme — et on ne l'oubliera pas.
+              <br><br>
+              Votre prix de lancement est verrouillé pour toujours. Quand on ouvre les portes, vous serez parmi les premiers à y accéder.
             </p>
 
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:12px;margin-bottom:24px;">
-              <tr><td style="padding:20px 24px;">
-                <div style="font-size:13px;font-weight:600;color:#134e4a;margin-bottom:12px;">Ce que vous obtenez :</div>
-                <div style="font-size:13px;color:#0f766e;line-height:2;">
-                  &#10003;&nbsp; Prix de lancement garanti à vie pour les 500 premiers<br>
-                  &#10003;&nbsp; Accès prioritaire avant l'ouverture publique<br>
-                  &#10003;&nbsp; Appel de bienvenue avec l'équipe fondatrice
+            <!-- Perks -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf9;border:1px solid #a7f3d0;border-radius:12px;margin-bottom:28px;">
+              <tr><td style="padding:22px 26px;">
+                <div style="font-size:12px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px;">Ce qui vous attend</div>
+                <table cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
+                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Prix de lancement garanti à vie pour les 500 premiers
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
+                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Accès prioritaire avant l'ouverture publique
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
+                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Appel de bienvenue avec l'équipe fondatrice
+                    </td>
+                  </tr>
+                </table>
+              </td></tr>
+            </table>
+
+            <!-- Share -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:36px;">
+              <tr><td style="padding:18px 26px;">
+                <div style="font-size:14px;color:#374151;line-height:1.6;">
+                  On ouvre à 500 inscrits. Connaissez-vous un propriétaire qui gagnerait à simplifier sa gestion ?
+                  <br><a href="https://www.domely.ca/early-access" style="color:#1E7A6E;font-weight:600;text-decoration:none;">domely.ca/early-access</a>
                 </div>
               </td></tr>
             </table>
 
-            <table width="100%" cellpadding="0" cellspacing="0" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;margin-bottom:32px;">
-              <tr><td style="padding:16px 24px;">
-                <div style="font-size:13px;color:#92400e;line-height:1.6;">
-                  <strong>On ouvre les portes à 500 inscrits.</strong> Partagez ce lien avec un ami propriétaire pour monter dans la file :
-                  <br><a href="https://www.domely.ca/early-access" style="color:#1E7A6E;font-weight:600;">domely.ca/early-access</a>
-                </div>
-              </td></tr>
-            </table>
-
-            <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.6;">
-              Des questions ? Répondez directement à cet email.<br>
+            <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.7;">
+              À très bientôt,<br>
               <strong style="color:#111827;">L'équipe Domely</strong>
             </p>
+
           </td>
         </tr>
 
+        <!-- Footer -->
         <tr>
-          <td style="padding:20px 40px;border-top:1px solid #f3f4f6;text-align:center;">
+          <td style="padding:18px 40px;border-top:1px solid #f3f4f6;text-align:center;">
             <p style="margin:0;font-size:11px;color:#9ca3af;">
-              Domely · Canada · <a href="https://www.domely.ca/privacy" style="color:#9ca3af;">Confidentialité</a>
+              Cet email est envoyé automatiquement — merci de ne pas y répondre.<br>
+              Domely · Canada · <a href="https://www.domely.ca/privacy" style="color:#9ca3af;text-decoration:none;">Confidentialité</a>
             </p>
           </td>
         </tr>
@@ -8332,7 +8355,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
             json={"from": "Domely <noreply@domely.ca>", "to": email,
-                  "subject": "Votre place est réservée — Domely", "html": html},
+                  "subject": f"{greeting} — votre place chez Domely est confirmée", "html": html},
         )
 
 async def _notify_admin_waitlist(email: str, first_name: Optional[str], unit_count: Optional[str], pain_point: Optional[str], total_count: int):
