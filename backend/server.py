@@ -8278,7 +8278,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
         <tr>
           <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:40px 40px 36px;text-align:center;">
             <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;margin-bottom:8px;">Domely</div>
-            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">Votre partenaire de gestion locative au Canada</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">Votre partenaire de gestion locative</div>
           </td>
         </tr>
 
