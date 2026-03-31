@@ -8259,15 +8259,62 @@ PAIN_LABELS = {
     "scattered":     "Mes finances et dépenses sont éparpillées partout",
 }
 
-async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
+async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lang: str = "fr"):
     """Send confirmation email to the new waitlist subscriber via Resend."""
     key = os.getenv("RESEND_API_KEY")
     if not key:
         return
     first = first_name.strip() if first_name else ""
-    greeting = f"Bienvenue, {first}" if first else "Bienvenue"
+    is_fr = lang != "en"
+
+    if is_fr:
+        greeting     = f"Bienvenue, {first}" if first else "Bienvenue"
+        subject      = f"{greeting} — votre place chez Domely est confirmée"
+        subtitle     = "Votre partenaire de gestion locative"
+        body1        = "Votre inscription est confirmée. À partir d'aujourd'hui, votre prix de lancement est gelé — pour toujours."
+        body2        = "On construit Domely pour des propriétaires qui veulent gérer sérieusement, sans y passer leurs soirées."
+        teaser       = "Dès le lancement : plus jamais à courir après un retard, plus jamais à rater une hausse — l'app s'en charge."
+        perks_title  = "Ce qui vous attend"
+        perks        = [
+            "Prix de lancement garanti à vie pour les 500 premiers",
+            "Accès prioritaire avant l'ouverture publique",
+            "Appel de bienvenue avec l'équipe fondatrice",
+        ]
+        share_text   = "On ouvre à 500 inscrits. Connaissez-vous un propriétaire qui gagnerait à simplifier sa gestion&nbsp;?"
+        sign_off     = "À très bientôt,"
+        team         = "L'équipe Domely"
+        footer_note  = "Cet email est envoyé automatiquement — merci de ne pas y répondre."
+        privacy_link = "Confidentialité"
+        html_lang    = "fr"
+    else:
+        greeting     = f"Welcome, {first}" if first else "Welcome"
+        subject      = f"{greeting} — your spot at Domely is confirmed"
+        subtitle     = "Your property management partner"
+        body1        = "You're confirmed. Starting today, your launch price is locked in — forever."
+        body2        = "We're building Domely for landlords who want to manage seriously, without it taking over their evenings."
+        teaser       = "From day one: no more chasing late payers, no more missed rent increases — the app handles it."
+        perks_title  = "What's waiting for you"
+        perks        = [
+            "Lifetime launch pricing for the first 500 members",
+            "Priority access before public launch",
+            "Welcome call with the founding team",
+        ]
+        share_text   = "We open at 500 signups. Know a landlord who could use a better way to manage?"
+        sign_off     = "See you soon,"
+        team         = "The Domely team"
+        footer_note  = "This email is sent automatically — please do not reply."
+        privacy_link = "Privacy"
+        html_lang    = "en"
+
+    perks_rows = "".join(
+        f'<tr><td style="padding:5px 0;font-size:14px;color:#065f46;">'
+        f'<span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> {p}'
+        f'</td></tr>'
+        for p in perks
+    )
+
     html = f"""<!DOCTYPE html>
-<html lang="fr">
+<html lang="{html_lang}">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f6f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:48px 16px;">
@@ -8278,7 +8325,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
         <tr>
           <td style="background:linear-gradient(135deg,#1E7A6E,#3FAF86);padding:40px 40px 36px;text-align:center;">
             <div style="font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;margin-bottom:8px;">Domely</div>
-            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">Votre partenaire de gestion locative</div>
+            <div style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:0.3px;">{subtitle}</div>
           </td>
         </tr>
 
@@ -8287,34 +8334,15 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
           <td style="padding:44px 40px 36px;">
 
             <h1 style="margin:0 0 20px;font-size:24px;font-weight:700;color:#111827;letter-spacing:-0.3px;">{greeting}.</h1>
-            <p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.7;">
-              Votre inscription est confirmée. À partir d'aujourd'hui, votre prix de lancement est gelé — pour toujours.
-            </p>
-            <p style="margin:0 0 28px;font-size:15px;color:#374151;line-height:1.7;">
-              On construit Domely pour des propriétaires qui veulent gérer sérieusement, sans y passer leurs soirées. On a hâte de vous le faire découvrir.
-            </p>
+            <p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.7;">{body1}</p>
+            <p style="margin:0 0 12px;font-size:15px;color:#374151;line-height:1.7;">{body2}</p>
+            <p style="margin:0 0 28px;font-size:15px;color:#1E7A6E;font-weight:600;line-height:1.7;">{teaser}</p>
 
             <!-- Perks -->
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0fdf9;border:1px solid #a7f3d0;border-radius:12px;margin-bottom:28px;">
               <tr><td style="padding:22px 26px;">
-                <div style="font-size:12px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px;">Ce qui vous attend</div>
-                <table cellpadding="0" cellspacing="0">
-                  <tr>
-                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
-                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Prix de lancement garanti à vie pour les 500 premiers
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
-                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Accès prioritaire avant l'ouverture publique
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:5px 0;font-size:14px;color:#065f46;">
-                      <span style="display:inline-block;width:20px;font-weight:700;">&#8212;</span> Appel de bienvenue avec l'équipe fondatrice
-                    </td>
-                  </tr>
-                </table>
+                <div style="font-size:12px;font-weight:700;color:#065f46;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:14px;">{perks_title}</div>
+                <table cellpadding="0" cellspacing="0">{perks_rows}</table>
               </td></tr>
             </table>
 
@@ -8322,15 +8350,15 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
             <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:12px;margin-bottom:36px;">
               <tr><td style="padding:18px 26px;">
                 <div style="font-size:14px;color:#374151;line-height:1.6;">
-                  On ouvre à 500 inscrits. Connaissez-vous un propriétaire qui gagnerait à simplifier sa gestion ?
+                  {share_text}
                   <br><a href="https://www.domely.ca/early-access" style="color:#1E7A6E;font-weight:600;text-decoration:none;">domely.ca/early-access</a>
                 </div>
               </td></tr>
             </table>
 
             <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.7;">
-              À très bientôt,<br>
-              <strong style="color:#111827;">L'équipe Domely</strong>
+              {sign_off}<br>
+              <strong style="color:#111827;">{team}</strong>
             </p>
 
           </td>
@@ -8340,8 +8368,8 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
         <tr>
           <td style="padding:18px 40px;border-top:1px solid #f3f4f6;text-align:center;">
             <p style="margin:0;font-size:11px;color:#9ca3af;">
-              Cet email est envoyé automatiquement — merci de ne pas y répondre.<br>
-              Domely · Canada · <a href="https://www.domely.ca/privacy" style="color:#9ca3af;text-decoration:none;">Confidentialité</a>
+              {footer_note}<br>
+              Domely · Canada · <a href="https://www.domely.ca/privacy" style="color:#9ca3af;text-decoration:none;">{privacy_link}</a>
             </p>
           </td>
         </tr>
@@ -8355,8 +8383,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
         await session.post(
             "https://api.resend.com/emails",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"from": "Domely <noreply@domely.ca>", "to": email,
-                  "subject": f"{greeting} — votre place chez Domely est confirmée", "html": html},
+            json={"from": "Domely <noreply@domely.ca>", "to": email, "subject": subject, "html": html},
         )
 
 async def _notify_admin_waitlist(email: str, first_name: Optional[str], unit_count: Optional[str], pain_point: Optional[str], total_count: int):
@@ -8425,6 +8452,7 @@ class WaitlistEntry(BaseModel):
     source: Optional[str] = None       # UTM source
     medium: Optional[str] = None       # UTM medium
     campaign: Optional[str] = None     # UTM campaign
+    lang: Optional[str] = "fr"         # "fr" | "en" — drives confirmation email language
 
 @api_router.post("/waitlist")
 async def join_waitlist(data: WaitlistEntry):
@@ -8447,7 +8475,7 @@ async def join_waitlist(data: WaitlistEntry):
     }
     await db.waitlist.insert_one(entry)
     total = await db.waitlist.count_documents({})
-    asyncio.create_task(_send_waitlist_confirmation(email, data.first_name))
+    asyncio.create_task(_send_waitlist_confirmation(email, data.first_name, data.lang or "fr"))
     asyncio.create_task(_notify_admin_waitlist(email, data.first_name, data.unit_count, data.pain_point, total))
     return {"success": True, "already_registered": False}
 

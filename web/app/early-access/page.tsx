@@ -56,7 +56,7 @@ export default function EarlyAccessPage() {
       const res = await fetch(`${BASE}/waitlist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, ...getUtm() }),
+        body: JSON.stringify({ ...form, ...getUtm(), lang }),
       });
       if (!res.ok) throw new Error();
       setSuccess(true);
