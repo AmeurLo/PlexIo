@@ -8273,7 +8273,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
         subtitle     = "Votre partenaire de gestion locative"
         body1        = "Votre inscription est confirmée. À partir d'aujourd'hui, votre prix de lancement est gelé — pour toujours."
         body2        = "On construit Domely pour des propriétaires qui veulent gérer sérieusement, sans y passer leurs soirées."
-        teaser       = "Dès le lancement : un AI qui connaît les lois locatives par province, 18 automatisations qui tournent seules — tout depuis votre téléphone."
+        teaser       = "L'app qui automatise ce que vous faites à la main depuis des années."
         perks_title  = "Ce qui vous attend"
         perks        = [
             "Prix de lancement garanti à vie pour les 500 premiers",
@@ -8292,7 +8292,7 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str], lan
         subtitle     = "Your property management partner"
         body1        = "You're confirmed. Starting today, your launch price is locked in — forever."
         body2        = "We're building Domely for landlords who want to manage seriously, without it taking over their evenings."
-        teaser       = "From day one: an AI that knows rental law by province, 18 automations running in the background — manage everything from your phone."
+        teaser       = "The app that automates what you've been doing by hand for years."
         perks_title  = "What's waiting for you"
         perks        = [
             "Lifetime launch pricing for the first 500 members",
