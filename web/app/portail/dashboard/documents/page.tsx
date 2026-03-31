@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { tenantApi, requireTenantAuth } from "@/lib/tenantApi";
-import { useLanguage } from "@/lib/useLanguage";
+import { useLanguage } from "@/lib/LanguageContext";
 import Link from "next/link";
 
 interface TenantDoc {
