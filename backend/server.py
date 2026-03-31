@@ -8291,10 +8291,9 @@ async def _send_waitlist_confirmation(email: str, first_name: Optional[str]):
               <tr><td style="padding:20px 24px;">
                 <div style="font-size:13px;font-weight:600;color:#134e4a;margin-bottom:12px;">Ce que vous obtenez :</div>
                 <div style="font-size:13px;color:#0f766e;line-height:2;">
-                  &#10003;&nbsp; Prix de lancement garanti à vie<br>
+                  &#10003;&nbsp; Prix de lancement garanti à vie pour les 500 premiers<br>
                   &#10003;&nbsp; Accès prioritaire avant l'ouverture publique<br>
-                  &#10003;&nbsp; Appel de bienvenue avec l'équipe fondatrice<br>
-                  &#10003;&nbsp; Votre avis façonne directement le produit
+                  &#10003;&nbsp; Appel de bienvenue avec l'équipe fondatrice
                 </div>
               </td></tr>
             </table>
